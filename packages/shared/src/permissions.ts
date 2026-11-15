@@ -106,7 +106,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'etms_passengers', label: 'Passengers', group: 'transport', path: '/transport/passengers', actions: CRUD, requires: ETMS },
   { key: 'etms_schedules', label: 'Shifts & schedules', group: 'transport', path: '/transport/schedules', actions: CRUD, requires: ETMS },
   { key: 'etms_bookings', label: 'Bookings', group: 'transport', path: '/transport/bookings', actions: CRUD, requires: ETMS },
-  { key: 'etms_dispatch', label: 'Dispatch', group: 'transport', path: '/transport/dispatch', actions: ['view', 'edit', 'command', 'export'], requires: ETMS },
+  { key: 'etms_dispatch', label: 'Daily transport', group: 'transport', path: '/transport/dispatch', actions: ['view', 'edit', 'command', 'export'], requires: ETMS },
   // E4 (WP 4.5): route planner. Shown only with the web flag etmsRouting and when GET /routing/capabilities is enabled
   // (ETMS + ETMS_ROUTING=on); RoutingAccess: view = canView, create = canPlan, edit = canEdit, delete = canDelete, command = canPublish.
   { key: 'etms_planning', label: 'Route planning', group: 'transport', path: '/transport/planning', actions: ['view', 'create', 'edit', 'delete', 'command'], requires: ETMS },

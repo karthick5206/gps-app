@@ -4,6 +4,7 @@ import { RoutingService } from '../../routing/routing.service';
 import { TransportNotificationsService } from '../notifications/transport-notifications.service';
 import { EtmsPeopleModule } from '../people/people.module';
 import { BookingGeneratorService } from './booking-generator.service';
+import { TripAutoStartService } from './trip-auto-start.service';
 import { BookingsService } from './bookings.service';
 import { DispatchService } from './dispatch.service';
 import { BookingsController, DispatchController, MyTransportTripsController, SchedulesController, ShiftsController, TransportTripsController } from './e3.controllers';
@@ -22,7 +23,7 @@ import { TripsService } from './trips.service';
 @Module({
   imports: [EtmsPeopleModule],
   controllers: [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController],
-  providers: [TransportNotificationsService, PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService],
+  providers: [TransportNotificationsService, PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService, TripAutoStartService],
   exports: [BookingGeneratorService, DispatchService],
 })
 export class EtmsDispatchModule {}

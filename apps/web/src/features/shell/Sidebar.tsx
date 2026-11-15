@@ -33,7 +33,9 @@ export function Sidebar({
   const reseller = !!me.partner;
   // E4 route planner: hidden unless the web flag is on and the API reports routing enabled.
   const plannerHidden = usePlannerMenuHidden();
-  const groups = useMemo(() => buildNav(me.permissions, personal, reseller, plannerHidden ? new Set(['etms_planning'] as const) : undefined), [me.permissions, personal, reseller, plannerHidden]);
+  // Daily transport (Dispatch) holds Routing / Allocate vehicles, so the separate Route planning menu stays hidden (the page still opens by its address).
+  void plannerHidden;
+  const groups = useMemo(() => buildNav(me.permissions, personal, reseller, new Set(['etms_planning'] as const)), [me.permissions, personal, reseller]);
 
   return (
     <nav aria-label={t('Main navigation')} className={cn('flex h-full flex-col border-e bg-card text-foreground', className)}>

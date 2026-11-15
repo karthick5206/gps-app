@@ -172,6 +172,11 @@ export interface TransportSettingsDto {
    * is on too and the server's ETMS_ROUTING is not `off` (see routing-switch.ts).
    */
   autoRouting?: boolean;
+  /**
+   * v1.16.5 (Daily transport): published trips start by themselves at their planned time (server job, actor SYSTEM).
+   * Default OFF; present only when switched on. GPS start (vehicle at the first stop) works either way.
+   */
+  autoStart?: boolean;
 }
 
 export interface UpdateTransportSettingsInput {
@@ -186,6 +191,8 @@ export interface UpdateTransportSettingsInput {
   selfBookingApproval?: boolean;
   /** v1.16: automatic route planning for this company on / off (default off). */
   autoRouting?: boolean;
+  /** v1.16.5: start published trips at their planned time. */
+  autoStart?: boolean;
 }
 
 /**Accepted range of a maximum ride time (company policy and per-plan override): 15 min – 4 h, whole seconds. */
@@ -206,7 +213,7 @@ export function transportSettingsOf(settings: unknown): TransportSettingsDto {
   const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
   const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
   const phone = typeof etms.deskPhone === 'string' && etms.deskPhone.trim() ? etms.deskPhone.trim() : null;
-  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}), ...(etms.selfBookingApproval === false ? { selfBookingApproval: false } : {}), ...(etms.autoRouting === true ? { autoRouting: true } : {}) };
+  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}), ...(etms.selfBookingApproval === false ? { selfBookingApproval: false } : {}), ...(etms.autoRouting === true ? { autoRouting: true } : {}), ...(etms.autoStart === true ? { autoStart: true } : {}) };
 }
 
 /**

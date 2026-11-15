@@ -1,5 +1,5 @@
 import type { DriverDto, DispatchBoardDto, DispatchCandidateDto, DispatchVehicleDto, TransportBookingDto, TransportTripSummaryDto } from '@veetracer/shared';
-import { ArrowRightLeftIcon, BusIcon, FileDownIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
+import { ArrowRightLeftIcon, BusIcon, FileDownIcon, PlayIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -64,6 +64,8 @@ export interface PanelCtx {
   /** Ask for a reason and unassign a seated passenger. */
   requestRemove: (trip: TransportTripSummaryDto, p: { id: string; bookingId: string; name: string; seats: number }) => void;
   requestReassign: (trip: TransportTripSummaryDto, kind: 'VEHICLE' | 'DRIVER') => void;
+  /** ▶ Start a published, scheduled trip now. */
+  startTrip?: (trip: TransportTripSummaryDto) => void;
   approve: (b: TransportBookingDto) => void;
   /** Routes made by the Routing button (the waiting list is grouped by them); null before Routing. */
   routes?: RouteGroup[] | null;
@@ -421,6 +423,11 @@ function TripCard({ trip, ctx, diff }: { trip: TransportTripSummaryDto; ctx: Pan
             </p>
           </div>
           <TripStateBadge state={trip.derivedState} />
+          {ctx.canPlan && ctx.startTrip && trip.plannedTripStatus === 'SCHEDULED' && !!trip.publishedAt && !trip.cancelledAt && (
+            <Button size="sm" variant="outline" className="h-8" disabled={ctx.busy} onClick={() => ctx.startTrip!(trip)} title={t('Start this trip now')}>
+              <PlayIcon /> {t('Start')}
+            </Button>
+          )}
           {trip.derivedState !== 'CANCELLED' && (
             <Button size="icon-sm" variant="ghost" disabled={sheets.busy} onClick={() => void sheets.run([trip], 'pdf')} aria-label={t('Trip sheet (PDF) for {{name}}', { name: trip.vehicleName ?? trip.name })} title={t('Trip sheet (PDF)')}>
               <FileDownIcon />

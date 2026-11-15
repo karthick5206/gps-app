@@ -93,7 +93,21 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
   - The trip card shows the stop order with ↑ ↓ and a menu (Move to another draft trip / Remove), plus Vehicle and Driver selects.
 - **Tests:** `auto-allocate.test.ts`, `copy-day.test.ts`.
 - **Trip sheets** (`trip-sheet.ts`): per trip (download icon on the trip card) or for every trip of the day (Trips → Trip sheets: PDF, one A4 page per trip, or one CSV). The sheet holds the vehicle, driver, shift, planned start, stops (planned and actual time, pick up / drop names), passengers (code, pickup, drop, Boarded pre-filled from outcomes, board time, signature) and odometer, signature, toll / parking and remarks lines. It's drawn with jsPDF (Latin fonts only, so Hindi / Tamil names don't print). `toSheet` / `tripSheetsCsv` are tested in `trip-sheet.test.ts`.
-- **Not yet built:** the road optimiser behind Routing, the Ad-hoc tab, and grouping on Bookings.
+- **Daily transport (v1.16.5):** the Dispatch page is renamed in the menu (`etms_dispatch` label). The sidebar always hides **Route planning** (`etms_planning`); the page still opens by its address.
+  - Tabs: **Roster** (shift commutes: `shiftId` set and not POINT_TO_POINT) and **Ad-hoc** (everything else). Ad-hoc shows **New ad-hoc booking** and **Group ride**.
+  - A step bar shows riders waiting → routes → vehicles → started → done.
+  - **Copy from…** offers yesterday, the same day last week or a chosen day (`copyDay` with the day difference).
+  - **Add employee** opens the desk New booking dialog.
+  - **▶ Start** on each published, scheduled trip card, plus **Start all**. Both use `POST /transport/trips/:id/start`.
+  - The **Auto-start** switch is Transport setting `etms.autoStart`, default off.
+- **TripAutoStartService** (`etms/dispatch/trip-auto-start.service.ts`):
+  - Runs every minute behind a Valkey lock.
+  - Starts published, not cancelled trips still SCHEDULED whose planned start has come (at most 2 h ago), in companies with autoStart on.
+  - Same effect as Start: IN_PROGRESS, actualStart, the first pickup stays PENDING. Writes a STARTED event (actor and source SYSTEM) and a system audit row.
+  - Skips a vehicle already on another active trip.
+  - Kill switch: `ETMS_AUTO_START=off`.
+  - The GPS start of the planned-trip tracker works either way.
+- **Not yet built:** the road optimiser behind Routing, and grouping on Bookings.
 
 ### 2.3 Mobile apps
 

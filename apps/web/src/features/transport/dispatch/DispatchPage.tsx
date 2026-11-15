@@ -1,6 +1,6 @@
 import type { DriverDto, TransportBookingDto, TransportDirection, TransportTripSummaryDto } from '@veetracer/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, CopyIcon, EyeIcon, FileClockIcon, RouteIcon, SendIcon, Trash2Icon, XIcon, ZapIcon } from 'lucide-react';
+import { ChevronLeftIcon, ChevronRightIcon, ClipboardListIcon, CopyIcon, EyeIcon, FileClockIcon, PlayIcon, PlusIcon, RouteIcon, SendIcon, Trash2Icon, UserPlusIcon, UsersIcon, XIcon, ZapIcon } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -22,7 +22,13 @@ import { useAuth } from '@/features/auth/auth-context';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { shiftDay } from '@/features/planned-trips/trip-format';
 import { getReportTimeZone, todayInZone } from '@/features/reports/report-time';
-import { ApiError } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
+import { useTransportSettings, useUpdateTransportSettings } from '../use-agreements';
+import { learnCutoffMin } from './adhoc-booking';
+import { GroupBookingDialog } from './GroupBookingDialog';
+import { NewBookingDialog } from './BookingDialogs';
 import { cn } from '@/lib/utils';
 import {
   addNewTrip,
@@ -52,6 +58,8 @@ import { ConnectionChip, e3ErrorMessage, RoutingChip, SimpleSelect } from './e3-
 import { ReasonDialog } from './ReasonDialog';
 import { locatedStops } from './TransportMap';
 import {
+  TRIPS_ENDPOINT,
+  useBookingPolicy,
   fetchDispatchBoard,
   fetchTransportTrip,
   SHIFTS_ENDPOINT,
@@ -85,6 +93,9 @@ function toDraftBooking(b: TransportBookingDto): DraftBooking {
 function toAllocBooking(b: TransportBookingDto): CopyBooking {
   return { ...toDraftBooking(b), shiftId: b.shiftId, groupId: b.groupId ?? null, profileId: b.passenger.id };
 }
+
+/** Roster tab: a commute for a shift (generated from the roster or added by the desk); everything else is ad-hoc. */
+const isRoster = (b: TransportBookingDto) => !!b.shiftId && b.journey !== 'POINT_TO_POINT';
 
 /** Waiting bookings that can be seated now (approved, with points and consent). */
 const seatable = (b: TransportBookingDto) => b.status === 'PENDING_ASSIGNMENT' && !b.needsLocation && !b.pointsHidden;
@@ -133,7 +144,36 @@ export function DispatchPage() {
   useTransportTripLive();
   const shifts = useEntityOptions<{ id: string; name: string }>(SHIFTS_ENDPOINT, named);
   const board = useDispatchBoard({ serviceDate: day, direction, shiftId: shiftId === ALL ? null : shiftId });
-  const data = board.data;
+  const [mode, setMode] = useState<'roster' | 'adhoc'>('roster');
+  // Roster = shift commutes (from the roster or added for a shift); Ad-hoc = point-to-point / no-shift rides.
+  const data = useMemo(() => (board.data ? { ...board.data, queue: board.data.queue.filter((b) => isRoster(b) === (mode === 'roster')) } : undefined), [board.data, mode]);
+  const rawQueue = board.data?.queue ?? [];
+  const [newOpen, setNewOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const [copyPick, setCopyPick] = useState<string | null>(null);
+  const policy = useBookingPolicy();
+  const cutoffMin = policy.data?.cutoffMin ?? learnCutoffMin(rawQueue);
+  const trips = data?.trips ?? [];
+  const RUNNING = ['EN_ROUTE', 'AT_STOP', 'IN_PROGRESS'];
+  const scheduledTrips = trips.filter((x) => x.plannedTripStatus === 'SCHEDULED' && !!x.publishedAt && !x.cancelledAt);
+  const startedCount = trips.filter((x) => RUNNING.includes(x.derivedState)).length;
+  const doneCount = trips.filter((x) => x.derivedState === 'COMPLETED' || x.derivedState === 'INCOMPLETE').length;
+  /** ▶ Start: the same command as the trip page (POST /transport/trips/:id/start), one by one. */
+  const startTrips = async (list: TransportTripSummaryDto[]) => {
+    setBusy(true);
+    let ok = 0;
+    for (const x of list) {
+      try {
+        await api.post(`${TRIPS_ENDPOINT}/${x.id}/start`, { clientEventId: newUuid(), expectedVersion: x.version });
+        ok++;
+      } catch (e) {
+        toast.error(`${x.vehicleName ?? x.name}: ${e3ErrorMessage(e, t)}`);
+      }
+    }
+    setBusy(false);
+    if (ok) toast.success(t('{{n}} trip(s) started', { n: ok }));
+    void board.refetch();
+  };
   const key = `${day}|${direction}`;
   const draft = drafts[key] ?? emptyDraft(day, direction);
   const setDraft = useCallback((fn: (d: DispatchDraft) => DispatchDraft) => setDrafts((all) => ({ ...all, [key]: fn(all[key] ?? emptyDraft(day, direction)) })), [key, day, direction]);
@@ -299,11 +339,10 @@ export function DispatchPage() {
     if (!desktop) setTab('trips');
   };
 
-  const copyYesterday = async () => {
+  const copyFrom = async (from: string) => {
     if (!data) return;
     setBusy(true);
     try {
-      const from = shiftDay(day, -1);
       const prev = await fetchDispatchBoard(qc, { serviceDate: from, direction, shiftId: shiftId === ALL ? null : shiftId });
       const live = prev.trips.filter((x) => x.derivedState !== 'CANCELLED');
       if (!live.length) {
@@ -325,7 +364,7 @@ export function DispatchPage() {
       }));
       const inDraft = draftBookingIds(draft);
       const waiting = data.queue.filter((b) => seatable(b) && !inDraft.has(b.id)).map(toAllocBooking);
-      const r = copyDay(source, waiting, allocVehicles(), draftTaken(draft), direction, 1);
+      const r = copyDay(source, waiting, allocVehicles(), draftTaken(draft), direction, Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000));
       setDraft((d) => r.trips.reduce((acc, x) => addNewTrip(acc, x.vehicle, x.bookings, { ordered: true, shiftId: x.shiftId, startMs: x.startMs, driverId: x.driver?.id ?? null, driverLabel: x.driver?.label ?? null }), d));
       setSelected(new Set());
       const skippedText: Record<CopyResult['skipped'][number]['reason'], string> = {
@@ -420,6 +459,7 @@ export function DispatchPage() {
         busy: busy || approveCmd.isPending,
         routes,
         moveToRoute,
+        startTrip: (trip) => void startTrips([trip]),
       }
     : null;
 
@@ -513,7 +553,39 @@ export function DispatchPage() {
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col gap-3 p-4 sm:p-6">
-      <PageHeader title={t('Dispatch')} description={t('Seat waiting passengers on trips, then publish the changes together.')} />
+      <PageHeader
+        title={t('Daily transport')}
+        description={t('Choose the date, shift and direction: route the riders, allocate vehicles, publish and start the trips.')}
+        actions={
+          canPlan && mode === 'adhoc' ? (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => setNewOpen(true)}>
+                <PlusIcon /> {t('New ad-hoc booking')}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setGroupOpen(true)}>
+                <UsersIcon /> {t('Group ride')}
+              </Button>
+            </div>
+          ) : undefined
+        }
+      />
+      <div className="inline-flex w-full max-w-xs rounded-lg border bg-muted p-[3px] sm:w-auto" role="tablist" aria-label={t('Roster or ad-hoc')}>
+        {(['roster', 'adhoc'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => {
+              setMode(m);
+              setSelected(new Set());
+            }}
+            className={cn('h-8 flex-1 rounded-md px-4 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring', mode === m ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')}
+          >
+            {m === 'roster' ? t('Roster') : t('Ad-hoc')} <span className="tabular-nums text-muted-foreground">({rawQueue.filter((b) => isRoster(b) === (m === 'roster')).length})</span>
+          </button>
+        ))}
+      </div>
       {detailDialog}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -563,29 +635,54 @@ export function DispatchPage() {
             <Button size="sm" variant={routes ? 'default' : 'outline'} onClick={autoAllocateNow} disabled={busy} title={t('Step 2: give each route a vehicle by seat capacity. Goes into the draft; nothing is published until Review & publish.')}>
               <ZapIcon /> {t('Allocate vehicles')}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => void copyYesterday()} disabled={busy} title={t('Same vehicles, drivers and people as yesterday for those waiting today. Goes into the draft; nothing is published.')}>
-              {busy ? <Spinner /> : <CopyIcon />} {t('Copy yesterday')}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" disabled={busy} title={t('Same vehicles, drivers and people as on another day, for those waiting now. Goes into the draft; nothing is published.')}>
+                  {busy ? <Spinner /> : <CopyIcon />} {t('Copy from…')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => void copyFrom(shiftDay(day, -1))}>{t('Yesterday ({{date}})', { date: shiftDay(day, -1) })}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void copyFrom(shiftDay(day, -7))}>{t('Same day last week ({{date}})', { date: shiftDay(day, -7) })}</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setCopyPick(shiftDay(day, -1))}>{t('Choose a day…')}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {mode === 'roster' && (
+              <Button size="sm" variant="outline" onClick={() => setNewOpen(true)} title={t('Book an employee who is not on the roster for this day')}>
+                <UserPlusIcon /> {t('Add employee')}
+              </Button>
+            )}
+            <AutoStartToggle />
+            {scheduledTrips.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => void startTrips(scheduledTrips)} disabled={busy}>
+                <PlayIcon /> {t('Start all ({{n}})', { n: scheduledTrips.length })}
+              </Button>
+            )}
           </div>
         )}
       </div>
 
       {data && (
-        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label={t('Progress for this day')}>
           {(
             [
-              ['Waiting', data.counts.queued],
-              ['Assigned', data.counts.assigned],
-              ['Trips', data.counts.trips],
-              ['Seats used', `${data.counts.occupied} / ${data.counts.seats}`],
+              ['1', t('Riders waiting'), data.queue.length, null],
+              ['2', t('Routes'), routes ? routes.length : '—', routes ? t('routed') : t('press Routing')],
+              ['3', t('Vehicles'), draft.newTrips.length + data.trips.length, draft.newTrips.length ? t('{{n}} in draft', { n: draft.newTrips.length }) : null],
+              ['4', t('Started'), `${startedCount} / ${data.trips.length}`, null],
+              ['5', t('Done'), doneCount, null],
             ] as const
-          ).map(([label, v]) => (
-            <div key={label} className="rounded-lg border bg-card px-3 py-2">
-              <dt className="text-xs text-muted-foreground">{t(label)}</dt>
-              <dd className="text-lg font-semibold tabular-nums">{v}</dd>
-            </div>
+          ).map(([n, label, v, hint]) => (
+            <li key={n} className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{n}</span>
+              <span className="min-w-0">
+                <span className="block text-xs text-muted-foreground">{label}</span>
+                <span className="text-lg font-semibold tabular-nums">{v}</span>
+                {hint && <span className="ml-1 text-xs text-muted-foreground">{hint}</span>}
+              </span>
+            </li>
           ))}
-        </dl>
+        </ol>
       )}
 
       {board.isError && <FormError message={e3ErrorMessage(board.error, t)} />}
@@ -722,6 +819,37 @@ export function DispatchPage() {
         </DialogContent>
       </Dialog>
 
+      <NewBookingDialog open={newOpen} onOpenChange={setNewOpen} day={day} cutoffMin={cutoffMin} />
+      <GroupBookingDialog open={groupOpen} onOpenChange={setGroupOpen} day={day} cutoffMin={cutoffMin} />
+      <Dialog open={!!copyPick} onOpenChange={(o) => !o && setCopyPick(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('Copy from a day')}</DialogTitle>
+            <DialogDescription>{t('Same vehicles, drivers and people as on that day, for those waiting on {{date}}.', { date: day })}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <Field label={t('Copy from')} htmlFor="copy-from">
+              <Input id="copy-from" type="date" value={copyPick ?? ''} max={shiftDay(day, -1)} onChange={(e) => setCopyPick(e.target.value)} />
+            </Field>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyPick(null)}>
+              {t('Back')}
+            </Button>
+            <Button
+              disabled={!copyPick || copyPick >= day}
+              onClick={() => {
+                const from = copyPick!;
+                setCopyPick(null);
+                void copyFrom(from);
+              }}
+            >
+              <CopyIcon /> {t('Copy')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ConfirmDialog
         open={discardOpen}
         onOpenChange={setDiscardOpen}
@@ -816,5 +944,32 @@ function ReassignDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Transport settings "Start trips automatically" (etms.autoStart), shown to those who may change transport settings. */
+function AutoStartToggle() {
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const allowed = can('etms_settings', 'edit');
+  const settings = useTransportSettings(allowed);
+  const update = useUpdateTransportSettings();
+  if (!allowed || !settings.data) return null;
+  const on = settings.data.autoStart === true;
+  return (
+    <label className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-2 text-sm" title={t('On: published trips start by themselves at their planned time. Trips also start when the vehicle reaches the first pickup (GPS), on or off.')}>
+      <Switch
+        checked={on}
+        disabled={update.isPending}
+        onCheckedChange={(v) =>
+          update.mutate(
+            { autoStart: v },
+            { onSuccess: () => toast.success(v ? t('Trips now start automatically at their planned time') : t('Trips start when the driver or you press Start (or by GPS)')), onError: (e) => toast.error(e3ErrorMessage(e, t)) },
+          )
+        }
+        aria-label={t('Auto-start')}
+      />
+      {t('Auto-start')}
+    </label>
   );
 }
