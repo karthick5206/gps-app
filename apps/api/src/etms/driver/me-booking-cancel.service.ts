@@ -1,3 +1,4 @@
+import { onBookingCancelled } from '../pooling/booking-hooks';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { bookingTransition, type MeBookingDto } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
@@ -49,6 +50,8 @@ export class MeBookingCancelService {
       }
       const claimed = await tx.transportBooking.updateMany({ where: { id, status: before.status, version: before.version }, data: { status: 'CANCELLED', statusReason: reason, version: { increment: 1 } } });
       if (!claimed.count) throw new ConflictException({ message: 'The booking changed meanwhile; reload it', code: 'VERSION_CONFLICT' });
+      // Pooling: the booking leaves unpublished plans (version + 1) and the cancellation is logged for live dispatch.
+      await onBookingCancelled(tx, before, ctx.userId);
       // QA I3: audit.record keeps only the before / after diff when they are given, so the facts go into the snapshot
       // (the booking id is entityId; statusReason is the stored reason, scrubbed by erasure like other booking audits).
       await this.audit.record(

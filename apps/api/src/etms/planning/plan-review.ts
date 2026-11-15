@@ -20,7 +20,7 @@ export interface ReviewRoute {
   objectId: string | null;
   driverId: string | null;
   /** The route's stops in order, with their ETAs. */
-  stops: { id: string; etaS: number | null }[];
+  stops: { id: string; etaS: number | null; /** Pooling: AREA trip index (the hash covers the trip split). */ tripIndex?: number }[];
 }
 
 /**
@@ -30,7 +30,7 @@ export interface ReviewRoute {
  * PLAN_REVIEW_STALE and the user must confirm the fresh review.
  */
 export function reviewHashOf(input: { version: number; routes: ReviewRoute[]; fingerprint: string | null }): string {
-  const routes = [...input.routes].sort((a, b) => a.id.localeCompare(b.id)).map((r) => ({ id: r.id, objectId: r.objectId, driverId: r.driverId, stops: r.stops.map((s) => [s.id, s.etaS]) }));
+  const routes = [...input.routes].sort((a, b) => a.id.localeCompare(b.id)).map((r) => ({ id: r.id, objectId: r.objectId, driverId: r.driverId, stops: r.stops.map((s) => (s.tripIndex ? [s.id, s.etaS, s.tripIndex] : [s.id, s.etaS])) }));
   return `r1-${requestHash({ v: input.version, routes, fingerprint: input.fingerprint }).slice(0, 32)}`;
 }
 

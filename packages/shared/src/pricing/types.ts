@@ -1,3 +1,4 @@
+import type { RidePreference } from '../transport-pooling';
 /**
  * Customer pricing engine types (doc 19 §5). Pure data: no I/O. Money is always integer:
  * - amounts are `bigint` MINOR units of the contract currency (paise, cents, fils …);
@@ -43,8 +44,6 @@ export type PricingComponentKind = (typeof PRICING_COMPONENT_KINDS)[number];
 export const COVERAGE_KINDS = ['VEHICLE_TIME', 'KM_INCLUDED', 'HOURS_INCLUDED', 'TRIPS'] as const;
 export type CoverageKind = (typeof COVERAGE_KINDS)[number];
 
-export const RIDE_PREFERENCES = ['PRIVATE', 'SHARED', 'FLEXIBLE'] as const;
-export type RidePreference = (typeof RIDE_PREFERENCES)[number];
 
 export const AVAILABILITY_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
 export type AvailabilityFrequency = (typeof AVAILABILITY_FREQUENCIES)[number];

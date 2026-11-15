@@ -1,7 +1,10 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import {
   ME_CONFIRM_KINDS,
+  RIDE_PREFERENCES,
+  type BookingPoolingInput,
+  type RidePreference,
   ME_REPORT_CATEGORIES,
   TRANSPORT_ADHOC_LIMITS,
   TRANSPORT_BOOKING_JOURNEYS,
@@ -87,6 +90,10 @@ export class MeAdhocRequestDto implements MeAdhocRequestInput {
   @IsOptional() @IsISO8601() windowEnd?: string;
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(TRANSPORT_ADHOC_LIMITS.purposeMax) purpose?: string | null;
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsString() @MaxLength(L.bookingNoteMax) note?: string | null;
+  /** Pooling (doc 20 §3.1). */
+  @IsOptional() @IsIn(RIDE_PREFERENCES) ridePreference?: RidePreference;
+  @IsOptional() @IsInt() @Min(0) acceptedPolicyVersion?: number;
+  @IsOptional() @IsObject() limits?: BookingPoolingInput['limits'];
 }
 
 export class MeSearchQuery {

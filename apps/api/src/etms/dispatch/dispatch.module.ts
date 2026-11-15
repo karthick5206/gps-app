@@ -26,6 +26,7 @@ import { TripsService } from './trips.service';
   imports: [EtmsPeopleModule],
   controllers: [ShiftsController, SchedulesController, BookingsController, DispatchController, TransportTripsController, MyTransportTripsController, TransportInsightsController, SafetyWatchController],
   providers: [TransportNotificationsService, PlannedTripsService, RoutingService, BookingGeneratorService, SchedulesService, BookingsService, DispatchService, TripsService, MeTransportService, TripLiveService, TripAutoStartService, TransportInsightsService, SafetyWatchService],
-  exports: [BookingGeneratorService, DispatchService],
+  // Pooling (EtmsPoolingModule) uses BookingsService for the booking DTO after a hold.
+  exports: [BookingGeneratorService, DispatchService, BookingsService],
 })
 export class EtmsDispatchModule {}

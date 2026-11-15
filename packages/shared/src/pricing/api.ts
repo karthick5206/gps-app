@@ -25,11 +25,11 @@ import type {
   PricingIssue,
   PricingPolicies,
   PriceStatus,
-  RidePreference,
   RoundingMode,
   TaxRegime,
   TripFacts,
 } from './types';
+import type { RidePreference } from '../transport-pooling';
 
 export const PRICING_CONTRACT_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'ACTIVE', 'SUSPENDED', 'EXPIRED'] as const;
 export type PricingContractStatus = (typeof PRICING_CONTRACT_STATUSES)[number];

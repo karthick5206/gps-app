@@ -4,7 +4,7 @@ import { RoutingJobsService } from '../../routing-jobs/routing-jobs.service';
 import { checkMaxRideOverride, MaxRideOverrideDto, maxRidePolicyOf, withOverride } from '../../routing-jobs/max-ride';
 import { RoutingHttpError } from '../../routing-jobs/routing-flags';
 import { Prisma } from '@prisma/client';
-import { ETMS_PLANNING_MENU, planBookingsLimitMessage, ROUTING_LIMITS, ROUTING_PROFILES, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanSkippedBooking, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
+import { ETMS_PLANNING_MENU, planBookingsLimitMessage, ROUTE_PLAN_SCOPES, ROUTING_LIMITS, ROUTING_PROFILES, type RoutePlanScope, type RoutingJobDto, type RoutePlanDetailDto, type RoutePlanEmptyReason, type RoutePlanSkippedBooking, type RoutePlanVersionSnapshot, type RoutingProfile } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsISO8601, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf, ValidateNested } from 'class-validator';
 import { objectScopeWhere } from '../../access/access-rules';
@@ -17,7 +17,7 @@ import { legWindow } from '../dispatch/service-dates';
 import { haversineMeters } from '../../tracking/geo';
 import { activeRoutingConsents } from '../people/people.service';
 import { TransportFeatureGuard } from '../transport-feature.guard';
-import { bookingStopRows, endProblem, PLAN_CANDIDATE_STATUSES, personalEnd, planSkipReason, type PlanScope } from './plan-booking-scope';
+import { areaEndsProblem, areaSkipReason, areaStopRows, bookingStopRows, endProblem, PLAN_CANDIDATE_STATUSES, personalEnd, planSkipReason, type PlanScope } from './plan-booking-scope';
 import { PlanningFeatureGuard } from './planning-feature.guard';
 import { PLAN_ENTITY, RoutePlansService } from './plans.service';
 
@@ -35,9 +35,14 @@ export class CreateRoutePlanDto {
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsUUID() branchId?: string | null;
   /** Company place the vehicles start from (IN) / return to (OUT); never a personal point. */
   @IsOptional() @ValidateIf((_o, v) => v !== null) @ValidateNested() @Type(() => PointDto) depot?: PointDto | null;
-  @IsIn(['IN', 'OUT']) direction!: 'IN' | 'OUT';
+  /** SITE plans (default): required. AREA plans (pooling): not used. */
+  @ValidateIf((o: { scope?: string }) => o.scope !== 'AREA') @IsIn(['IN', 'OUT']) direction!: 'IN' | 'OUT';
   @IsOptional() @ValidateIf((_o, v) => v !== null) @IsUUID() shiftId?: string | null;
-  @IsUUID() sitePoiId!: string;
+  @ValidateIf((o: { scope?: string }) => o.scope !== 'AREA') @IsUUID() sitePoiId!: string;
+  /** Pooling (doc 20 §3.5): AREA = point-to-point pooling over [windowStart, windowEnd) (≤ 24 h; depot required). */
+  @IsOptional() @IsIn(ROUTE_PLAN_SCOPES) scope?: RoutePlanScope;
+  @ValidateIf((o: { scope?: string }) => o.scope === 'AREA') @IsISO8601() windowStart?: string;
+  @ValidateIf((o: { scope?: string }) => o.scope === 'AREA') @IsISO8601() windowEnd?: string;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(ROUTING_LIMITS.optimizeVehicles) @IsUUID('all', { each: true }) objectIds!: string[];
   /** Owner decision 1: per-plan max-ride override (etms_settings:edit + whole-company scope, else 403), with a reason; audited. */
   @IsOptional() @ValidateNested() @Type(() => MaxRideOverrideDto) maxRideOverride?: MaxRideOverrideDto;
@@ -95,6 +100,7 @@ export class RoutePlanCreateService {
     const hash = requestHash(dto);
     const replay = await this.replay(ctx, key, hash);
     if (replay) return replay;
+    if (dto.scope === 'AREA') return this.createArea(ctx, dto, key, hash, maxRideOverride);
     // Another company's site is a 404 before anything else (no hint that it exists).
     const site = await this.prisma.poi.findFirst({ where: { id: dto.sitePoiId, companyId: ctx.companyId }, select: { id: true, name: true, lat: true, lng: true } });
     if (!site) throw notFound('Site not found');
@@ -201,6 +207,99 @@ export class RoutePlanCreateService {
       value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped, emptyReason: emptyReasonOf(visible.length, usable.length, dto.shiftId), bookingCounts: { found: visible.length, planned: usable.length, skipped: skipped.length } },
       replay: false,
     };
+  }
+
+  /**
+   * Pooling C2 (doc 20 §3.5): an AREA plan — POINT_TO_POINT and COMMUTE bookings waiting for a seat on the plan date whose
+   * window overlaps [windowStart, windowEnd), not on hold, in the caller's (and the plan's) branch; both ends of each
+   * booking become stops (personal ends only with routing consent). A depot (company place) is required: the vehicles
+   * start there. Optimised in pickup-and-delivery mode (contract v3); published through the same publish path, one trip
+   * per (route, tripIndex). Same Idempotency-Key, audit and version history as a SITE plan.
+   */
+  private async createArea(ctx: AuthContext, dto: CreateRoutePlanDto, key: string, hash: string, maxRideOverride: MaxRideOverrideDto | undefined): Promise<{ value: CreatedRoutePlanDto; replay: boolean }> {
+    const ws = Date.parse(dto.windowStart ?? '');
+    const we = Date.parse(dto.windowEnd ?? '');
+    if (!Number.isFinite(ws) || !Number.isFinite(we) || we <= ws) throw invalid('An area plan needs windowStart before windowEnd');
+    if (we - ws > 24 * H) throw invalid('An area plan window can be at most 24 hours');
+    if (!dto.depot) throw invalid('An area plan needs a depot (one of your company places): its vehicles start there');
+    const branchId = dto.branchId ?? (ctx.dataScope !== 'COMPANY' && ctx.branchIds.length === 1 ? ctx.branchIds[0] : null);
+    if (ctx.dataScope !== 'COMPANY' && (!branchId || !ctx.branchIds.includes(branchId))) throw invalid('Choose one of your branches for the plan');
+    const depot = await this.depotPlace(ctx, dto.depot);
+    const objectIds = [...new Set(dto.objectIds)];
+    const objects = await this.prisma.trackedObject.findMany({ where: { AND: [objectScopeWhere(ctx), { id: { in: objectIds }, isActive: true }] }, select: { id: true, name: true, plateNumber: true } });
+    if (objects.length !== objectIds.length) throw notFound('Vehicle not found');
+    const seats = new Map((await this.prisma.transportVehicleProfile.findMany({ where: { objectId: { in: objectIds } }, select: { objectId: true, seats: true } })).map((v) => [v.objectId, v.seats]));
+    const bookings = await this.prisma.transportBooking.findMany({
+      where: { customerCompanyId: ctx.companyId, serviceDate: dateOnly(dto.planDate), status: { in: [...PLAN_CANDIDATE_STATUSES] } },
+      include: { profile: { select: { branchId: true } } },
+      orderBy: [{ windowStart: 'asc' }, { id: 'asc' }],
+    });
+    const skipped: RoutePlanSkippedBooking[] = [];
+    const visible = bookings.filter((b) => inProfileBranch(ctx, b.profile.branchId));
+    const inScope = visible.filter((b) => {
+      const reason = areaSkipReason({ ...b, branchId: b.profile.branchId }, { windowStartMs: ws, windowEndMs: we, branchId });
+      if (reason) skipped.push({ bookingId: b.id, reason });
+      return !reason;
+    });
+    const consents = await activeRoutingConsents(this.prisma, inScope.filter((b) => !b.pickupPoiId || !b.dropPoiId).map((b) => b.profileId));
+    const usable = inScope.filter((b) => {
+      const problem = areaEndsProblem(b, consents);
+      if (problem) return void skipped.push({ bookingId: b.id, reason: problem }), false;
+      return true;
+    });
+    if (usable.length > ROUTING_LIMITS.planBookings) throw new RoutingHttpError('LIMIT_EXCEEDED', planBookingsLimitMessage(usable.length));
+    const poiIds = [...new Set(usable.flatMap((b) => [b.pickupPoiId, b.dropPoiId].filter((p): p is string => !!p)))];
+    const poiNames = new Map((poiIds.length ? await this.prisma.poi.findMany({ where: { companyId: ctx.companyId, id: { in: poiIds } }, select: { id: true, name: true } }) : []).map((p) => [p.id, p.name]));
+    const startMs = dto.planStartAt ? Date.parse(dto.planStartAt) : Math.floor((ws - H) / 60_000) * 60_000;
+    const planId = await this.prisma.$transaction(async (tx) => {
+      const plan = await tx.routePlan.create({
+        data: {
+          companyId: ctx.companyId,
+          branchId,
+          name: dto.name.trim(),
+          planDate: dateOnly(dto.planDate),
+          planStartAt: new Date(startMs),
+          status: 'DRAFT',
+          profile: dto.profile ?? 'car',
+          depot: { lat: depot.lat, lng: depot.lng },
+          options: { createKey: key, createHash: hash },
+          direction: null,
+          shiftId: null,
+          sitePoiId: null,
+          scope: 'AREA',
+          windowStart: new Date(ws),
+          windowEnd: new Date(we),
+          createdById: ctx.userId,
+        },
+      });
+      const assignments = [];
+      for (const [i, id] of objectIds.entries()) {
+        const o = objects.find((x) => x.id === id)!;
+        assignments.push(await tx.routeAssignment.create({ data: { planId: plan.id, companyId: ctx.companyId, objectId: id, driverId: null, vehicleLabel: o.plateNumber ? `${o.name} (${o.plateNumber})` : o.name, seq: i, capacity: seats.get(id) ?? null, distanceM: null, durationS: null, adjustedDurationS: null, startS: null, endS: null } }));
+      }
+      const rows = usable.flatMap((b) => areaStopRows(b, { id: plan.id, companyId: ctx.companyId, startMs }, (p) => poiNames.get(p) ?? null));
+      if (rows.length) await tx.routePlanStop.createMany({ data: rows });
+      const stops = await tx.routePlanStop.findMany({ where: { planId: plan.id }, orderBy: { ref: 'asc' }, select: { id: true, ref: true } });
+      const snapshot: RoutePlanVersionSnapshot = {
+        status: 'DRAFT',
+        assignments: assignments.map((a) => ({ id: a.id, vehicleLabel: a.vehicleLabel, objectId: a.objectId, driverId: null, stopIds: [] })),
+        stops: stops.map((s) => ({ id: s.id, ref: s.ref, assignmentId: null, sequence: null, etaS: null, unassignedReason: null })),
+      };
+      await tx.routePlanVersion.create({ data: { planId: plan.id, companyId: ctx.companyId, version: 1, changeType: 'CREATED', snapshot: snapshot as unknown as Prisma.InputJsonValue, changedById: ctx.userId } });
+      await this.audit.record(ctx, { action: 'CREATE', entity: PLAN_ENTITY, entityId: plan.id, details: { scope: 'AREA', planDate: dto.planDate, windowStart: new Date(ws).toISOString(), windowEnd: new Date(we).toISOString(), bookings: usable.length, skipped: skipped.length, vehicles: objectIds.length } }, tx);
+      if (maxRideOverride) {
+        const options = await withOverride(tx, this.audit, ctx, { id: plan.id, options: plan.options as Record<string, unknown>, version: 1 }, maxRideOverride, 'create', await maxRidePolicyOf(tx, ctx.companyId));
+        await tx.routePlan.update({ where: { id: plan.id }, data: { options: options as Prisma.InputJsonValue } });
+      }
+      return plan.id;
+    }).catch(async (e: unknown) => {
+      if (!isCreateKeyConflict(e)) throw e;
+      const again = await this.replay(ctx, key, hash);
+      if (!again) throw e;
+      return again;
+    });
+    if (typeof planId !== 'string') return planId;
+    return { value: { ...(await this.plans.get(ctx, planId)), skippedBookings: skipped, emptyReason: emptyReasonOf(visible.length, usable.length, null), bookingCounts: { found: visible.length, planned: usable.length, skipped: skipped.length } }, replay: false };
   }
 
   /**

@@ -1,3 +1,4 @@
+import { limitsOf } from '../pooling/pooling-rules';
 import { Prisma } from '@prisma/client';
 import {
   allowedPassengerOutcomes,
@@ -156,6 +157,14 @@ export function toBookingDto(r: BookingRow, ctx: Pick<AuthContext, 'companyId' |
     allowedActions: own ? bookingAllowedActions(r, now, { desk: true }) : [],
     createdAt: iso(r.createdAt),
     updatedAt: iso(r.updatedAt),
+    // Pooling (doc 20 §3.1): preference, accepted limits snapshot, how it was served, dispatcher hold (own roles only).
+    ridePreference: r.ridePreference,
+    sharingPolicyVersion: r.sharingPolicyVersion ?? null,
+    limits: limitsOf(r.limits),
+    assignedService: r.assignedService ?? null,
+    holdFromPlanning: r.holdFromPlanning,
+    holdReason: own ? (r.holdReason ?? null) : null,
+    holdAt: r.holdAt ? iso(r.holdAt) : null,
   };
 }
 

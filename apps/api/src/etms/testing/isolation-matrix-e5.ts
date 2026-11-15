@@ -15,6 +15,7 @@ import type { AuthContext } from '../../access/auth-context';
 import type { DriverController, MyTransportBookingsController, MyTransportNotificationsController } from '../driver/driver.controller';
 import type { DriverSosController, IncidentsController, MySosController } from '../safety/safety.controller';
 import type { MySelfServiceController } from '../self-service/self-service.controller';
+import type { DriverRouteAckController } from '../pooling/pooling.controller';
 import type { E3Ids, E3World } from './isolation-matrix-e3';
 import type { MatrixRole, RoleTable } from './isolation-matrix';
 import type { MemoryStore, Obj } from './memory-store';
@@ -32,6 +33,8 @@ export interface E5Controllers {
   incidents: IncidentsController;
   /** WP 5.3 passenger self-service. */
   mySelf: MySelfServiceController;
+  /** Doc 20 pooling P5: the driver's route acknowledgement. */
+  routeAck: DriverRouteAckController;
 }
 
 /** E3 ids + the driver + the WP 5.4 incidents (an OPEN SOS of the company's passenger and one of its driver). */

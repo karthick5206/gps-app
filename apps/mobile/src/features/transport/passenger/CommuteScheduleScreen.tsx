@@ -62,7 +62,7 @@ export function CommuteScheduleScreen() {
               {b.serviceDate} · {clockIn(b.windowStart, b.timeZone, locale)}–{clockIn(b.windowEnd, b.timeZone, locale)}
             </Text>
             <Text size="sm" tone="muted">
-              {t(bookingKindLabel(b) ?? DIRECTION_LABEL[b.direction])}
+              {t(bookingKindLabel(b) ?? DIRECTION_LABEL[b.direction ?? 'IN'])}
             </Text>
             <StatusChip label={t(meta.label)} tone={meta.tone} />
           </Card>

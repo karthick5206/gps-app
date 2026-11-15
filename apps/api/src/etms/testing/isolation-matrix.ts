@@ -19,6 +19,7 @@ import { E3_MATRIX, type E3Controllers, type E3Ids, type E3Resource, type E3Worl
 import { E4_MATRIX, type E4Controllers, type E4Ids, type E4Resource, type E4World } from './isolation-matrix-e4';
 import { DRIVER_MATRIX_ROLES, E5_MATRIX, type E5Controllers, type E5Resource, type E5World } from './isolation-matrix-e5';
 import type { MemoryStore } from './memory-store';
+import { POOLING_E3_MATRIX, POOLING_E5_MATRIX } from './isolation-matrix-pooling';
 
 /**
  * Callers. Customer = custA, provider = prov; the "other" agreement is prov2 ↔ custB. Templates carry the E2 additions
@@ -376,7 +377,8 @@ function E2_MATRIX(): MatrixEntry[] {
 
 /** E3 entries (declared in isolation-matrix-e3.ts) in the common MatrixEntry shape. */
 function E3_ENTRIES(): MatrixEntry[] {
-  return E3_MATRIX.map((e) => ({
+  // Doc 20 pooling routes run in the E3 world too (isolation-matrix-pooling.ts).
+  return [...E3_MATRIX, ...POOLING_E3_MATRIX].map((e) => ({
     route: e.route,
     resource: e.resource,
     state: 'ACTIVE',
@@ -402,7 +404,7 @@ function E4_ENTRIES(): MatrixEntry[] {
 
 /** E5 entries (declared in isolation-matrix-e5.ts) in the common MatrixEntry shape. */
 function E5_ENTRIES(): MatrixEntry[] {
-  return E5_MATRIX.map((e) => ({
+  return [...E5_MATRIX, ...POOLING_E5_MATRIX].map((e) => ({
     route: e.route,
     resource: e.resource,
     state: 'ACTIVE',

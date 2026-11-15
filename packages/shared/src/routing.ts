@@ -106,7 +106,9 @@ export type RoutingErrorCode =
   | 'JOB_NOT_FOUND'
   | 'PLAN_NOT_EDITABLE'
   | 'PLAN_STALE'
-  | 'IDEMPOTENCY_KEY_REUSED';
+  | 'IDEMPOTENCY_KEY_REUSED'
+  /** Pooling: the optimiser does not offer the pickup-and-delivery mode (contract v3). */
+  | 'PDP_UNSUPPORTED';
 
 export const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
 /** Text shown with every ETA (API warnings and UI). */
@@ -519,7 +521,11 @@ export type RoutingJobErrorCode =
   | 'MATRIX_INCOMPLETE'
   | 'MATRIX_BUSY'
   /** v1.16: automatic routing was switched off (platform, company or env) before the job started: final, plan back to DRAFT. */
-  | 'ROUTING_OFF';
+  | 'ROUTING_OFF'
+  /** Pooling (doc 20 §4): the optimiser does not offer the pickup-and-delivery mode (contract v3): final. */
+  | 'PDP_UNSUPPORTED'
+  /** Pooling: the optimiser's answer broke a hard rule (independent checker): final, nothing written. */
+  | 'SOLVER_RESULT_INVALID';
 
 export interface RoutingJobError {
   code: RoutingJobErrorCode;
@@ -720,6 +726,8 @@ export interface RoutePlanStopDto {
   customerCompanyId: string | null;
   /** true when the point is a passenger's personal point (profileId set, no poiId): access-audited, erasable. */
   personal: boolean;
+  /** Pooling (AREA plans): the trip of its vehicle route this stop belongs to (0-based; load returns to 0 between trips). */
+  tripIndex?: number;
 }
 
 export interface RoutePlanAssignmentDto {
@@ -756,6 +764,10 @@ export interface RoutePlanDto {
   direction: TransportDirection | null;
   shiftId: string | null;
   sitePoiId: string | null;
+  /** Pooling: SITE (default) or AREA (point-to-point pooling over an operating window). */
+  scope?: 'SITE' | 'AREA';
+  windowStart?: string | null;
+  windowEnd?: string | null;
   version: number;
   publishedAt: string | null;
   createdAt: string;

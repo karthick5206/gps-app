@@ -478,7 +478,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
       onOpenChange={onOpenChange}
       wide
       title={settingLocation ? 'Set location' : 'Edit booking'}
-      description={`${booking.passenger.displayName} · ${booking.serviceDate} · ${t(booking.journey === 'POINT_TO_POINT' ? JOURNEY_LABEL.POINT_TO_POINT : DIRECTION_LABEL[booking.direction])}`}
+      description={`${booking.passenger.displayName} · ${booking.serviceDate} · ${t(booking.journey === 'POINT_TO_POINT' ? JOURNEY_LABEL.POINT_TO_POINT : DIRECTION_LABEL[booking.direction ?? 'IN'])}`}
       onSubmit={submit}
       pending={update.isPending}
       error={serverError}
@@ -491,7 +491,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
           title={t('Pickup')}
           value={e.pickup}
           onChange={(c) => set({ pickup: c })}
-          kinds={endMissing(booking, 'pickup') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction, 'pickup', 'edit')}
+          kinds={endMissing(booking, 'pickup') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction ?? 'IN', 'pickup', 'edit')}
           homeBlocked={consent === false}
           current={endpointText(booking, 'pickup')}
           error={show('pickup')}
@@ -503,7 +503,7 @@ export function EditBookingDialog({ booking, onOpenChange, cutoffMin }: { bookin
           title={t('Destination')}
           value={e.drop}
           onChange={(c) => set({ drop: c })}
-          kinds={endMissing(booking, 'drop') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction, 'drop', 'edit')}
+          kinds={endMissing(booking, 'drop') ? ['PLACE', 'MAP'] : pointKinds(booking.journey, booking.direction ?? 'IN', 'drop', 'edit')}
           homeBlocked={consent === false}
           current={endpointText(booking, 'drop')}
           error={show('drop')}
