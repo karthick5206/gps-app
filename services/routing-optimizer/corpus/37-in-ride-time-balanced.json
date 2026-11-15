@@ -1,0 +1,24 @@
+{
+  "id": "37-in-ride-time-balanced",
+  "description": "IN, 60 passengers, Balanced preset (vehicle 3600, time 2, rideTime 1)",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 137,
+    "direction": "IN",
+    "passengers": 60,
+    "fleet": {
+      "6": 8,
+      "12": 4
+    },
+    "weights": {
+      "vehicle": 3600,
+      "time": 2,
+      "rideTime": 1
+    },
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxUnassigned": 0,
+    "objectiveBound": 258556
+  }
+}

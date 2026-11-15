@@ -137,4 +137,6 @@ def build(spec: dict) -> dict:
     if direction:
         problem['trip'] = {'direction': direction, 'siteIndex': 0, 'siteWindow': site_window,
                            'maxRideS': g.get('maxRideS', 5400)}
+        if g.get('detourGuard'):
+            problem['trip']['detourGuard'] = g['detourGuard']   # E4 WP-S: soft detour cost (weights.rideTime via 'weights')
     return problem
