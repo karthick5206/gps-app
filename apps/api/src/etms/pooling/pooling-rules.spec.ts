@@ -6,6 +6,7 @@ import type { PdpResult } from '../../routing-jobs/pdp-contract';
 import { cheapestInsertion, insertionOps, newTripTiming, type InsertionRequest, type InsertionTrip } from './insertion';
 import { activeEditProblem, defaultPreference, joinProblem, limitsChangeProblem, limitsSnapshot, LimitsError, liveChangeAllowed, needsAcceptance, partyCount, privateExclusivityProblem, sameLimits, servedAs } from './pooling-rules';
 import { driverHoursProblems, vehicleTimelineProblem } from './timeline-rules';
+import { effectivePreference } from './publish-checks';
 
 const MIN = 60_000;
 const T0 = Date.parse('2026-12-01T08:00:00Z');
@@ -283,5 +284,29 @@ describe('solver contract v3 checker (never trust the optimiser)', () => {
   it('rejects a drop before its pickup and reported commitment violations', () => {
     expect(() => verifyPdp(problem, res([[{ requestId: 'shr', kind: 'D', t: 300, load: 0 }, { requestId: 'shr', kind: 'P', t: 600, load: 1 }]]))).toThrow(/before its pickup/);
     expect(() => verifyPdp(problem, { ...res([]), commitmentViolations: [{ requestId: 'x' }] })).toThrow(/commitment/);
+  });
+});
+
+describe('review fixes (live dispatch)', () => {
+  it('fix 1: a pickup is never planned before now, and pending stops are judged on the live delay', () => {
+    // The trip's slack lies in the past for this caller: nothing may be inserted before "now".
+    const now = T0 + 20 * MIN;
+    const r = cheapestInsertion(trip(), request({ windowEndMs: T0 + 25 * MIN, limits: { ...DEFAULT_SHARING_LIMITS, maxWaitS: 1500 } }), travel, now);
+    if (r.feasible) expect(r.pickupEtaMs).toBeGreaterThanOrEqual(now);
+    // A 10 min live delay: the expected times move by it,
+    // and the ops stay in the planned frame (eta − delay).
+    const late = cheapestInsertion(trip({ delayMs: 10 * MIN }), request(), travel, T0 - 60 * MIN);
+    expect(late.feasible).toBe(true);
+    if (late.feasible) expect(late.pickupEtaMs - late.pickupArrivalMs).toBe(10 * MIN);
+    // A started trip whose vehicle can no longer make its first pending stop (even with the delay) takes nobody.
+    const far = trip({ status: 'IN_PROGRESS', stops: [stop(0, 0, 0, true), stop(1, 0.1, 30)], live: { pos: { lat: 2, lng: 0 }, atMs: T0 + 5 * MIN } });
+    expect(cheapestInsertion(far, request(), travel, T0 + 5 * MIN)).toEqual({ feasible: false, reasons: ['COMMITMENT'] });
+  });
+
+  it('fix 4: a legacy PRIVATE booking (no limits snapshot) is judged as FLEXIBLE for P1', () => {
+    expect(effectivePreference('PRIVATE', null)).toBe('FLEXIBLE');
+    expect(effectivePreference('PRIVATE', { maxWaitS: 900 })).toBe('PRIVATE');
+    expect(effectivePreference('SHARED', null)).toBe('SHARED');
+    expect(privateExclusivityProblem([{ bookingId: 'a', ridePreference: effectivePreference('PRIVATE', null) }, { bookingId: 'b', ridePreference: 'SHARED' }])).toBeNull();
   });
 });

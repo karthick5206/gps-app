@@ -141,6 +141,8 @@ export interface PublishSource {
   enforceLimits?: boolean;
   /** Pooling: decided by the system (live auto-assign): trip events carry actor / source SYSTEM. */
   systemActor?: boolean;
+  /** Pooling review fix 1: reachability of a started trip from the live position, re-checked in the transaction. */
+  reachable?(t: { tripId: string; plannedTripId: string }): Promise<string | null>;
 }
 
 /** The planned stop a TRIP candidate's road ETA starts from. */
@@ -199,6 +201,7 @@ interface TripState {
   created: boolean;
   /** Pooling: vehicle / driver / span changed (timeline + driver hours re-checked); live change of a started trip. */
   timeline?: boolean;
+  vehicleTimeline?: boolean;
   activeChanged?: boolean;
   tempId?: string;
   providerCompanyId: string;
@@ -962,6 +965,7 @@ export class DispatchService {
                 version: 1,
                 created: true,
                 timeline: true,
+                vehicleTimeline: true,
                 tempId: op.tempId,
                 providerCompanyId: ctx.companyId,
                 customerCompanyId: ctx.companyId,
@@ -1047,6 +1051,7 @@ export class DispatchService {
                 s.plannedStart = start;
                 s.plannedEnd = end;
                 s.timeline = true;
+                s.vehicleTimeline = true;
               }
               // Make room: later stops (highest first: unique tripId + seq), then seated passengers (drop before pickup: dropSeq > pickupSeq CHECK).
               for (const st of [...s.stops].filter((x) => x.seq > op.afterSeq).sort((a, b2) => b2.seq - a.seq)) {
@@ -1103,7 +1108,7 @@ export class DispatchService {
             case 'REASSIGN_VEHICLE': {
               const s = trip(op.tripId);
               editable(s, 'REASSIGN_VEHICLE');
-              s.timeline = true;
+              s.vehicleTimeline = true;
               const v = vehicleById.get(op.objectId)!;
               const seats = v.transportProfile?.seats ?? null;
               if (seats === null) throw conflict('NO_SEATS_SET', `Change ${n}: set the vehicle's passenger seats first`);
@@ -1136,9 +1141,11 @@ export class DispatchService {
         warnings.push(
           ...(await poolingAfterChanges(tx, {
             companyId: ctx.companyId,
-            trips: [...state.values()].map((s) => ({ ...s, touched: touched.has(s.id), timeline: !!s.timeline, activeChanged: !!s.activeChanged })),
+            trips: [...state.values()].map((s) => ({ ...s, touched: touched.has(s.id), timeline: !!s.timeline, vehicleTimeline: !!s.vehicleTimeline, activeChanged: !!s.activeChanged })),
             added,
             enforceLimits: !!source?.enforceLimits,
+            live: !!source?.live,
+            ...(source?.reachable ? { reachable: source.reachable } : {}),
             changeSetId,
             event: (e) => ev(e),
           })),

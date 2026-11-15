@@ -464,6 +464,27 @@ export function buildPlanChangeSet(
     for (const part of parts.trips) {
     const list = part.stops;
     const bookingIds = [...new Set(list.flatMap((s) => (s.bookingId ? [s.bookingId] : [])))];
+    // Review fix 9: an AREA trip is judged on its on-board load (pickups minus drops along the route), not the route's
+    // total seats. The E3 trip still counts every seat seated on it (occupiedSeats ≤ seatCapacity backstop), so a trip
+    // whose riders together exceed the seats is refused clearly here (the solver caps trips accordingly, doc 20 §11).
+    if (area && r.seats !== null) {
+      let load = 0;
+      let peak = 0;
+      let total = 0;
+      for (const s of list) {
+        const b = s.bookingId ? bookings.get(s.bookingId) : undefined;
+        if (!b) continue;
+        if (s.stopKind === 'DROP') load -= b.passengerCount;
+        else {
+          load += b.passengerCount;
+          total += b.passengerCount;
+        }
+        peak = Math.max(peak, load);
+      }
+      if (peak > r.seats) fail('CAPACITY_EXCEEDED', `Trip ${part.tripIndex + 1} of route ${r.vehicleLabel} carries ${peak} passengers at once on ${r.seats} seats`);
+      else if (total > r.seats) fail('CAPACITY_EXCEEDED', `Trip ${part.tripIndex + 1} of route ${r.vehicleLabel} seats ${total} passengers on ${r.seats} seats in all; split it (a trip counts every seat it carries)`);
+      if (peak > r.seats || total > r.seats) continue;
+    }
     // Trip stops in order; seats per booking end.
     const trip: TripStop[] = [];
     const endSeq = new Map<string, { pickup?: TripStop; drop?: TripStop }>();

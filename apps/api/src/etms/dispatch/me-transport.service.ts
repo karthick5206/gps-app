@@ -224,6 +224,8 @@ export class MeTransportService {
       // pending), and how the ride is served.
       estimatedPickupAt: pick ? iso(new Date(pick.plannedArrival.getTime() + (pick.status === 'PENDING' && pt?.delaySec && pt.delaySec > 0 ? pt.delaySec * 1000 : 0))) : null,
       servedAs: s.booking.assignedService ?? null,
+      // Review fix 2: shown as tentative until the driver acknowledges the trip's last live change.
+      routePending: s.trip.liveRouteAckVersion < s.trip.liveRouteVersion,
     };
   }
 }

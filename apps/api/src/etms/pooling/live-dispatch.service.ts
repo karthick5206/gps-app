@@ -28,7 +28,7 @@ import { OptimizerClient } from '../../routing/optimizer/optimizer.client';
 import type { PdpResult } from '../../routing-jobs/pdp-contract';
 import { parseLive } from '../../tracking/live-object';
 import { DispatchService, type PublishSource } from '../dispatch/dispatch.service';
-import { assertBookingAccess, bookingReadWhere, conflict, dayKeyOf, idempotencyKey, notFound, tripReadWhere, versionConflict } from '../dispatch/e3-common';
+import { assertBookingAccess, bookingReadWhere, conflict, dayKeyOf, idempotencyKey, notFound, round, tripReadWhere, versionConflict } from '../dispatch/e3-common';
 import { ACTIVE_OVERLAP_STATUSES } from '../dispatch/trip-overlap';
 import { recordTripEvent, seenClientEvent } from '../dispatch/trip-ops';
 import { resolveDriver } from '../driver/driver-identity';
@@ -36,7 +36,9 @@ import { activeRoutingConsents } from '../people/people.service';
 import { enqueueDispatch } from './booking-hooks';
 import { cheapestInsertion, fallbackTravel, insertionOps, newTripTiming, type InsertionReason, type InsertionRequest, type InsertionTrip, type LatLng } from './insertion';
 import { insertOnlyProblem, solverChoice } from './live-solver';
-import { limitsOf, partyCount, pickupWindow, servedAs } from './pooling-rules';
+import { limitsOf, partyCount, pickupWindow, reachableFromPosition, servedAs } from './pooling-rules';
+import { effectivePreference } from './publish-checks';
+import { preciseFor } from '../dispatch/e3-mapping';
 import { liveDispatchOn, poolingSettingsOf } from './pooling-settings';
 import { vehicleTimelineProblem } from './timeline-rules';
 
@@ -63,7 +65,23 @@ export function systemContext(companyId: string): AuthContext {
   return { userId: null as unknown as string, homeCompanyId: companyId, companyId, isSuperAdmin: false, permissions: {}, dataScope: 'COMPANY', branchIds: [], objectIds: [], agreements: [], ip: null };
 }
 
-const optionId = (ops: DispatchChangeOp[]) => `opt-${createHash('sha256').update(JSON.stringify(ops)).digest('hex').slice(0, 16)}`;
+/**
+ * Review fix 8: a stable option id — the ops without their times (planned arrivals move with "now" between a decide and
+ * its apply; the target trip / vehicle and stop positions do not).
+ */
+const optionId = (ops: DispatchChangeOp[]) =>
+  `opt-${createHash('sha256')
+    .update(JSON.stringify(ops.map((o) => (o.op === 'CREATE_TRIP' ? { ...o, plannedStart: undefined, stops: o.stops?.map((s) => ({ ...s, plannedArrival: undefined })) } : o.op === 'ADD_STOP' ? { ...o, plannedArrival: undefined } : o))))
+    .digest('hex')
+    .slice(0, 16)}`;
+
+/** Stored options of a request (full LiveOption rows written by `stored`; older rows held summaries only). */
+function storedOptions(json: Prisma.JsonValue): LiveOption[] {
+  return (Array.isArray(json) ? json : []).filter((o): o is Prisma.JsonObject => !!o && typeof o === 'object' && !Array.isArray(o) && Array.isArray((o as { changes?: unknown }).changes)) as unknown as LiveOption[];
+}
+
+/** Review fix 2: an unacknowledged live route change older than this becomes a dispatcher proposal. */
+export const ACK_OVERDUE_MS = 3 * 60_000;
 
 /**
  * Live dispatch (doc 20 §5, D1; owner defaults P4 / P5 / P8). For one booking waiting for a seat it finds the feasible
@@ -96,7 +114,7 @@ export class LiveDispatchService {
 
   // ───────────────────────────── dispatcher: find a vehicle ─────────────────────────────
 
-  async decide(ctx: AuthContext, dto: { bookingId: string; apply?: boolean; optionId?: string }, rawKey: string | undefined): Promise<LiveDispatchDecisionDto> {
+  async decide(ctx: AuthContext, dto: { bookingId: string; apply?: boolean; optionId?: string; requestId?: string }, rawKey: string | undefined): Promise<LiveDispatchDecisionDto> {
     // Scope first (another tenant's / branch's booking is a 404 whatever the switches), then the switches.
     const booking = await this.prisma.transportBooking.findFirst({ where: { AND: [bookingReadWhere(ctx), { id: dto.bookingId }] }, include: { profile: { select: { branchId: true } } } });
     if (!booking || booking.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
@@ -107,19 +125,41 @@ export class LiveDispatchService {
     const reqKey = key ? `manual:${booking.id}:${key}` : `manual:${booking.id}:${Date.now()}`;
     const started = Date.now();
     const existing = key ? await this.prisma.transportDispatchRequest.findFirst({ where: { companyId: ctx.companyId, idempotencyKey: reqKey } }) : null;
-    if (existing && existing.status === 'APPLIED') return this.decisionOf(existing, []);
+    if (existing && existing.status === 'APPLIED') return this.decisionOf(ctx, booking, existing, storedOptions(existing.options));
+    // Review fix 8: apply exactly the option the dispatcher was shown (stored on its request), not a recomputation whose
+    // times moved on; the trip version check (expectedVersions) refuses it if the trip changed meanwhile.
+    if (dto.apply && dto.requestId) {
+      const shown = await this.prisma.transportDispatchRequest.findFirst({ where: { id: dto.requestId, companyId: ctx.companyId, bookingId: booking.id } });
+      if (!shown) throw notFound('Decision not found');
+      if (!['DECIDED', 'PROPOSED'].includes(shown.status)) throw conflict('INVALID_STATE', `This decision is ${shown.status.toLowerCase()}; ask for the options again`);
+      const opts = storedOptions(shown.options);
+      const chosen = dto.optionId ? opts.find((o) => o.optionId === dto.optionId) : opts[0];
+      if (!chosen) throw conflict('NO_FEASIBLE_OPTION', 'That option is not part of this decision; ask for the options again');
+      const r = await this.applyOption(ctx, shown.id, booking, chosen, `live-${key}`, false);
+      const after = await this.prisma.transportDispatchRequest.findUniqueOrThrow({ where: { id: shown.id } });
+      return { ...(await this.decisionOf(ctx, booking, after, opts)), changeSetId: r.changeSetId };
+    }
     const { options, reasons } = await this.findOptions(ctx, booking);
-    const request =
-      existing ??
-      (await this.prisma.transportDispatchRequest.create({
-        data: { companyId: ctx.companyId, bookingId: booking.id, trigger: 'MANUAL', status: options.length ? 'DECIDED' : 'REJECTED', idempotencyKey: reqKey, options: this.alternatives(options) as unknown as Prisma.InputJsonValue, reasons: reasons as unknown as Prisma.InputJsonValue, createdById: ctx.userId, decidedAt: new Date(), durationMs: Date.now() - started },
-      }));
-    if (!dto.apply) return this.decisionOf(request, options);
-    const chosen = dto.optionId ? options.find((o) => o.optionId === dto.optionId) : options[0];
+    let request = existing;
+    if (!request) {
+      try {
+        request = await this.prisma.transportDispatchRequest.create({
+          data: { companyId: ctx.companyId, bookingId: booking.id, trigger: 'MANUAL', status: options.length ? 'DECIDED' : 'REJECTED', idempotencyKey: reqKey, options: this.stored(options), reasons: reasons as unknown as Prisma.InputJsonValue, createdById: ctx.userId, decidedAt: new Date(), durationMs: Date.now() - started },
+        });
+      } catch (e) {
+        // Review fix 9: a concurrent decide with the same Idempotency-Key created it first: continue on its row (replay).
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+        request = await this.prisma.transportDispatchRequest.findFirstOrThrow({ where: { companyId: ctx.companyId, idempotencyKey: reqKey } });
+        if (request.status === 'APPLIED') return this.decisionOf(ctx, booking, request, storedOptions(request.options));
+      }
+    }
+    if (!dto.apply) return this.decisionOf(ctx, booking, request, options);
+    const pool = request === existing ? storedOptions(request.options) : options;
+    const chosen = dto.optionId ? pool.find((o) => o.optionId === dto.optionId) : pool[0];
     if (!chosen) throw conflict('NO_FEASIBLE_OPTION', dto.optionId ? 'That option is no longer feasible; ask for the options again' : 'No vehicle can take this booking within its limits', { reasons });
     const r = await this.applyOption(ctx, request.id, booking, chosen, `live-${key}`, false);
     const after = await this.prisma.transportDispatchRequest.findUniqueOrThrow({ where: { id: request.id } });
-    return { ...this.decisionOf(after, options), changeSetId: r.changeSetId };
+    return { ...(await this.decisionOf(ctx, booking, after, pool)), changeSetId: r.changeSetId };
   }
 
   async requests(ctx: AuthContext, q: { status?: DispatchRequestStatus; trigger?: DispatchTrigger; bookingId?: string; limit?: number }): Promise<DispatchRequestDto[]> {
@@ -140,6 +180,7 @@ export class LiveDispatchService {
         return false;
       }
     });
+    const scoped = await this.dispatch.scopedObjectIds(ctx);
     return visible.map((r) => ({
       id: r.id,
       trigger: r.trigger as DispatchTrigger,
@@ -150,7 +191,8 @@ export class LiveDispatchService {
       chosenOptionId: r.chosenOptionId,
       changeSetId: r.changeSetId,
       reasons: (Array.isArray(r.reasons) ? r.reasons : []) as DispatchReasonCode[],
-      alternatives: (Array.isArray(r.options) ? r.options : []) as DispatchRequestDto['alternatives'],
+      // Ids, kinds and costs only (never the stored change ops with their points), and only vehicles in the caller's scope.
+      alternatives: this.alternatives(storedOptions(r.options)).filter((a) => scoped === null || scoped.includes(a.objectId)),
       attempts: r.attempts,
       createdAt: r.createdAt.toISOString(),
       decidedAt: r.decidedAt?.toISOString() ?? null,
@@ -162,12 +204,38 @@ export class LiveDispatchService {
     return options.slice(0, 10).map((o) => ({ optionId: o.optionId, kind: o.kind, tripId: o.tripId, objectId: o.objectId, addedS: o.addedS, target: o.target }));
   }
 
-  private decisionOf(r: { id: string; bookingId: string | null; status: string; chosenOptionId: string | null; changeSetId: string | null; reasons: Prisma.JsonValue }, options: LiveOption[]): LiveDispatchDecisionDto {
+  /** Review fix 8: the full options (ops, versions) are stored on the request, so a proposal / shown option can be applied as is. */
+  private stored(options: LiveOption[]): Prisma.InputJsonValue {
+    return options.slice(0, 20) as unknown as Prisma.InputJsonValue;
+  }
+
+  /**
+   * Review fix 6: the options as this caller may see them — a passenger's personal point in a NEW_TRIP stop is rounded
+   * to 4 decimals unless the caller is a whole-company role of the customer (preciseFor), and the read is ACCESS-audited.
+   */
+  private async decisionOf(ctx: AuthContext, booking: { id: string; profileId: string; customerCompanyId: string }, r: { id: string; bookingId: string | null; status: string; chosenOptionId: string | null; changeSetId: string | null; reasons: Prisma.JsonValue }, options: LiveOption[]): Promise<LiveDispatchDecisionDto> {
+    const precise = preciseFor(ctx, booking.customerCompanyId);
+    let personal = false;
+    const shown = options.map(({ expectedVersions: _v, direction: _d, ...o }) => ({
+      ...o,
+      changes: o.changes.map((c) => {
+        if (c.op !== 'CREATE_TRIP' || !c.stops) return c;
+        return {
+          ...c,
+          stops: c.stops.map((s) => {
+            if (s.point.poiId) return s;
+            personal = true;
+            return precise ? s : { ...s, point: { ...s.point, lat: round(s.point.lat, 4), lng: round(s.point.lng, 4) } };
+          }),
+        };
+      }),
+    }));
+    if (personal) await this.dispatch.recordPersonalAccess(ctx, 'candidates', [booking.profileId], precise, { bookingId: booking.id, liveDispatch: true });
     return {
       requestId: r.id,
       bookingId: r.bookingId ?? '',
       status: r.status as DispatchRequestStatus,
-      options: options.map(({ expectedVersions: _v, direction: _d, ...o }) => o),
+      options: shown,
       chosenOptionId: r.chosenOptionId,
       changeSetId: r.changeSetId,
       reasons: (Array.isArray(r.reasons) ? r.reasons : []) as DispatchReasonCode[],
@@ -212,7 +280,7 @@ export class LiveDispatchService {
           ...(opts.exceptTripId ? [{ id: { not: opts.exceptTripId } }] : []),
         ],
       },
-      include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } }, passengers: { where: { status: { not: 'CANCELLED' } }, select: { bookingId: true, pickupSeq: true, dropSeq: true, seats: true, booking: { select: { ridePreference: true, groupId: true } } } } },
+      include: { plannedTrip: { include: { stops: { orderBy: { seq: 'asc' } } } }, passengers: { where: { status: { not: 'CANCELLED' } }, select: { bookingId: true, pickupSeq: true, dropSeq: true, seats: true, booking: { select: { ridePreference: true, groupId: true, limits: true } } } } },
       take: 200,
     });
     const vehicleIds = [...new Set(trips.flatMap((t) => (t.plannedTrip ? [t.plannedTrip.objectId] : [])))];
@@ -240,7 +308,14 @@ export class LiveDispatchService {
       const prevEnd = mine.filter((b) => b.plannedEnd.getTime() <= pt.plannedStart.getTime()).reduce<number | null>((m, b) => Math.max(m ?? 0, b.plannedEnd.getTime()), null);
       const nextStart = mine.filter((b) => b.plannedStart.getTime() >= pt.plannedEnd.getTime()).reduce<number | null>((m, b) => Math.min(m ?? Infinity, b.plannedStart.getTime()), null);
       const active = pt.status !== 'SCHEDULED';
+      // Review fix 2: a started trip whose driver has not acknowledged the last live change takes no further insertion.
+      if (active && t.liveRouteAckVersion < t.liveRouteVersion) {
+        reasons.add('ROUTE_ACK_PENDING');
+        continue;
+      }
       const fix = fixes.get(pt.objectId);
+      // Review fix 1: started (or already late) trips are judged on their live delay.
+      const delayMs = (active || pt.plannedStart.getTime() < now) && pt.delaySec && pt.delaySec > 0 ? pt.delaySec * 1000 : 0;
       const trip: InsertionTrip & { seated: { bookingId: string; pickupSeq: number; dropSeq: number; seats: number }[] } = {
         tripId: t.id,
         objectId: pt.objectId,
@@ -248,7 +323,8 @@ export class LiveDispatchService {
         seatCapacity: t.seatCapacity,
         occupied: t.occupiedSeats,
         stops: pt.stops.map((s) => ({ seq: s.seq, lat: s.lat, lng: s.lng, poiId: s.poiId, arrivalMs: s.plannedArrival.getTime(), departureMs: s.plannedDeparture.getTime(), visited: s.status !== 'PENDING' })),
-        onTrip: others.map((p) => p.booking.ridePreference as RidePreference),
+        onTrip: others.map((p) => effectivePreference(p.booking.ridePreference as RidePreference, p.booking.limits)),
+        delayMs,
         prevEndMs: prevEnd,
         nextStartMs: nextStart,
         turnaroundS,
@@ -270,8 +346,8 @@ export class LiveDispatchService {
         objectId: pt.objectId,
         vehicleName: objById.get(pt.objectId)?.name ?? pt.routeName,
         target: active ? 'ACTIVE' : 'SCHEDULED',
-        pickupEta: new Date(ins.pickupArrivalMs).toISOString(),
-        dropEta: new Date(ins.dropArrivalMs).toISOString(),
+        pickupEta: new Date(ins.pickupEtaMs).toISOString(),
+        dropEta: new Date(ins.dropEtaMs).toISOString(),
         addedS: ins.addedS,
         affectedPassengers: partyCount(others.map((p) => ({ bookingId: p.bookingId, groupId: p.booking.groupId }))),
         changes,
@@ -384,6 +460,7 @@ export class LiveDispatchService {
       enforceLimits: true,
       allowActiveTrips: allowActive || option.target === 'ACTIVE',
       systemActor: system,
+      reachable: (t) => this.reachable(t.plannedTripId),
       inTransaction: async (tx, result) => {
         await tx.transportDispatchRequest.update({ where: { id: requestId }, data: { status: 'APPLIED', chosenOptionId: option.optionId, changeSetId: result.changeSetId, decidedAt: new Date() } });
         await this.audit.record(ctx, { action: 'UPDATE', entity: 'TransportDispatchRequest', entityId: requestId, details: { applied: true, bookingId: booking.id, optionId: option.optionId, kind: option.kind, tripId: option.tripId, objectId: option.objectId, target: option.target, engine: option.engine, changeSetId: result.changeSetId, system } }, tx);
@@ -391,6 +468,20 @@ export class LiveDispatchService {
     };
     const r = await this.dispatch.publishPrepared(ctx, input, key, source);
     return r.value;
+  }
+
+  /**
+   * Review fix 1 (P5): can the vehicle still make its first pending stop in time (planned + live delay) from its live
+   * position? No fix = not judged (the dispatcher applied it knowingly; the driver acknowledges).
+   */
+  private async reachable(plannedTripId: string, now = Date.now()): Promise<string | null> {
+    const pt = await this.prisma.plannedTrip.findUnique({ where: { id: plannedTripId }, select: { objectId: true, delaySec: true, stops: { where: { status: 'PENDING' }, orderBy: { seq: 'asc' }, take: 1, select: { lat: true, lng: true, plannedArrival: true } } } });
+    const first = pt?.stops[0];
+    if (!pt || !first) return null;
+    const fix = (await this.fixes([pt.objectId])).get(pt.objectId);
+    if (!fix) return null;
+    const due = first.plannedArrival.getTime() + Math.max(0, pt.delaySec ?? 0) * 1000;
+    return reachableFromPosition(now, fallbackTravel(fix, first), due) ? null : 'The vehicle can no longer reach its next stop in time from where it is';
   }
 
   // ───────────────────────────── worker side ─────────────────────────────
@@ -403,6 +494,8 @@ export class LiveDispatchService {
     const { pooling } = await this.settingsOf(req.companyId);
     if (!liveDispatchOn(pooling)) return this.finish(req.id, 'REJECTED', ['DISABLED'], [], started);
     try {
+      // Review fix 3: a child request (one booking) retries its own re-seat; only the trip-level request evaluates the trip.
+      if ((req.trigger === 'DELAY' || req.trigger === 'BREAKDOWN') && req.bookingId) return await this.reseatChild(req, pooling.delayPolicy, started);
       if (req.trigger === 'DELAY' || req.trigger === 'BREAKDOWN') return await this.evaluateTrip(req, pooling.delayPolicy, pooling.delayThresholdS, started);
       if (!req.bookingId) return this.finish(req.id, 'REJECTED', ['NOT_ELIGIBLE'], [], started);
       const ctx = systemContext(req.companyId);
@@ -412,7 +505,7 @@ export class LiveDispatchService {
       if (!options.length) return this.finish(req.id, 'REJECTED', reasons, [], started);
       const auto = pooling.scheduledPolicy === 'AUTO' ? options.find((o) => o.autoApplicable) : undefined;
       if (!auto) return this.finish(req.id, 'PROPOSED', [], options, started);
-      await this.prisma.transportDispatchRequest.update({ where: { id: req.id }, data: { options: this.alternatives(options) as unknown as Prisma.InputJsonValue, durationMs: Date.now() - started } });
+      await this.prisma.transportDispatchRequest.update({ where: { id: req.id }, data: { options: this.stored(options), durationMs: Date.now() - started } });
       await this.applyOption(ctx, req.id, booking, auto, `live-${req.id}-${req.attempts}`, true);
       return 'APPLIED';
     } catch (e) {
@@ -424,7 +517,7 @@ export class LiveDispatchService {
   }
 
   private async finish(id: string, status: DispatchRequestStatus, reasons: DispatchReasonCode[], options: LiveOption[], started: number): Promise<DispatchRequestStatus> {
-    await this.prisma.transportDispatchRequest.update({ where: { id }, data: { status, reasons: reasons as unknown as Prisma.InputJsonValue, options: this.alternatives(options) as unknown as Prisma.InputJsonValue, decidedAt: new Date(), durationMs: Date.now() - started } });
+    await this.prisma.transportDispatchRequest.update({ where: { id }, data: { status, reasons: reasons as unknown as Prisma.InputJsonValue, options: this.stored(options), decidedAt: new Date(), durationMs: Date.now() - started } });
     return status;
   }
 
@@ -452,7 +545,6 @@ export class LiveDispatchService {
         if (n.count) await recordTripEvent(tx, ctx, { tripId: trip.id, providerCompanyId: trip.providerCompanyId, customerCompanyId: trip.customerCompanyId, kind: 'TRIP_INTERRUPTED', actorType: 'SYSTEM', source: 'SYSTEM', reasonCode: 'BREAKDOWN', data: { dispatchRequestId: req.id } });
       });
     }
-    let version = (await this.prisma.transportTrip.findUniqueOrThrow({ where: { id: trip.id }, select: { version: true } })).version;
     for (const p of trip.passengers) {
       const childKey = `${req.idempotencyKey}:${p.bookingId}`;
       if (await this.prisma.transportDispatchRequest.findFirst({ where: { companyId: req.companyId, idempotencyKey: childKey }, select: { id: true } })) continue;
@@ -467,22 +559,52 @@ export class LiveDispatchService {
         if (!pick || pick.plannedArrival.getTime() + delayS * 1000 <= Math.max(latest, pick.plannedArrival.getTime())) continue;
       }
       const child = await this.prisma.transportDispatchRequest.create({ data: { companyId: req.companyId, bookingId: p.bookingId, tripId: trip.id, trigger: req.trigger, status: 'QUEUED', idempotencyKey: childKey } });
-      const { options, reasons } = await this.findOptions(ctx, p.booking, { exceptTripId: trip.id, reseat: true });
-      const auto = policy === 'AUTO' ? options.find((o) => o.autoApplicable) : undefined;
-      if (!auto) {
-        await this.finish(child.id, options.length ? 'PROPOSED' : 'REJECTED', reasons, options, started);
-        continue;
-      }
-      try {
-        // Off the delayed / broken trip (pending seat only) and onto the new one, in ONE change set.
-        await this.applyOption(ctx, child.id, p.booking, auto, `live-${child.id}`, true, [{ op: 'REMOVE_PASSENGER', passengerTripId: p.id, reason: breakdown ? 'Vehicle breakdown: moved to another vehicle' : 'Delay: moved to another vehicle' }], { [trip.id]: version }, true);
-        version += 1;
-      } catch (e) {
-        const code = (e as { getResponse?: () => { code?: string } }).getResponse?.()?.code ?? (e as Error).name;
-        await this.prisma.transportDispatchRequest.update({ where: { id: child.id }, data: { status: 'FAILED', attempts: { increment: 1 }, lastError: `${code}: ${(e as Error).message}`.slice(0, 300) } });
-      }
+      await this.reseatOne(ctx, { id: child.id, attempts: 0 }, trip.id, p.id, p.booking, breakdown, policy, started);
     }
     return this.finish(req.id, 'DECIDED', [], [], started);
+  }
+
+  /** Review fix 3: the worker's retry of one re-seat child (never a new trip evaluation). */
+  private async reseatChild(req: { id: string; companyId: string; tripId: string | null; bookingId: string | null; trigger: string; attempts: number }, policy: 'AUTO' | 'PROPOSE', started: number): Promise<DispatchRequestStatus> {
+    if (!req.tripId || !req.bookingId) return this.finish(req.id, 'REJECTED', ['NOT_ELIGIBLE'], [], started);
+    const seat = await this.prisma.transportTripPassenger.findFirst({ where: { tripId: req.tripId, bookingId: req.bookingId, status: 'PENDING', providerCompanyId: req.companyId }, include: { booking: { include: { profile: { select: { branchId: true } } } } } });
+    if (!seat) return this.finish(req.id, 'REJECTED', ['NOT_ELIGIBLE'], [], started);
+    return this.reseatOne(systemContext(req.companyId), req, req.tripId, seat.id, seat.booking, req.trigger === 'BREAKDOWN', policy, started);
+  }
+
+  /** One pending passenger off a delayed / broken trip: options elsewhere; AUTO applies (one change set), else a proposal. */
+  private async reseatOne(ctx: AuthContext, child: { id: string; attempts: number }, tripId: string, passengerTripId: string, booking: BookingRow, breakdown: boolean, policy: 'AUTO' | 'PROPOSE', started: number): Promise<DispatchRequestStatus> {
+    const { options, reasons } = await this.findOptions(ctx, booking, { exceptTripId: tripId, reseat: true });
+    const auto = policy === 'AUTO' ? options.find((o) => o.autoApplicable) : undefined;
+    if (!auto) return this.finish(child.id, options.length ? 'PROPOSED' : 'REJECTED', reasons, options, started);
+    // The trip's version as it is now (a previous re-seat or a failed attempt may have changed it).
+    const version = (await this.prisma.transportTrip.findUniqueOrThrow({ where: { id: tripId }, select: { version: true } })).version;
+    try {
+      await this.applyOption(ctx, child.id, booking, auto, `live-${child.id}-${child.attempts}`, true, [{ op: 'REMOVE_PASSENGER', passengerTripId, reason: breakdown ? 'Vehicle breakdown: moved to another vehicle' : 'Delay: moved to another vehicle' }], { [tripId]: version }, true);
+      return 'APPLIED';
+    } catch (e) {
+      const code = (e as { getResponse?: () => { code?: string } }).getResponse?.()?.code ?? (e as Error).name;
+      await this.prisma.transportDispatchRequest.update({ where: { id: child.id }, data: { status: 'FAILED', attempts: { increment: 1 }, lastError: `${code}: ${(e as Error).message}`.slice(0, 300) } });
+      return 'FAILED';
+    }
+  }
+
+  /**
+   * Review fix 2: a live change of a started trip the driver has not acknowledged within ACK_OVERDUE_MS becomes a
+   * dispatcher proposal (reason ROUTE_ACK_OVERDUE, once per route version).
+   */
+  async escalateOverdueAcks(now = Date.now()): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ id: string; providerCompanyId: string; liveRouteVersion: number }[]>`
+      SELECT id, "providerCompanyId", "liveRouteVersion" FROM "TransportTrip"
+      WHERE "liveRouteVersion" > "liveRouteAckVersion" AND "cancelledAt" IS NULL ORDER BY "updatedAt" DESC LIMIT 100`;
+    let n = 0;
+    for (const t of rows) {
+      const ev = await this.prisma.transportTripEvent.findFirst({ where: { tripId: t.id, kind: 'ROUTE_UPDATED' }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } });
+      if (!ev || now - ev.receivedAt.getTime() < ACK_OVERDUE_MS) continue;
+      const id = await this.prisma.$transaction((tx) => enqueueDispatch(tx, { companyId: t.providerCompanyId, bookingId: null, tripId: t.id, trigger: 'MANUAL', key: `ackoverdue:${t.id}:v${t.liveRouteVersion}`, userId: null, status: 'PROPOSED', reasons: ['ROUTE_ACK_OVERDUE'] }));
+      if (id) n++;
+    }
+    return n;
   }
 
   /** REPORT_DELAY / REPORT_BREAKDOWN events since the high-water mark → evaluation requests (companies with live dispatch on). */
