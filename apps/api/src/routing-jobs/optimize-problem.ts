@@ -1,5 +1,6 @@
-import type { OptimizeResult, OptimizeUnassignedReason, RoutingProfile, SolverOptions, SolverResult, SolverStop } from '@veetracer/shared';
+import type { OptimizeResult, OptimizeUnassignedDetail, OptimizeUnassignedReason, OptimizeUnusableVehicle, RoutingProfile, SolverOptions, SolverResult, SolverStop, VehicleSizePreference } from '@veetracer/shared';
 import { uncalibratedEta } from '@veetracer/shared';
+import { vehicleFixedCosts } from './strategies';
 import { JobError } from './job-worker';
 import type { BuiltMatrix, MatrixPoint } from './matrix-port';
 
@@ -52,6 +53,8 @@ export interface PlanVehicleInput {
   /** TransportVehicleProfile.category (matched against allowed vehicle types later). */
   type: string | null;
   wheelchairSpaces: number;
+  /** E4 WP-A: free time of the vehicle / driver (seconds after planStartAt; end null = until the horizon). */
+  availability?: [number, number | null];
 }
 
 /** Objective weights (README P6: always explicit). */
@@ -60,6 +63,8 @@ export interface SolverWeights {
   distance: number;
   time: number;
   routeDuration: number;
+  /** E4 WP-A / WP-S: cost per passenger-second of ride (trip mode); absent = 0 (weights stored before WP-A). */
+  rideTime?: number;
 }
 
 /** Defaults: vehicles first, then road time (or distance). Overridable per plan (RoutePlan.options.weights). */
@@ -85,6 +90,14 @@ export interface PlanInputs {
   vehicles: PlanVehicleInput[];
   /** Stops left out before solving (consent withdrawn, booking no longer active …), with the reason. */
   excluded: { stopId: string; reason: OptimizeUnassignedReason; bookingId?: string | null }[];
+  /** E4 WP-A: soft per-passenger detour guard (solver trip.detourGuard); null / absent = none. */
+  detourGuard?: { ratio: number; extraS: number; costPerS: number } | null;
+  /** E4 WP-A: vehicle size preference (per-vehicle fixed cost from the seats). */
+  vehicleSize?: VehicleSizePreference;
+  /** E4 WP-A: vehicles left out before the solve (busy across the whole usable time). */
+  unusableVehicles?: OptimizeUnusableVehicle[];
+  /** E4 WP-A: strategy of the run (reported in the job result). */
+  strategy?: string | null;
 }
 
 export interface BuiltProblem {
@@ -105,6 +118,7 @@ export const DEFAULT_HORIZON_S = 86_400;
 /** Points and roles of the problem; throws INVALID_INPUT when the plan cannot be solved at all. */
 export function planPoints(inp: PlanInputs): BuiltProblem {
   if (!inp.vehicles.length) {
+    if (inp.unusableVehicles?.length) throw new JobError('INVALID_INPUT', 'Every unlocked vehicle of the plan (or its driver) is already planned on another trip at this time');
     throw new JobError('INVALID_INPUT', inp.lockedAssignmentIds?.length ? 'Every vehicle of the plan is locked: unlock a route to optimise' : 'The plan has no vehicles: add at least one vehicle before optimising');
   }
   if (inp.direction && inp.site) {
@@ -139,10 +153,11 @@ const int = (v: number | null) => (v === null ? null : Math.round(v));
 export interface SolverProblemV2 {
   schemaVersion?: 1 | 2;
   matrix: { durationsS: (number | null)[][]; distancesM?: (number | null)[][] | null };
-  vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null; type?: string; wheelchairSpaces?: number }[];
+  vehicles: { id: string; startIndex: number | null; endIndex: number | null; capacity?: number | null; timeWindow?: [number, number] | null; type?: string; wheelchairSpaces?: number; fixedCost?: number }[];
   stops: (SolverStop & { customerId?: string; pinnedVehicleId?: string; passengerIds?: string[]; wheelchair?: number })[];
   horizonS: number;
-  trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number };
+  /** detourGuard: WP-S contract (soft ride bound max(direct × ratio, direct + extraS), costPerS per second above it). */
+  trip?: { direction: 'IN' | 'OUT'; siteIndex: number; siteWindow: [number, number]; maxRideS?: number; detourGuard?: { ratio: number; extraS: number; costPerS: number } };
   options: SolverOptions & { weights: SolverWeights; deterministic?: boolean; allowMixedCustomers?: boolean };
 }
 
@@ -217,26 +232,48 @@ export function solverProblem(inp: PlanInputs, b: BuiltProblem, m: BuiltMatrix, 
     ...(s.passengerIds?.length ? { passengerIds: s.passengerIds } : {}),
     ...(s.wheelchair ? { wheelchair: s.wheelchair } : {}),
   }));
+  const weights = inp.solver?.weights ?? defaultWeights(opts.objective);
+  // E4 WP-A: vehicle size preference → per-vehicle fixed cost; availability → vehicle timeWindow (clamped to the horizon).
+  const fixed = vehicleFixedCosts(inp.vehicles, weights.vehicle, inp.vehicleSize);
+  const availability = (v: PlanVehicleInput): [number, number] | null => {
+    if (!v.availability) return null;
+    const lo = Math.max(0, Math.min(horizonS, Math.round(v.availability[0])));
+    const hi = Math.max(0, Math.min(horizonS, Math.round(v.availability[1] ?? horizonS)));
+    return lo <= hi ? [lo, hi] : null;
+  };
   return {
     schemaVersion: 2,
     matrix: { durationsS: m.durationsS.map((r) => r.map(int)), distancesM: m.distancesM.map((r) => r.map(int)) },
     // Start / end always explicit (a missing startIndex means 0, which is the site in trip mode).
-    vehicles: inp.vehicles.map((v) => ({
-      id: v.assignmentId,
-      startIndex: b.startIndex,
-      endIndex: b.endIndex,
-      capacity: v.capacity,
-      ...(v.type ? { type: v.type } : {}),
-      ...(v.wheelchairSpaces ? { wheelchairSpaces: v.wheelchairSpaces } : {}),
-    })),
+    vehicles: inp.vehicles.map((v) => {
+      const tw = availability(v);
+      return {
+        id: v.assignmentId,
+        startIndex: b.startIndex,
+        endIndex: b.endIndex,
+        capacity: v.capacity,
+        ...(v.type ? { type: v.type } : {}),
+        ...(v.wheelchairSpaces ? { wheelchairSpaces: v.wheelchairSpaces } : {}),
+        ...(tw ? { timeWindow: tw } : {}),
+        ...(fixed.has(v.assignmentId) ? { fixedCost: fixed.get(v.assignmentId) } : {}),
+      };
+    }),
     stops,
     horizonS,
     ...(b.trip
-      ? { trip: { direction: b.trip.direction, siteIndex: b.trip.siteIndex, siteWindow: siteWindow(b, horizonS), ...(inp.maxRideS ? { maxRideS: Math.round(inp.maxRideS) } : {}) } }
+      ? {
+          trip: {
+            direction: b.trip.direction,
+            siteIndex: b.trip.siteIndex,
+            siteWindow: siteWindow(b, horizonS),
+            ...(inp.maxRideS ? { maxRideS: Math.round(inp.maxRideS) } : {}),
+            ...(inp.detourGuard ? { detourGuard: { ...inp.detourGuard } } : {}),
+          },
+        }
       : {}),
     options: {
       timeLimitS: opts.timeLimitS,
-      weights: inp.solver?.weights ?? defaultWeights(opts.objective),
+      weights,
       ...(inp.solver?.deterministic ? { deterministic: true } : {}),
       ...(inp.solver?.allowMixedCustomers ? { allowMixedCustomers: true } : {}),
     },
@@ -256,7 +293,36 @@ export interface AssignmentWrite {
 
 export interface PlanWrite {
   assignments: AssignmentWrite[];
-  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string }[];
+  unassigned: { stopId: string; reason: OptimizeUnassignedReason; code?: string; detail?: OptimizeUnassignedDetail }[];
+}
+
+/**
+ * E4 WP-A: a solver unassigned entry → the API reason. Code FLEET_TOO_SMALL (WP-S) becomes reason `fleet_too_small`
+ * whatever `reason` the solver kept (the P3 name `not_scheduled_capacity_or_time`), so the plan stop says why.
+ */
+export function unassignedReasonOf(u: { reason: OptimizeUnassignedReason | string; code?: string }): OptimizeUnassignedReason {
+  if (u.code === 'FLEET_TOO_SMALL' || u.reason === 'fleet_too_small') return 'fleet_too_small';
+  return u.reason as OptimizeUnassignedReason;
+}
+
+/** The solver detail of an unassigned stop, known keys only (no coordinates or names ever pass). */
+export function unassignedDetailOf(raw: unknown): OptimizeUnassignedDetail | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const d = raw as Record<string, unknown>;
+  const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 10).map((x) => x.slice(0, 40)) : undefined);
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const out: OptimizeUnassignedDetail = {};
+  const binding = strs(d.binding);
+  const failed = strs(d.failed);
+  if (binding) out.binding = binding;
+  if (failed) out.failed = failed;
+  for (const k of ['freeSeats', 'seatsNeeded', 'seats'] as const) {
+    const n = num(d[k]);
+    if (n !== undefined) out[k] = n;
+  }
+  if (typeof d.rule === 'string') out.rule = d.rule.slice(0, 40);
+  if (typeof d.pinnedVehicleId === 'string') out.pinnedVehicleId = d.pinnedVehicleId.slice(0, 64);
+  return Object.keys(out).length ? out : undefined;
 }
 
 /**
@@ -309,9 +375,10 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
     assignments.push({ assignmentId: route.vehicleId, visits, startS: int(route.startS), endS: int(route.endS), durationS: int(route.durationS), distanceM: int(route.distanceM) });
   }
   const unassigned: PlanWrite['unassigned'] = inp.excluded.map((e) => ({ stopId: e.stopId, reason: e.reason }));
-  for (const u of r.unassigned as (SolverResult['unassigned'][number] & { code?: string })[]) {
+  for (const u of r.unassigned) {
     if (!stopIds.has(u.stopId) || seen.has(u.stopId)) throw new JobError('INVALID_INPUT', 'Optimizer answered with an unknown or repeated unassigned stop');
-    unassigned.push({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}) });
+    const detail = unassignedDetailOf(u.detail);
+    unassigned.push({ stopId: u.stopId, reason: unassignedReasonOf(u), ...(u.code ? { code: u.code } : {}), ...(detail ? { detail } : {}) });
     seen.add(u.stopId);
   }
   // Every solver stop exactly once: on a route or unassigned ("optimiser output is never trusted", doc 06 §4.5).
@@ -358,6 +425,8 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
   for (const v of inp.vehicles) if (!assignments.some((a) => a.assignmentId === v.assignmentId)) assignments.push({ assignmentId: v.assignmentId, visits: [], startS: null, endS: null, durationS: null, distanceM: null });
 
   const eta = uncalibratedEta(graphVersion);
+  // Busy vehicles left out before the solve, then the solver's own unusable vehicles (known ones only).
+  const unusable: OptimizeUnusableVehicle[] = [...(inp.unusableVehicles ?? []), ...(r.unusableVehicles ?? []).filter((u) => known.has(u.vehicleId)).map((u) => ({ vehicleId: u.vehicleId, reason: String(u.reason).slice(0, 64) }))];
   const result: OptimizeResult = {
     status: r.status,
     provenOptimal: r.provenOptimal === true,
@@ -383,7 +452,9 @@ export function mapSolverResult(inp: PlanInputs, b: BuiltProblem, r: SolverResul
           eta,
         };
       }),
-    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}) })),
+    unassigned: unassigned.map((u) => ({ stopId: u.stopId, reason: u.reason, ...(u.code ? { code: u.code } : {}), ...(u.detail ? { detail: u.detail } : {}) })),
+    ...(unusable.length ? { unusableVehicles: unusable } : {}),
+    ...(inp.strategy ? { strategy: inp.strategy } : {}),
     ...(r.stats ? { stats: r.stats } : {}),
     ...(r.note ? { note: r.note } : {}),
   };

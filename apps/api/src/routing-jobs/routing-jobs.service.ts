@@ -1,5 +1,7 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
+  can,
+  ETMS_PLANNING_MENU,
   OSM_ATTRIBUTION,
   ROUTING_JOB_STATE_OF,
   ROUTING_LIMITS,
@@ -10,6 +12,8 @@ import {
   RoutingJobStatus,
   RoutingProfile,
   type MaxRideOverrideInput,
+  type RoutePlanPreferences,
+  type RoutingStrategy,
 } from '@veetracer/shared';
 import type { AuthContext } from '../access/auth-context';
 import { idempotencyKey as parseIdempotencyKey, requestHash } from '../etms/dispatch/e3-common';
@@ -18,14 +22,28 @@ import { ActiveLimitExceeded, DuplicateIdempotencyKey, JobRecord, PlanNotFound, 
 import { RoutingHttpError } from './routing-flags';
 import type { SolverWeights } from './optimize-problem';
 import { checkMaxRideOverride } from './max-ride';
+import { checkPreferences, resolveOptimisation } from './strategies';
 
-/** P6: all four weights finite and >= 0, at least one of distance / time / routeDuration > 0 (else 400). */
+/**
+ * P6: all four weights finite and >= 0, at least one of distance / time / routeDuration > 0 (else 400). E4 WP-A: the
+ * optional fifth, rideTime (finite, >= 0), is kept when given (weights without it stay valid).
+ */
 export function checkWeights(w: SolverWeights | undefined): SolverWeights {
   const keys = ['vehicle', 'distance', 'time', 'routeDuration'] as const;
-  if (!w || !keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && w[k] >= 0) || !(w.distance || w.time || w.routeDuration)) {
-    throw new BadRequestException({ message: 'weights {vehicle, distance, time, routeDuration} are required: numbers >= 0, one of distance / time / routeDuration > 0', code: 'VALIDATION_FAILED' });
+  const rideOk = w?.rideTime === undefined || (typeof w.rideTime === 'number' && Number.isFinite(w.rideTime) && w.rideTime >= 0);
+  if (!w || !keys.every((k) => typeof w[k] === 'number' && Number.isFinite(w[k]) && w[k] >= 0) || !rideOk || !(w.distance || w.time || w.routeDuration)) {
+    throw new BadRequestException({ message: 'weights {vehicle, distance, time, routeDuration[, rideTime]}: numbers >= 0, one of distance / time / routeDuration > 0', code: 'VALIDATION_FAILED' });
   }
-  return { vehicle: w.vehicle, distance: w.distance, time: w.time, routeDuration: w.routeDuration };
+  return { vehicle: w.vehicle, distance: w.distance, time: w.time, routeDuration: w.routeDuration, ...(w.rideTime !== undefined ? { rideTime: w.rideTime } : {}) };
+}
+
+/** E4 WP-A: what the reservation records with the run (RoutePlan.options) besides the weights. */
+export interface OptimizeRunExtra {
+  maxRideOverride?: MaxRideOverrideInput | null;
+  strategy?: RoutingStrategy | null;
+  weightsSource?: 'strategy' | 'weights';
+  /** Validated preferences (undefined = none for this run). */
+  preferences?: RoutePlanPreferences;
 }
 
 export const ROUTING_JOB_STORE = Symbol('ROUTING_JOB_STORE');
@@ -42,7 +60,7 @@ export interface PlanJobLink {
    * normalised; undefined = keep, null = clear) changes the plan's override (audited); the max-ride snapshot is always
    * written (owner decision 1).
    */
-  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: { maxRideOverride?: MaxRideOverrideInput | null }): Promise<{ profile: RoutingProfile }>;
+  reserve(tx: StoreTx, ctx: AuthContext, planId: string, expectedVersion: number, weights?: SolverWeights, extra?: OptimizeRunExtra): Promise<{ profile: RoutingProfile }>;
   /** Plan OPTIMIZING → DRAFT (no version change) after a job FAILED / was CANCELLED. Idempotent. */
   release(job: Pick<JobRecord, 'companyId' | 'planId'>): Promise<void>;
   /** Plan visible to the caller (job reads are filtered by it). */
@@ -59,8 +77,15 @@ export interface OptimizeJobRequest {
   expectedVersion: number;
   timeLimitS?: number;
   objective?: 'duration' | 'distance';
-  /** Explicit objective weights (README P6); stored on the plan and sent to the solver. */
-  weights: SolverWeights;
+  /**
+   * Explicit objective weights (README P6, advanced); stored on the plan and sent to the solver. E4 WP-A: optional — a
+   * `strategy` (default BALANCED) gives them; weights named with a strategy win (both recorded).
+   */
+  weights?: SolverWeights;
+  /** E4 WP-A: optimisation strategy (shared ROUTING_STRATEGIES). */
+  strategy?: RoutingStrategy;
+  /** E4 WP-A: run preferences (validated; stored in RoutePlan.options.preferences). */
+  preferences?: RoutePlanPreferences;
   /** Owner decision 1: per-plan max-ride override (authorised callers, with a reason); null clears it; absent keeps it. */
   maxRideOverride?: MaxRideOverrideInput | null;
 }
@@ -123,11 +148,28 @@ export class RoutingJobsService {
   async enqueueOptimize(ctx: AuthContext, req: OptimizeJobRequest, rawKey: string | undefined, now = new Date()): Promise<{ job: RoutingJobDto; replay: boolean }> {
     if (ctx.allCompanies) throw new BadRequestException({ message: 'Select one company to optimise its plans', code: 'VALIDATION_FAILED' });
     const key = parseIdempotencyKey(rawKey);
-    const weights = checkWeights(req.weights);
+    // E4 WP-A: strategy / raw weights / preferences → the run's weights (raw weights win; BALANCED by default).
+    const preferences = checkPreferences(req.preferences);
+    // preserveLocks=false re-solves locked routes: only for callers who may edit plans (audited at the reservation).
+    if (preferences?.preserveLocks === false && !can(ctx.permissions, ETMS_PLANNING_MENU, 'edit')) {
+      throw new ForbiddenException({ message: 'Only a user who may edit plans can re-optimise locked routes (preserveLocks: false)', code: 'FORBIDDEN_GRANT' });
+    }
+    const run = resolveOptimisation({ strategy: req.strategy, weights: req.weights ? checkWeights(req.weights) : undefined, preferences });
+    const weights = run.weights;
     const timeLimitS = Math.max(1, Math.min(ROUTING_LIMITS.optimizeTimeLimitS, Math.round(req.timeLimitS ?? 10)));
     // Owner decision 1: only an authorised caller may name an override (403 before anything is written).
     const maxRideOverride = checkMaxRideOverride(ctx, req.maxRideOverride);
-    const body = { kind: 'optimize', planId: req.planId, expectedVersion: req.expectedVersion, timeLimitS, objective: req.objective ?? 'duration', weights, ...(maxRideOverride !== undefined ? { maxRideOverride } : {}) };
+    const body = {
+      kind: 'optimize',
+      planId: req.planId,
+      expectedVersion: req.expectedVersion,
+      timeLimitS,
+      objective: req.objective ?? 'duration',
+      weights,
+      ...(maxRideOverride !== undefined ? { maxRideOverride } : {}),
+      ...(run.strategy ? { strategy: run.strategy } : {}),
+      ...(preferences ? { preferences } : {}),
+    };
     const hash = requestHash(body);
 
     const existing = await this.store.findByKey(ctx.companyId, key);
@@ -159,9 +201,9 @@ export class RoutingJobsService {
           maxActive: ROUTING_LIMITS.concurrentOptimizePerCompany,
         },
         async (tx) => {
-          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights, maxRideOverride !== undefined ? { maxRideOverride } : undefined);
+          const { profile } = await this.plans.reserve(tx, ctx, req.planId, req.expectedVersion, weights, { ...(maxRideOverride !== undefined ? { maxRideOverride } : {}), strategy: run.strategy, weightsSource: run.weightsSource, preferences });
           // Ids, numbers and the weights only: never a coordinate or a name (shared RoutingJobInput rule).
-          const input: RoutingJobInput & { weights: SolverWeights } = { kind: 'optimize', planId: req.planId, planVersion: req.expectedVersion, profile, timeLimitS, ...(req.objective ? { objective: req.objective } : {}), weights };
+          const input: RoutingJobInput & { weights: SolverWeights } = { kind: 'optimize', planId: req.planId, planVersion: req.expectedVersion, profile, timeLimitS, ...(req.objective ? { objective: req.objective } : {}), weights, ...(run.weightsSource === 'strategy' && run.strategy ? { strategy: run.strategy } : {}) };
           return { input };
         },
       );

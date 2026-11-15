@@ -53,6 +53,7 @@ export * from './transport-self';
 export * from './transport-provider';
 export * from './routing';
 export * from './routing-plans';
+export * from './routing-strategies';
 export * from './transport-sos';
 export * from './transport-adhoc';
 export * from './routing-switch';

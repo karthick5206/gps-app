@@ -164,6 +164,53 @@ _Filled from the strategy prototype (§6 is updated by the next commit)._
 
 No production change. E4 stays off until the existing gates pass (§8).
 
+### 7.1 WP-A notes (API: strategies, preferences, availability, alternatives, metrics)
+
+Branch `feature/e4-wpa`. No migration (everything lives in `RoutePlan.options`). E4 stays off.
+
+**Strategies** (`strategy` on `POST /api/routing/jobs/optimize` and `POST /api/transport/route-plans/:id/optimize`;
+shared `ROUTING_STRATEGIES` + `ROUTING_STRATEGY_INFO` trade-off texts; server `routing-jobs/strategies.ts`):
+
+| Strategy | vehicle | distance | time | routeDuration | rideTime |
+|---|---|---|---|---|---|
+| BALANCED (default) | 3600 | 0 | 2 | 0 | 1 |
+| FEWER_VEHICLES | 20000 | 0 | 1 | 0 | 0 |
+| SHORTEST_DISTANCE | 2000 | 1 | 0 | 0 | 0 |
+| FASTEST | 120 | 0 | 1 | 0 | 0 |
+| COMFORT | 1800 | 0 | 1 | 0 | 2 |
+
+`weights` is now optional (advanced). Strategy + weights: the weights win; `options.strategy` and
+`options.weightsSource` record both. `weights.rideTime` is optional; stored weights without it stay valid. An older
+solver ignores `rideTime` / `detourGuard`.
+
+**Preferences** (`preferences`, stored in `options.preferences`, replaced on every optimise): `maxRideS` (never above
+the plan's override, else the company policy: 400 `MAX_RIDE_ABOVE_POLICY`; only `maxRideOverride` can raise the limit);
+`detourGuard {ratio 1.2–3, extraMin 0–60}` → solver `trip.detourGuard {ratio, extraS, costPerS: 20}`;
+`preferredOccupancy` 0.5–1 → vehicle weight × 2^(4(p − 0.75)); `vehicleSize` SMALLER / LARGER → per-vehicle `fixedCost`
+= vehicle weight × seats / average seats (or the inverse), clamped 0.25–4; `groupingPreference: KEEP_DIRECTIONS` → detour
+guard 1.6 / +10 min when none is given; `preservePins` (false = ignore pins for the run); `preserveLocks` (false =
+re-solve locked routes; 403 `FORBIDDEN_GRANT` without etms_planning:edit; audited). Published routes are never re-solved.
+Seats, consent, isolation, windows and the policy max ride stay hard.
+
+**Availability.** At load, the active PlannedTrips (any origin) of each plan vehicle and its driver around planStartAt
+become the vehicle's `timeWindow` (the free interval that can serve the site window). A vehicle with no such interval is
+left out and reported in the job result `unusableVehicles` (`VEHICLE_BUSY` / `DRIVER_BUSY`). Publish still re-checks.
+
+**Unassigned.** Solver code `FLEET_TOO_SMALL` becomes reason `fleet_too_small` (site end too). Known `detail` keys
+(`binding`, `freeSeats` …) pass into the job result. English texts are in shared `OPTIMIZE_UNASSIGNED_REASON_TEXT`.
+
+**Alternatives.** `POST /api/transport/route-plans/:id/alternatives` `{strategies (2–5, distinct), expectedVersion,
+timeLimitS?, preferences?}`. It needs etms_planning:create and an Idempotency-Key. It creates one sibling DRAFT plan per
+strategy (`options.alternativeOf`, `options.strategy`; stops unassigned; locks and pins are not copied). Published routes
+and personal stops without consent are not cloned (`skippedBookings`). One optimise job per sibling goes through the job
+service. Jobs beyond the per-company concurrency come back with `jobId: null` + `QUOTA_EXCEEDED`; a replay with the same
+key starts them. `GET /api/transport/route-plans/:id/alternatives` lists the siblings with their latest job.
+
+**Compare metrics** (`GET /compare`, `plan-metrics.ts`; definitions in shared `ROUTE_PLAN_METRIC_DEFINITIONS`):
+vehiclesUsed, passengersAssigned / bookingsAssigned, totalDistanceM, totalTravelS, maxRideS / avgRideS (drop ETA −
+pickup ETA), occupancy per route and avgOccupancy, deadlineCompliance {inside, total, ratio}, excluded (by reason),
+strategy, alternativeOf. The existing fields are unchanged.
+
 ## 8. Activation gates (unchanged)
 
 Three switches (env, platform, company) plus the readiness checklist (`routing-switch/*`), Python 3.14 (doc 17 §7),

@@ -57,6 +57,7 @@ import { MemoryStore } from './memory-store';
 import { RoutePlansController } from '../planning/plans.controller';
 import { RoutePlansService } from '../planning/plans.service';
 import { RoutePlanCreateController, RoutePlanCreateService } from '../planning/plan-create';
+import { RoutePlanAlternativesController, RoutePlanAlternativesService } from '../planning/plan-alternatives';
 import { MemoryJobQueue } from '../../routing-jobs/job-queue';
 import { PrismaJobStore } from '../../routing-jobs/prisma-job-store';
 import { PrismaPlanGateway } from '../../routing-jobs/prisma-plan-gateway';
@@ -257,6 +258,7 @@ function e4Controllers(prisma: Obj, audit: AuditService, redis: object) {
     create: new RoutePlanCreateController(new RoutePlanCreateService(prisma as never, audit, plans), jobs),
     jobs: new RoutingJobsController(jobs),
     caps: new RoutingCapabilitiesController(caps),
+    alternatives: new RoutePlanAlternativesController(new RoutePlanAlternativesService(prisma as never, audit, plans, jobs)),
   };
 }
 
