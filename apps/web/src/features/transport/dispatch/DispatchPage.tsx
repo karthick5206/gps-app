@@ -689,17 +689,19 @@ export function DispatchPage() {
       {board.isPending || !ctx ? (
         <Skeleton className="h-96 w-full rounded-xl" />
       ) : desktop ? (
-        <div className="grid min-h-[560px] flex-1 grid-cols-[minmax(17rem,21rem)_minmax(0,1fr)_minmax(19rem,25rem)] gap-4">
-          <div className={cn(pane, 'max-h-[calc(100dvh-16rem)]')}>
-            <QueuePanel ctx={ctx} />
-          </div>
-          <div className={cn(pane, 'max-h-[calc(100dvh-16rem)]')}>
-            {draftBar}
-            {serverDrafts}
-            <CandidatesPanel ctx={ctx} />
-          </div>
-          <div className={cn(pane, 'max-h-[calc(100dvh-16rem)]')}>
-            <TripsPanel ctx={ctx} />
+        <div className="flex min-w-0 flex-col gap-4">
+          {/* Riders waiting: one table grouped by shift (or by route after Routing), like Schedules. */}
+          <QueuePanel ctx={ctx} variant="table" />
+          <div className="grid min-h-[420px] grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] gap-4">
+            <div className={cn(pane, 'max-h-[calc(100dvh-12rem)]')}>
+              {draftBar}
+              {serverDrafts}
+              {/* Manual assignment helper: only while riders are ticked. */}
+              {selected.size > 0 && <CandidatesPanel ctx={ctx} />}
+            </div>
+            <div className={cn(pane, 'max-h-[calc(100dvh-12rem)]')}>
+              <TripsPanel ctx={ctx} />
+            </div>
           </div>
         </div>
       ) : (

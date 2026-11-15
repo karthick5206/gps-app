@@ -96,6 +96,7 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
 - **Daily transport (v1.16.5):** the Dispatch page is renamed in the menu (`etms_dispatch` label). The sidebar always hides **Route planning** (`etms_planning`); the page still opens by its address.
   - Tabs: **Roster** (shift commutes: `shiftId` set and not POINT_TO_POINT) and **Ad-hoc** (everything else). Ad-hoc shows **New ad-hoc booking** and **Group ride**.
   - A step bar shows riders waiting → routes → vehicles → started → done.
+  - Desktop (v1.16.6): riders waiting are a full-width table grouped by shift and time (or by route), numbered, with Passenger, Shift, Direction, Pickup → destination, Window, Status and Route columns (`QueuePanel variant="table"`; phones keep the cards). Draft and Trips sit side by side below. The Assign helper shows only while riders are ticked. Vehicles are collapsed by default.
   - **Copy from…** offers yesterday, the same day last week or a chosen day (`copyDay` with the day difference).
   - **Add employee** opens the desk New booking dialog.
   - **▶ Start** on each published, scheduled trip card, plus **Start all**. Both use `POST /transport/trips/:id/start`.

@@ -79,7 +79,7 @@ const assignable = (b: TransportBookingDto) => b.status === 'PENDING_ASSIGNMENT'
 
 // ───────────────────────────── Queue ─────────────────────────────
 
-export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void }) {
+export function QueuePanel({ ctx, onFind, variant = 'cards' }: { ctx: PanelCtx; onFind?: () => void; variant?: 'cards' | 'table' }) {
   const { t } = useTranslation();
   const [q, setQ] = useState('');
   const inDraft = useMemo(() => draftBookingIds(ctx.draft), [ctx.draft]);
@@ -147,7 +147,7 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
     <section aria-labelledby="queue-h" className="flex min-h-0 min-w-0 flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <h2 id="queue-h" className="text-sm font-semibold">
-          {t('Unassigned')} <span className="text-muted-foreground tabular-nums">({ctx.board.queue.length})</span>
+          {t('Riders waiting')} <span className="text-muted-foreground tabular-nums">({ctx.board.queue.length})</span>
         </h2>
         {ctx.canPlan && free.length > 0 && (
           <Button size="sm" variant="ghost" onClick={() => ctx.setSelected(allSelected ? new Set() : new Set(free.map((b) => b.id)))}>
@@ -161,6 +161,100 @@ export function QueuePanel({ ctx, onFind }: { ctx: PanelCtx; onFind?: () => void
       </div>
       {rows.length === 0 ? (
         <EmptyState icon={InboxIcon} title={ctx.board.queue.length ? t('No match') : t('Everyone has a seat')} description={ctx.board.queue.length ? undefined : t('No booking of this day and direction is waiting for a seat.')} className="py-8" />
+      ) : variant === 'table' ? (
+        <div className="max-h-[42dvh] overflow-auto rounded-lg border bg-card">
+          <table className="w-full text-sm" aria-label={t('Bookings waiting for a seat')}>
+            <thead className="sticky top-0 z-[2] bg-muted text-xs text-muted-foreground uppercase">
+              <tr>
+                {ctx.canPlan && <th className="w-9 px-2 py-2" />}
+                <th className="px-2 py-2 text-left font-medium">{t('Passenger')}</th>
+                <th className="px-2 py-2 text-left font-medium">{t('Shift')}</th>
+                <th className="px-2 py-2 text-left font-medium">{t('Direction')}</th>
+                <th className="hidden px-2 py-2 text-left font-medium lg:table-cell">{t('Pickup → destination')}</th>
+                <th className="px-2 py-2 text-left font-medium">{t('Window')}</th>
+                <th className="px-2 py-2 text-left font-medium">{t('Status')}</th>
+                {!!ctx.routes?.length && <th className="px-2 py-2 text-left font-medium">{t('Route')}</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {sections.map((sec) => (
+                <Fragment key={sec.key}>
+                  <tr className="bg-accent/60">
+                    {ctx.canPlan && (
+                      <td className="px-2 py-1.5">
+                        {sec.selectable.length > 0 && <Checkbox checked={sec.selectable.every((id) => ctx.selected.has(id))} onCheckedChange={(v) => selectMany(sec.selectable, !!v)} aria-label={t('Select everyone in {{group}}', { group: sec.label })} />}
+                      </td>
+                    )}
+                    <td colSpan={20} className="px-2 py-1.5 text-sm font-semibold text-primary">
+                      {sec.label}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">{t('{{n}} people · {{s}} seats', { n: sec.rows.length, s: sec.seats })}</span>
+                    </td>
+                  </tr>
+                  {sec.rows.map((b, i) => {
+                    const drafted = inDraft.has(b.id);
+                    const ok = assignable(b);
+                    return (
+                      <tr key={b.id} className={cn('border-t', ctx.selected.has(b.id) && 'bg-primary/5', drafted && 'opacity-60')}>
+                        {ctx.canPlan && (
+                          <td className="px-2 py-1.5">
+                            <Checkbox disabled={!ok || drafted} checked={ctx.selected.has(b.id)} onCheckedChange={(v) => toggle(b.id, !!v)} aria-label={t('Select {{name}}', { name: b.passenger.displayName })} />
+                          </td>
+                        )}
+                        <td className="px-2 py-1.5">
+                          <span className="flex items-start gap-2">
+                            <span className="w-5 shrink-0 pt-px text-right text-xs text-muted-foreground tabular-nums">{i + 1}.</span>
+                            <span className="min-w-0">
+                              <span className="block font-medium">{b.passenger.displayName}</span>
+                              <span className="font-mono text-xs text-muted-foreground">{b.passenger.employeeCode}</span>
+                            </span>
+                          </span>
+                        </td>
+                        <td className="px-2 py-1.5 text-xs">{b.shiftName ?? t('One-off')}</td>
+                        <td className="px-2 py-1.5 text-xs">{b.direction === 'OUT' ? t('Logout') : t('Login')}</td>
+                        <td className="hidden max-w-72 truncate px-2 py-1.5 text-xs text-muted-foreground lg:table-cell">{routeText(b, t)}</td>
+                        <td className="px-2 py-1.5 text-xs tabular-nums">
+                          {clock(b.windowStart)}–{clock(b.windowEnd)}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <span className="flex flex-wrap items-center gap-1">
+                            {drafted ? <Badge variant="info">{t('In draft')}</Badge> : b.status === 'PENDING_ASSIGNMENT' ? <Badge variant="outline">{t('Waiting')}</Badge> : <BookingStatusBadge status={b.status} />}
+                            {b.needsLocation && <Badge variant="warning">{t('Needs location')}</Badge>}
+                            {b.pointsHidden === 'CONSENT_REQUIRED' && <Badge variant="warning">{t('No routing consent')}</Badge>}
+                            {groupIdOf(b) && <GroupBadge size={sizes.get(groupIdOf(b)!) ?? 1} purpose={purposeOf(b)} />}
+                            {(b.status === 'REQUESTED' || b.status === 'WAITLISTED') && b.allowedActions.includes('approve') && (
+                              <Button size="sm" variant="outline" className="h-7" onClick={() => ctx.approve(b)} disabled={ctx.busy}>
+                                <CheckIcon /> {t('Approve')}
+                              </Button>
+                            )}
+                          </span>
+                        </td>
+                        {!!ctx.routes?.length && (
+                          <td className="px-2 py-1.5">
+                            {ctx.canPlan && ctx.moveToRoute && !drafted && (
+                              <select
+                                className="h-7 max-w-36 rounded-md border border-input bg-card px-1.5 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                                value={ctx.routes.find((r) => r.bookings.some((x) => x.id === b.id))?.id ?? ''}
+                                onChange={(e) => ctx.moveToRoute!(b.id, e.target.value || null)}
+                                aria-label={t('Route of {{name}}', { name: b.passenger.displayName })}
+                              >
+                                <option value="">{t('Not in a route')}</option>
+                                {ctx.routes.map((r) => (
+                                  <option key={r.id} value={r.id}>
+                                    {r.label.split(' · ')[0]}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-0.5" aria-label={t('Bookings waiting for a seat')}>
           {sections.map((sec) => (
@@ -699,7 +793,8 @@ function useTripSheets(ctx: PanelCtx) {
 
 export function TripsPanel({ ctx }: { ctx: PanelCtx }) {
   const { t } = useTranslation();
-  const [showVehicles, setShowVehicles] = useState(true);
+  // Collapsed by default: open when a vehicle is needed (Allocate vehicles and the trip cards use them anyway).
+  const [showVehicles, setShowVehicles] = useState(false);
   const diff = useMemo(() => new Map(diffDraft(ctx.draft, ctx.board.trips).map((r) => [r.key, r])), [ctx.draft, ctx.board.trips]);
   const trips = useMemo(() => [...ctx.board.trips].sort((a, b) => (a.plannedStart ?? '').localeCompare(b.plannedStart ?? '')), [ctx.board.trips]);
   const sheets = useTripSheets(ctx);
