@@ -114,7 +114,9 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'etms_planning', label: 'Route planning', group: 'transport', path: '/transport/planning', actions: ['view', 'create', 'edit', 'delete', 'command'], requires: ETMS },
   // E5 (WP 5.4): open SOS lane; view = list / detail, edit = acknowledge / resolve (export / command reserved for E6).
   { key: 'etms_incidents', label: 'Incidents & SOS', group: 'transport', path: '/transport/incidents', actions: ['view', 'edit', 'export', 'command'], requires: ETMS },
-  { key: 'etms_vendors', label: 'Vendors & rate cards', group: 'transport', path: '/transport/vendors', actions: CRUD, requires: ETMS },
+  // v1.16.10: vendors (cab / fleet operators) with their vehicles, drivers and rates, for every company (normal
+  // tracking too); only Vendor billing needs the Employee transport add-on. The key keeps its etms_ prefix (stored grants).
+  { key: 'etms_vendors', label: 'Vendors', group: 'masters', path: '/vendors', actions: CRUD },
   { key: 'etms_billing', label: 'Vendor billing', group: 'transport', path: '/transport/billing', actions: ['view', 'export'], requires: ETMS },
   { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
   { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },

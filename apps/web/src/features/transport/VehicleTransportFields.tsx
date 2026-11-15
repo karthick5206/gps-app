@@ -36,11 +36,11 @@ export function transportProfileBody(v: VehicleTransportValues) {
  * Optional: passenger seats (driver not counted), wheelchair spaces, category and AC. Loads the saved profile when
  * editing; the form saves it after the vehicle (PUT /transport/vehicles/:id/profile).
  */
-export function VehicleTransportFields({ objectId, open, value, onChange }: { objectId: string | null; open: boolean; value: VehicleTransportValues; onChange: Dispatch<SetStateAction<VehicleTransportValues>> }) {
+export function VehicleTransportFields({ objectId, open, value, onChange, transport = true }: { objectId: string | null; open: boolean; value: VehicleTransportValues; onChange: Dispatch<SetStateAction<VehicleTransportValues>>; transport?: boolean }) {
   const { t } = useTranslation();
   const saved = useQuery({
     queryKey: ['transport-vehicle-profile', objectId],
-    enabled: open && !!objectId,
+    enabled: open && !!objectId && transport,
     queryFn: ({ signal }) => api.get<TransportVehicleProfileDto | null>(`${TRANSPORT_VEHICLES_ENDPOINT}/${objectId}/profile`, undefined, signal).catch(() => null),
   });
   const { can } = useAuth();
@@ -64,9 +64,9 @@ export function VehicleTransportFields({ objectId, open, value, onChange }: { ob
   const sel = 'h-9 w-full rounded-md border border-input bg-card px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
   return (
     <fieldset className="grid gap-3 rounded-lg border border-dashed p-3 sm:grid-cols-4">
-      <legend className="px-1 text-sm font-medium">{t('Employee transport (optional)')}</legend>
+      <legend className="px-1 text-sm font-medium">{transport ? t('Vendor & employee transport (optional)') : t('Vendor (optional)')}</legend>
       {can('etms_vendors') && (
-        <Field label={t('Vendor (cab operator)')} htmlFor="vt-vendor" hint={t('Who runs and bills this vehicle. Vendor billing uses the vendor + this category + the vehicle branch to pick the rate card.')} className="sm:col-span-4">
+        <Field label={t('Vendor (cab operator)')} htmlFor="vt-vendor" hint={t('Who runs and bills this vehicle. Rates follow the vendor + vehicle type + branch.')} className="sm:col-span-4">
           <select id="vt-vendor" className={sel} value={value.vendorId} onChange={(e) => onChange({ ...value, vendorId: e.target.value })}>
             <option value="">{t('Own vehicle / no vendor')}</option>
             {vendors.options.map((v) => (
@@ -77,6 +77,8 @@ export function VehicleTransportFields({ objectId, open, value, onChange }: { ob
           </select>
         </Field>
       )}
+      {transport && (
+      <>
       <Field label={t('Passenger seats')} htmlFor="vt-seats" hint={t('Driver not counted. Route planning never puts more people in.')} error={seatsBad ? t('{{min}}–{{max}}', { min: SEATS_MIN, max: SEATS_MAX }) : undefined}>
         <Input id="vt-seats" type="number" inputMode="numeric" min={SEATS_MIN} max={SEATS_MAX} value={value.seats} onChange={(e) => onChange({ ...value, seats: e.target.value })} placeholder="e.g. 6" />
       </Field>
@@ -100,6 +102,8 @@ export function VehicleTransportFields({ objectId, open, value, onChange }: { ob
           <option value="no">{t('No')}</option>
         </select>
       </Field>
+      </>
+      )}
     </fieldset>
   );
 }

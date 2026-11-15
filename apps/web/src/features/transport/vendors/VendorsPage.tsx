@@ -1,17 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { BranchDto, DriverDto, TrackedObjectDto, TransportVendorAssetsDto, TransportVendorDto } from '@veetracer/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { BranchDto, TransportVendorDto } from '@veetracer/shared';
 import { CarFrontIcon, ReceiptIndianRupeeIcon, TruckIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { Field } from '@/components/ui/field';
-import { MultiSelect } from '@/components/ui/multi-select';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useAuth } from '@/features/auth/auth-context';
 import { ActiveBadge, Muted } from '@/features/masters/cells';
 import { FormDialog, useSaveMutation } from '@/features/masters/FormDialog';
@@ -20,8 +15,8 @@ import { nullIfBlank, str } from '@/features/masters/form-schema';
 import { MasterPage } from '@/features/masters/MasterPage';
 import type { MasterColumn, MasterFormProps } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
-import { api, errorMessage } from '@/lib/api';
 import { RateCardsSheet } from './RateCardsSheet';
+import { VendorSetupSheet } from './VendorSetupSheet';
 
 export const VENDORS_ENDPOINT = '/transport/vendors';
 
@@ -114,85 +109,16 @@ const columns: MasterColumn<TransportVendorDto>[] = [
   { id: 'isActive', header: 'Status', cell: (r) => <ActiveBadge active={r.isActive} /> },
 ];
 
-/** The vendor's vehicles (any type, car … bus) and drivers. A vehicle / driver moves from another vendor when picked here. */
-function AssetsSheet({ vendor, onClose }: { vendor: TransportVendorDto | null; onClose: () => void }) {
-  const { t } = useTranslation();
-  const { can } = useAuth();
-  const qc = useQueryClient();
-  const open = !!vendor;
-  const data = useQuery({ queryKey: ['vendor-assets', vendor?.id], enabled: open, queryFn: ({ signal }) => api.get<TransportVendorAssetsDto>(`${VENDORS_ENDPOINT}/${vendor!.id}/assets`, undefined, signal) });
-  const [qv, setQv] = useState('');
-  const [qd, setQd] = useState('');
-  const vehicles = useEntityOptions<TrackedObjectDto>('/objects', (o) => ({ value: o.id, label: o.plateNumber && o.plateNumber !== o.name ? `${o.name} · ${o.plateNumber}` : o.name }), { q: qv, enabled: open, params: { type: 'VEHICLE' } });
-  const drivers = useEntityOptions<DriverDto>('/drivers', named, { q: qd, enabled: open && can('drivers') });
-  const [objectIds, setObjectIds] = useState<string[]>([]);
-  const [driverIds, setDriverIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!data.data) return;
-    setObjectIds(data.data.vehicles.map((v) => v.objectId));
-    setDriverIds(data.data.drivers.map((d) => d.driverId));
-  }, [data.data]);
-  const selectedVehicles = useMemo(() => (data.data?.vehicles ?? []).map((v) => ({ value: v.objectId, label: v.plateNumber ? `${v.name} · ${v.plateNumber}` : v.name })), [data.data]);
-  const selectedDrivers = useMemo(() => (data.data?.drivers ?? []).map((d) => ({ value: d.driverId, label: d.name })), [data.data]);
-  const save = useMutation({
-    mutationFn: () => api.put<TransportVendorAssetsDto>(`${VENDORS_ENDPOINT}/${vendor!.id}/assets`, { objectIds, driverIds }),
-    onSuccess: () => {
-      toast.success(t('Vehicles and drivers saved'));
-      void qc.invalidateQueries({ queryKey: ['vendor-assets'] });
-      void qc.invalidateQueries({ queryKey: ['master', VENDORS_ENDPOINT] });
-      onClose();
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  const editable = can('etms_vendors', 'edit');
-  return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:max-w-xl">
-        <SheetHeader>
-          <SheetTitle>{t('Vehicles & drivers')}</SheetTitle>
-          <SheetDescription>{vendor?.name}</SheetDescription>
-        </SheetHeader>
-        <div className="grid gap-4 overflow-y-auto px-4 pb-4">
-          <Field label={t('Vehicles')} hint={t('Cars, vans, tempo travellers, buses … Seats and category are set on each vehicle (Masters → Objects).')}>
-            <MultiSelect value={objectIds} onChange={setObjectIds} options={vehicles.options} selectedOptions={selectedVehicles} loading={vehicles.loading} onSearch={setQv} disabled={!editable} placeholder={t('No vehicles')} />
-          </Field>
-          {data.data?.vehicles.length ? (
-            <ul className="divide-y rounded-lg border text-sm">
-              {data.data.vehicles.map((v) => (
-                <li key={v.objectId} className="flex items-center justify-between gap-2 px-3 py-1.5">
-                  <span>
-                    {v.name}
-                    {v.plateNumber && <span className="text-muted-foreground"> · {v.plateNumber}</span>}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{[v.category, v.seats ? t('{{n}} seats', { n: v.seats }) : null].filter(Boolean).join(' · ') || '—'}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {can('drivers') && (
-            <Field label={t('Drivers')}>
-              <MultiSelect value={driverIds} onChange={setDriverIds} options={drivers.options} selectedOptions={selectedDrivers} loading={drivers.loading} onSearch={setQd} disabled={!editable} placeholder={t('No drivers')} />
-            </Field>
-          )}
-          {editable && (
-            <Button onClick={() => save.mutate()} disabled={save.isPending} className="justify-self-start">
-              {t('Save')}
-            </Button>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 /**
  * Transport → Vendors & rate cards (menu etms_vendors, v1.16.9): cab operators with GST / PAN / bank details and the
  * branches they serve, their vehicles and drivers, and their rate cards (per trip, km, slab, monthly, package, seat).
  */
 export function VendorsPage() {
   const { t } = useTranslation();
-  const [assets, setAssets] = useState<TransportVendorDto | null>(null);
+  const [setup, setSetup] = useState<{ vendor: TransportVendorDto; tab: string } | null>(null);
   const [cards, setCards] = useState<TransportVendorDto | null>(null);
+  const setAssets = (v: TransportVendorDto) => setSetup({ vendor: v, tab: 'vehicles' });
+  const setRates = (v: TransportVendorDto) => setSetup({ vendor: v, tab: 'rates' });
   // The links are buttons in the row: vehicles / drivers and rate cards open their panels.
   const cols = useMemo<MasterColumn<TransportVendorDto>[]>(
     () => [
@@ -210,7 +136,7 @@ export function VendorsPage() {
         id: 'cards',
         header: 'Rate cards',
         cell: (r) => (
-          <Button size="sm" variant="outline" className="h-7 tabular-nums" onClick={() => setCards(r)}>
+          <Button size="sm" variant="outline" className="h-7 tabular-nums" onClick={() => setRates(r)}>
             <ReceiptIndianRupeeIcon /> {r.rateCardCount}
           </Button>
         ),
@@ -255,13 +181,16 @@ export function VendorsPage() {
             <DropdownMenuItem onSelect={() => setAssets(r)}>
               <CarFrontIcon /> {t('Vehicles & drivers')}
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setSetup({ vendor: r, tab: 'branches' })}>
+              <TruckIcon /> {t('Vendor setup')}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setCards(r)}>
               <ReceiptIndianRupeeIcon /> {t('Rate cards')}
             </DropdownMenuItem>
           </>
         )}
       />
-      <AssetsSheet vendor={assets} onClose={() => setAssets(null)} />
+      <VendorSetupSheet vendor={setup?.vendor ?? null} tab={setup?.tab ?? 'branches'} onClose={() => setSetup(null)} onAdvanced={(v) => (setSetup(null), setCards(v))} />
       <RateCardsSheet vendor={cards} onClose={() => setCards(null)} />
     </>
   );

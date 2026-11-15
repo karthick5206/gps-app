@@ -120,7 +120,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
           const id = (row as { id?: string } | undefined)?.id ?? record?.id;
           if (body && id) void api.put(`/transport/vehicles/${id}/profile`, body).catch((e: unknown) => toast.error(errorMessage(e)));
           // v1.16.9: the vehicle's vendor (only for those who may see vendors; '' = no vendor).
-          if (etms && v.type === 'VEHICLE' && id && can('etms_vendors')) void api.put(`/transport/vendors/by-vehicle/${id}`, { vendorId: transport.vendorId || null }).catch((e: unknown) => toast.error(errorMessage(e)));
+          if (v.type === 'VEHICLE' && id && can('etms_vendors')) void api.put(`/transport/vendors/by-vehicle/${id}`, { vendorId: transport.vendorId || null }).catch((e: unknown) => toast.error(errorMessage(e)));
         },
       },
     ),
@@ -168,7 +168,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
           />
         )}
       </div>
-      {etms && type === 'VEHICLE' && <VehicleTransportFields objectId={record?.id ?? null} open={open} value={transport} onChange={setTransport} />}
+      {(etms || can('etms_vendors')) && type === 'VEHICLE' && <VehicleTransportFields objectId={record?.id ?? null} open={open} value={transport} onChange={setTransport} transport={etms} />}
       <SwitchField form={form} name="isActive" label="Active" hint="Inactive objects are hidden from the live map and ignored by the processor." />
       {record && type === 'VEHICLE' && can('objects', 'edit') && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">

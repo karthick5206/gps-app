@@ -432,8 +432,8 @@ export class TransportVendorsService {
 
 // ───────────────────────────── Controllers ─────────────────────────────
 
+/** v1.16.10: every company (normal tracking too), not only the Employee transport add-on. */
 @Controller('transport/vendors')
-@UseGuards(TransportFeatureGuard)
 export class TransportVendorsController {
   constructor(private readonly vendors: TransportVendorsService) {}
 
