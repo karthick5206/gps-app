@@ -49,6 +49,9 @@ evidence in the phase log below.
   - `tsc --noEmit`: apps/api clean, apps/web (`tsconfig.app.json`) clean.
   - Not verified: the full jest suite (not run, by instruction), the ETMS isolation-matrix spec, the E2E workflow
     (doc 19 §8 #20), production-copy migration rehearsal, QA and security reviews.
+- **Independent review fixes:** all HIGH / MEDIUM / LOW findings fixed (doc 19 §10 "Independent review fixes");
+  migration `20261128090100_etms_pricing_review_fixes`. Re-run: engine spec **69 passed**, DB test **16 passed**, api and web
+  tsc clean (full suite not run).
 - **Deferred:** on-demand quotes (P8, needs pooling ride preference), per-passenger shared-fare snapshots, settle-time
   outbox hook (the job prices settled trips instead), toll data, XLSX / PDF reports, customer-visible invoices, vendor
   statement → cost import, web Pricing area.
