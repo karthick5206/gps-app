@@ -14,6 +14,7 @@
  */
 import type { PlannedStopStatus, PlannedTripOrigin, PlannedTripStatus, RoutePath } from './planned-trips';
 import type { PermissionMap } from './permissions';
+import type { ComplianceIssue, TransportComplianceMode } from './transport-compliance';
 import type { PlaceRef } from './transport-people';
 
 // ───────────────────────────── Enumerations ─────────────────────────────
@@ -577,6 +578,8 @@ export interface DispatchVehicleDto {
   /** Active planned trips of any origin on the service date (busy windows). */
   busy: { plannedTripId: string; origin: PlannedTripOrigin; plannedStart: string; plannedEnd: string; status: PlannedTripStatus }[];
   lastFix: { lat: number; lng: number; at: string } | null;
+  /** v1.16.7: missing / expired required documents on the service date (empty = compliant); absent from older servers. */
+  compliance?: ComplianceIssue[];
 }
 
 export interface DispatchBoardDto {
@@ -591,6 +594,8 @@ export interface DispatchBoardDto {
   counts: { bookings: number; queued: number; assigned: number; trips: number; seats: number; occupied: number };
   /** GraphHopper reachable: candidates may carry road ETAs. */
   routingAvailable: boolean;
+  /** v1.16.7: company compliance mode (OFF / WARN / BLOCK); absent from older servers = WARN. */
+  complianceMode?: TransportComplianceMode;
 }
 
 /** POST /api/transport/dispatch/candidates. */
@@ -1074,6 +1079,8 @@ export const TRANSPORT_E3_ERROR_CODES = [
   'GROUP_INVALID',
   // v1.15 L3: the passenger already has TRANSPORT_ADHOC_LIMITS.passengerOpenMax open self-service bookings (409).
   'TOO_MANY_OPEN_REQUESTS',
+  /** v1.16.7: a vehicle or driver without valid required documents while compliance is BLOCK. */
+  'NOT_COMPLIANT',
 ] as const;
 export type TransportE3ErrorCode = (typeof TRANSPORT_E3_ERROR_CODES)[number];
 

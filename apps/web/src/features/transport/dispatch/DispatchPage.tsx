@@ -272,7 +272,15 @@ export function DispatchPage() {
     const ticked = free.filter((b) => selected.has(b.id));
     return ticked.length ? ticked : free;
   };
-  const allocVehicles = () => (data?.vehicles ?? []).map((v) => ({ objectId: v.objectId, label: vehicleLabel(v), seats: v.seats, busy: v.busy }));
+  /** Vehicles Allocate / Copy may use: BLOCK drops vehicles with document issues; WARN puts compliant ones first. */
+  const allocVehicles = () => {
+    const mode = data?.complianceMode ?? 'WARN';
+    const issues = (v: { compliance?: unknown[] }) => (mode === 'OFF' ? 0 : (v.compliance?.length ?? 0));
+    return (data?.vehicles ?? [])
+      .filter((v) => mode !== 'BLOCK' || issues(v) === 0)
+      .sort((x, y) => Number(issues(x) > 0) - Number(issues(y) > 0))
+      .map((v) => ({ objectId: v.objectId, label: vehicleLabel(v), seats: v.seats, busy: v.busy }));
+  };
 
   /** Step 1 · Routing: group the waiting people into routes by where they live (shown as groups in the waiting list). */
   const makeRoutes = () => {

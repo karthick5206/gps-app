@@ -35,6 +35,9 @@ import { nullIfBlank, numberOrNull, numericText, optionalText, requiredText, str
 import { MasterPage } from '../MasterPage';
 import type { MasterColumn, MasterFilter, MasterFormProps } from '../types';
 import { named, useEntityOptions } from '../use-options';
+import { EMPTY_TRANSPORT_VALUES, transportProfileBody, VehicleTransportFields, type VehicleTransportValues } from '@/features/transport/VehicleTransportFields';
+import { api, errorMessage } from '@/lib/api';
+import { toast } from 'sonner';
 
 const ENDPOINT = '/objects';
 const OBJECT_TYPE_OPTIONS: Option[] = OBJECT_TYPES.map((t) => ({ value: t, label: humanize(t) }));
@@ -61,7 +64,10 @@ const deviceOption = (d: DeviceDto): Option => ({ value: d.id, label: d.uniqueId
 
 function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjectDto>) {
   const { t } = useTranslation();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  // v1.16.7: optional transport details (seats, wheelchair, category, AC) for companies with Employee transport.
+  const etms = !!me?.company.features.includes('etms') && can('objects', 'edit');
+  const [transport, setTransport] = useState<VehicleTransportValues>(EMPTY_TRANSPORT_VALUES);
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -93,7 +99,8 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
 
   const save = useSaveMutation({ endpoint: ENDPOINT, id: record?.id ?? null, entity: 'Object', onSaved: () => onOpenChange(false) });
   const submit = form.handleSubmit((v) =>
-    save.mutate({
+    save.mutate(
+      {
       name: v.name,
       type: v.type,
       vehicleType: v.type === 'VEHICLE' ? v.vehicleType : null,
@@ -105,7 +112,16 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
       speedLimitKph: numberOrNull(v.speedLimitKph),
       deviceId: v.deviceId,
       isActive: v.isActive,
-    }),
+      },
+      {
+        onSuccess: (row) => {
+          // Then the transport details, when seats were given (the vehicle is saved either way).
+          const body = etms && v.type === 'VEHICLE' ? transportProfileBody(transport) : null;
+          const id = (row as { id?: string } | undefined)?.id ?? record?.id;
+          if (body && id) void api.put(`/transport/vehicles/${id}/profile`, body).catch((e: unknown) => toast.error(errorMessage(e)));
+        },
+      },
+    ),
   );
 
   return (
@@ -150,6 +166,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
           />
         )}
       </div>
+      {etms && type === 'VEHICLE' && <VehicleTransportFields objectId={record?.id ?? null} open={open} value={transport} onChange={setTransport} />}
       <SwitchField form={form} name="isActive" label="Active" hint="Inactive objects are hidden from the live map and ignored by the processor." />
       {record && type === 'VEHICLE' && can('objects', 'edit') && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
@@ -204,9 +221,10 @@ const rowLabel = (r: TrackedObjectDto) => (r.plateNumber ? `${r.name} (${r.plate
 
 export function ObjectsPage() {
   const { t } = useTranslation();
-  const { can, me } = useAuth();
+  const { can } = useAuth();
   // ETMS WP 2.4 / QA B7: passenger seats are edited by the fleet role that edits vehicles; reachable from here.
-  const showSeats = can('objects', 'edit') && !!me?.company.features.includes('etms');
+  // v1.16.7: passenger seats are typed in the vehicle form (Employee transport section), so no separate Passenger seats button.
+  const showSeats = false;
   const [compliance, setCompliance] = useState<ComplianceTarget | null>(null);
   const [fuel, setFuel] = useState<FuelTarget | null>(null);
   const [assets, setAssets] = useState<AssetLinksTarget | null>(null);

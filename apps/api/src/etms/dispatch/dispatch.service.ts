@@ -3,6 +3,13 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
   ACTIVE_TRIP_STATUSES_FOR_OVERLAP,
+  complianceIssues,
+  complianceModeOf,
+  complianceText,
+  TRANSPORT_DRIVER_DOCS,
+  TRANSPORT_VEHICLE_DOCS,
+  transportSettingsOf,
+  type TransportComplianceMode,
   ROUTE_LIMITS,
   TRANSPORT_E3_LIMITS,
   type ChangeSetResult,
@@ -221,7 +228,8 @@ export class DispatchService {
 
   async board(ctx: AuthContext, q: BoardQuery): Promise<DispatchBoardDto> {
     const day = serviceDate(q.serviceDate);
-    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true, settings: true } });
+    const complianceMode = complianceModeOf(transportSettingsOf(company.settings).compliance);
     const bookingFilters: Prisma.TransportBookingWhereInput[] = [bookingReadWhere(ctx), { serviceDate: dateOnly(day) }];
     if (q.direction) bookingFilters.push({ direction: q.direction });
     if (q.shiftId) bookingFilters.push({ shiftId: q.shiftId });
@@ -239,7 +247,7 @@ export class DispatchService {
       this.prisma.transportChangeSet.findMany({ where: { companyId: ctx.companyId, serviceDate: dateOnly(day), status: 'DRAFT', ...(q.direction ? { direction: q.direction } : {}) }, orderBy: { createdAt: 'desc' }, take: 100 }),
     ]);
     const names = await this.names(trips.map((t) => t.plannedTrip));
-    const vehicles = await this.vehicles(ctx, day, company.timezone);
+    const vehicles = await this.withCompliance(await this.vehicles(ctx, day, company.timezone), day, complianceMode);
     // The board is the dispatcher's working view: personal pickup / drop points only while the passenger's routing
     // consent is active (E2 M3: dispatcher pickup only with consent); sites always.
     const consents = await this.consents(queue.map((b) => b.profileId));
@@ -266,7 +274,41 @@ export class DispatchService {
         occupied: trips.reduce((s, t) => s + t.occupiedSeats, 0),
       },
       routingAvailable: await this.routingUp(),
+      complianceMode,
     };
+  }
+
+  /** v1.16.7: required documents of each vehicle on the service date (empty list = compliant); nothing when OFF. */
+  private async withCompliance(vehicles: DispatchVehicleDto[], day: string, mode: TransportComplianceMode): Promise<DispatchVehicleDto[]> {
+    if (mode === 'OFF' || !vehicles.length) return vehicles;
+    const docs = await this.prisma.document.findMany({ where: { objectId: { in: vehicles.map((v) => v.objectId) } }, select: { objectId: true, type: true, expiresOn: true } });
+    return vehicles.map((v) => ({ ...v, compliance: complianceIssues(docs.filter((d) => d.objectId === v.objectId).map((d) => ({ type: d.type, expiresOn: d.expiresOn ? d.expiresOn.toISOString().slice(0, 10) : null })), TRANSPORT_VEHICLE_DOCS, day) }));
+  }
+
+  /**
+   * v1.16.7 compliance BLOCK: a new trip's vehicle / driver and a changed vehicle / driver must have their required
+   * documents valid on the service date (409 NOT_COMPLIANT naming them). WARN / OFF: not checked here.
+   */
+  private async assertCompliant(ctx: AuthContext, serviceDay: string, objectIds: string[], driverIds: string[]): Promise<void> {
+    if (!objectIds.length && !driverIds.length) return;
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } });
+    if (complianceModeOf(transportSettingsOf(company.settings).compliance) !== 'BLOCK') return;
+    const [docs, objects, drivers] = await Promise.all([
+      this.prisma.document.findMany({ where: { companyId: ctx.companyId, OR: [{ objectId: { in: objectIds } }, { driverId: { in: driverIds } }] }, select: { objectId: true, driverId: true, type: true, expiresOn: true } }),
+      this.prisma.trackedObject.findMany({ where: { id: { in: objectIds } }, select: { id: true, name: true } }),
+      this.prisma.driver.findMany({ where: { id: { in: driverIds } }, select: { id: true, name: true } }),
+    ]);
+    const day = (d: { expiresOn: Date | null }) => (d.expiresOn ? d.expiresOn.toISOString().slice(0, 10) : null);
+    const problems: string[] = [];
+    for (const o of objects) {
+      const issues = complianceIssues(docs.filter((d) => d.objectId === o.id).map((d) => ({ type: d.type, expiresOn: day(d) })), TRANSPORT_VEHICLE_DOCS, serviceDay);
+      if (issues.length) problems.push(`${o.name}: ${complianceText(issues)}`);
+    }
+    for (const dr of drivers) {
+      const issues = complianceIssues(docs.filter((d) => d.driverId === dr.id).map((d) => ({ type: d.type, expiresOn: day(d) })), TRANSPORT_DRIVER_DOCS, serviceDay);
+      if (issues.length) problems.push(`Driver ${dr.name}: ${complianceText(issues)}`);
+    }
+    if (problems.length) throw conflict('NOT_COMPLIANT', `Documents not valid on ${serviceDay}: ${problems.join('; ')}`);
   }
 
   /** Vehicles of the caller's scope with seats, busy windows (any origin) on the local service day and last fix. */
@@ -757,6 +799,7 @@ export class DispatchService {
     const ops = input.changes;
     const prepared = await this.prepareTrips(ctx, input, draftCreatedAt, source);
     const { newObjectIds, newDriverIds, vehicleById, removedRows, existingTripIds, visibleTrips } = await this.assertChangeSetScope(ctx, ops);
+    await this.assertCompliant(ctx, input.serviceDate, newObjectIds, newDriverIds);
     for (const id of existingTripIds) {
       if (input.expectedVersions?.[id] === undefined) throw invalid(`expectedVersions must give the version of trip ${id}`);
     }

@@ -3,6 +3,7 @@
  * the role templates seeded when the `etms` add-on is switched on (P6). Docs: docs/employee-transport/05, 10 §2, 15 §3.
  */
 import type { DataScope, PermissionMap } from './permissions';
+import { TRANSPORT_COMPLIANCE_MODES, type TransportComplianceMode } from './transport-compliance';
 
 /**
  * Agreement lifecycle. DRAFT (editable) → PROPOSED (frozen, collecting both approvals) → ACTIVE (both sides approved)
@@ -177,6 +178,8 @@ export interface TransportSettingsDto {
    * Default OFF; present only when switched on. GPS start (vehicle at the first stop) works either way.
    */
   autoStart?: boolean;
+  /** v1.16.7: document compliance of vehicles and drivers (OFF / WARN / BLOCK); absent = WARN (transport-compliance.ts). */
+  compliance?: TransportComplianceMode;
 }
 
 export interface UpdateTransportSettingsInput {
@@ -193,6 +196,8 @@ export interface UpdateTransportSettingsInput {
   autoRouting?: boolean;
   /** v1.16.5: start published trips at their planned time. */
   autoStart?: boolean;
+  /** v1.16.7: OFF / WARN / BLOCK. */
+  compliance?: TransportComplianceMode;
 }
 
 /**Accepted range of a maximum ride time (company policy and per-plan override): 15 min – 4 h, whole seconds. */
@@ -213,7 +218,7 @@ export function transportSettingsOf(settings: unknown): TransportSettingsDto {
   const s = typeof settings === 'object' && settings !== null && !Array.isArray(settings) ? (settings as Record<string, unknown>).etms : undefined;
   const etms = typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
   const phone = typeof etms.deskPhone === 'string' && etms.deskPhone.trim() ? etms.deskPhone.trim() : null;
-  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}), ...(etms.selfBookingApproval === false ? { selfBookingApproval: false } : {}), ...(etms.autoRouting === true ? { autoRouting: true } : {}), ...(etms.autoStart === true ? { autoStart: true } : {}) };
+  return { directoryListed: etms.directoryListed === true, ...(phone ? { deskPhone: phone } : {}), ...(isMaxRideS(etms.maxRideS) ? { maxRideS: etms.maxRideS } : {}), ...(etms.selfBooking === true ? { selfBooking: true } : {}), ...(etms.selfBookingApproval === false ? { selfBookingApproval: false } : {}), ...(etms.autoRouting === true ? { autoRouting: true } : {}), ...(etms.autoStart === true ? { autoStart: true } : {}), ...(typeof etms.compliance === 'string' && etms.compliance !== 'WARN' && (TRANSPORT_COMPLIANCE_MODES as readonly string[]).includes(etms.compliance) ? { compliance: etms.compliance as TransportComplianceMode } : {}) };
 }
 
 /**

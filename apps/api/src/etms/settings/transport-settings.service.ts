@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { MAX_RIDE_BOUNDS_S, transportSettingsOf, type TransportSettingsDto } from '@veetracer/shared';
-import { IsBoolean, IsInt, IsOptional, Matches, Max, Min, ValidateIf } from 'class-validator';
+import { MAX_RIDE_BOUNDS_S, TRANSPORT_COMPLIANCE_MODES, transportSettingsOf, type TransportComplianceMode, type TransportSettingsDto } from '@veetracer/shared';
+import { IsBoolean, IsIn, IsInt, IsOptional, Matches, Max, Min, ValidateIf } from 'class-validator';
 import { TRANSPORT_DESK_PHONE_RE } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
@@ -24,6 +24,8 @@ export class UpdateTransportSettingsDto {
   @IsOptional() @IsBoolean() autoRouting?: boolean;
   /** v1.16.5: start published trips at their planned time (TripAutoStartService). Default off. */
   @IsOptional() @IsBoolean() autoStart?: boolean;
+  /** v1.16.7: vehicle / driver document compliance: OFF, WARN (default) or BLOCK. */
+  @IsOptional() @IsIn(TRANSPORT_COMPLIANCE_MODES) compliance?: TransportComplianceMode;
 }
 
 /** Key of `Company.settings` that holds the ETMS company settings (TransportSettingsDto). */
@@ -54,7 +56,7 @@ export class TransportSettingsService {
     // Keep `etms` keys this form does not manage (e.g. a hand-set `bookingCutoffMin`); only the DTO keys are rewritten.
     const rawEtms = (company.settings as Record<string, unknown> | null)?.[ETMS_SETTINGS_KEY];
     const unmanaged: Record<string, unknown> = rawEtms && typeof rawEtms === 'object' && !Array.isArray(rawEtms) ? { ...(rawEtms as Record<string, unknown>) } : {};
-    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart']) delete unmanaged[k];
+    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart', 'compliance']) delete unmanaged[k];
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
@@ -76,6 +78,10 @@ export class TransportSettingsService {
     if (dto.autoStart !== undefined) {
       if (dto.autoStart) after.autoStart = true;
       else delete after.autoStart;
+    }
+    if (dto.compliance !== undefined) {
+      if (dto.compliance === 'WARN') delete after.compliance;
+      else after.compliance = dto.compliance;
     }
     if (dto.maxRideS !== undefined) {
       if (dto.maxRideS === null) delete after.maxRideS;

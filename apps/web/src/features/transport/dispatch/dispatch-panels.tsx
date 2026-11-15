@@ -1,3 +1,4 @@
+import { complianceText } from '@veetracer/shared';
 import type { DriverDto, DispatchBoardDto, DispatchCandidateDto, DispatchVehicleDto, TransportBookingDto, TransportTripSummaryDto } from '@veetracer/shared';
 import { ArrowRightLeftIcon, BusIcon, FileDownIcon, PlayIcon, CarFrontIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleAlertIcon, ExternalLinkIcon, InboxIcon, MoreHorizontalIcon, PlusIcon, SearchIcon, Undo2Icon, UserMinusIcon, UserRoundIcon } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
@@ -702,6 +703,7 @@ function DraftTripVehicleDriver({ tempId, ctx }: { tempId: string; ctx: PanelCtx
           {vehicles.map((v) => (
             <option key={v.objectId} value={v.objectId}>
               {v.name} — {t('{{n}} seats', { n: v.seats ?? 0 })}
+              {ctx.board.complianceMode !== 'OFF' && v.compliance?.length ? ` ⚠ ${complianceText(v.compliance)}` : ''}
             </option>
           ))}
         </select>
@@ -739,6 +741,12 @@ function VehicleRow({ v, ctx }: { v: DispatchVehicleDto; ctx: PanelCtx }) {
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {v.seats === null ? t('Seats not set') : t('{{n}} seats', { n: v.seats })}
+          {ctx.board.complianceMode !== 'OFF' && !!v.compliance?.length && (
+            <span className={cn('ml-1 font-medium', ctx.board.complianceMode === 'BLOCK' ? 'text-destructive-fg' : 'text-warning-fg')} title={complianceText(v.compliance)}>
+              {' · ⚠ '}
+              {complianceText(v.compliance)}
+            </span>
+          )}
           {v.busy.length > 0 ? ` · ${t('Busy')} ${v.busy.map((b) => `${clock(b.plannedStart)}–${clock(b.plannedEnd)}`).join(', ')}` : ` · ${t('Free all day')}`}
         </p>
       </div>
