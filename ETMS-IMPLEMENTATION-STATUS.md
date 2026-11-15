@@ -27,7 +27,31 @@ evidence in the phase log below.
 | E8 | Not started | Not started | Not started | Not started | Not started | Not started |
 | E9 | Not started | Not started | Not started | Not started | Not started | Not started |
 | Vendor billing (supplier side, v1.16.9–v1.16.14) | Deployed (vendors, rate cards, live monthly statement, adjustments) | Deployed | — | Not recorded | Not recorded (open: branch scope, isolation-matrix entries) | Deployed (teammate releases, previously unrecorded here) |
-| Pricing & billing (customer side) | **Design ready for review** ([doc 19](docs/employee-transport/19-pricing-and-billing-design.md)) | Design | — | Not started | Not started | Not started |
+| Pricing & billing (customer side) | **Backend implemented** on `feature/etms-pricing-be` (2026-11-15); web UI in a separate workstream ([doc 19](docs/employee-transport/19-pricing-and-billing-design.md) §10) | Backend done | Engine 63/63, DB 10/10 | Not started | Not started | Not started (feature `pricing` off by default) |
+
+## Pricing & billing (customer side): backend implementation
+
+- **Branch:** `feature/etms-pricing-be` (from `release/1.17`), not merged, not deployed. Owner: go ahead with the doc 19 §9.4
+  recommended defaults (recorded in doc 19 §10).
+- **Commits:**
+  - `2215c2ed` P0/P1: migration `20261128090000_etms_pricing_core`, shared exact-money engine
+    (`packages/shared/src/pricing`), `approve` action, 9 `pricing_*` menus, company feature `pricing` (off), purge financial
+    guard, billing role templates, web placeholder routes.
+  - `c7e7994c` P2–P7: `/api/pricing` contracts (maker-checker), vehicle rates, dedicated vehicles, trip charges,
+    availability periods + close, invoices (generate / issue / PDF), credit notes, payments, adjustments, reports, costs,
+    dashboard, settings, scheduled billing job (`BILLING_JOB=off` kill switch).
+  - `150b8355` DB test (isolation, duplicate runs, immutability, historical prices, maker-checker).
+- **Test evidence** (2026-11-15, only the required tests, per the owner):
+  - Engine unit tests `apps/api/src/pricing/engine.spec.ts` (doc 19 scenarios 1–7, 11–13, 17, invariants, rounding,
+    precedence): **63 passed, 0 failed, 0 skipped**.
+  - DB test `apps/api/src/pricing/pricing.db-test.ts` on scratch `veetrax_pricing_test` (`CI=true`, all migrations
+    applied with `prisma migrate deploy`): **10 passed, 0 failed, 0 skipped**.
+  - `tsc --noEmit`: apps/api clean, apps/web (`tsconfig.app.json`) clean.
+  - Not verified: the full jest suite (not run, by instruction), the ETMS isolation-matrix spec, the E2E workflow
+    (doc 19 §8 #20), production-copy migration rehearsal, QA and security reviews.
+- **Deferred:** on-demand quotes (P8, needs pooling ride preference), per-passenger shared-fare snapshots, settle-time
+  outbox hook (the job prices settled trips instead), toll data, XLSX / PDF reports, customer-visible invoices, vendor
+  statement → cost import, web Pricing area.
 
 ## Pricing & billing (customer side): design status
 
