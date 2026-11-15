@@ -56,6 +56,11 @@ export interface CheckInput {
    * them). Undefined: ETMS_ROUTING off; null: nothing recorded or Valkey could not be asked.
    */
   etmsMatrix?: MatrixStatsSnapshot | null;
+  /**
+   * Pooling (doc 20 §5.4): the live dispatch worker (API process, every 5 s). Undefined: ETMS or ETMS_LIVE_DISPATCH off;
+   * null: could not be asked. lastOkAt null = no pass recorded yet.
+   */
+  etmsDispatch?: { lastOkAt: number | null; queued: number; oldestQueuedAt: number | null; failed: number } | null;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -323,6 +328,28 @@ function etmsRelayChecks(input: CheckInput, t: HealthThresholds, out: Issue[]): 
   }
 }
 
+/**
+ * Pooling (doc 20 §5.4, check pipeline.etms-dispatch): the live dispatch worker has not completed a pass for 5 min, its
+ * oldest queued request waits longer than 5 min, or requests failed 3 times in the last 24 h (the booking stays
+ * unassigned and visible; the dispatcher seats it).
+ */
+function etmsDispatchChecks(input: CheckInput, out: Issue[]): void {
+  const d = input.etmsDispatch;
+  if (d === undefined || input.startupGrace) return;
+  const base = { id: 'pipeline.etms-dispatch', check: 'live dispatch', section: 'pipeline' as const };
+  if (d === null) {
+    out.push({ ...base, severity: 'WARN', message: 'The live dispatch state could not be read (database or Valkey).' });
+    return;
+  }
+  const lagSec = d.lastOkAt === null ? null : Math.max(0, (input.now - d.lastOkAt) / 1000);
+  const waitSec = d.oldestQueuedAt === null ? 0 : Math.max(0, (input.now - d.oldestQueuedAt) / 1000);
+  const problems: string[] = [];
+  if (lagSec === null ? d.queued > 0 : lagSec > 300) problems.push(lagSec === null ? 'the live dispatch worker has not completed a pass yet' : `the live dispatch worker last completed a pass ${minutes(lagSec)} ago`);
+  if (waitSec > 300) problems.push(`${d.queued} request(s) queued, the oldest for ${minutes(waitSec)}`);
+  if (d.failed > 0) problems.push(`${d.failed} request(s) failed 3 times in the last 24 h`);
+  if (problems.length) out.push({ ...base, severity: 'WARN', message: `Live dispatch: ${problems.join('; ')}. New bookings wait for the dispatcher meanwhile: check the API process, Valkey (dispatch locks) and ETMS_LIVE_DISPATCH.` });
+}
+
 /** Data forwarding targets (from gateway / notifier heartbeats) failing for more than 5 minutes. */
 function relayChecks(input: CheckInput, out: Issue[]): void {
   const instances = input.processes.flatMap((p) => p.instances);
@@ -492,6 +519,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   notifyBacklogChecks(input, t, out);
   relayChecks(input, out);
   etmsRelayChecks(input, t, out);
+  etmsDispatchChecks(input, out);
   if (input.etmsMatrix) out.push(...matrixHealthIssues(input.etmsMatrix, input.now));
   mapChecks(input, out);
   routingChecks(input, out);

@@ -26,7 +26,7 @@ const MIN = 60_000;
 const OPEN_TRIP_MAX_AFTER_END_MIN = 120;
 
 const SEAT_INCLUDE = {
-  booking: { select: { id: true, profileId: true, journey: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true } },
+  booking: { select: { id: true, profileId: true, journey: true, windowStart: true, windowEnd: true, timeZone: true, pickupLabel: true, dropLabel: true, pickupLat: true, pickupLng: true, dropLat: true, dropLng: true, assignedService: true } },
   trip: {
     include: {
       plannedTrip: { include: { stops: { orderBy: { seq: 'asc' as const } } } },
@@ -220,6 +220,10 @@ export class MeTransportService {
       coRiders: s.trip.passengers.filter((p) => p.id !== s.id && p.status !== 'CANCELLED').length,
       liveVisible: !!w && now >= w.start && now <= w.end,
       deskPhone: n.phones.get(s.trip.providerCompanyId) ?? null,
+      // Pooling (doc 20 §6): the planned pickup of this passenger, always (adjusted by the trip's live delay while it is
+      // pending), and how the ride is served.
+      estimatedPickupAt: pick ? iso(new Date(pick.plannedArrival.getTime() + (pick.status === 'PENDING' && pt?.delaySec && pt.delaySec > 0 ? pt.delaySec * 1000 : 0))) : null,
+      servedAs: s.booking.assignedService ?? null,
     };
   }
 }

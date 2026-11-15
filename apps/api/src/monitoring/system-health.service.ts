@@ -122,7 +122,7 @@ export class SystemHealthService {
   // ── report ────────────────────────────────────────────────────────────────
 
   async collect(now = Date.now()): Promise<Collected> {
-    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify, etmsRelay, etmsMatrix] = await Promise.all([
+    const [valkey, heartbeats, series, streamStats, database, host, lastPersistedAt, maps, notify, etmsRelay, etmsMatrix, etmsDispatch] = await Promise.all([
       this.valkeyInfo(),
       this.heartbeats().catch(() => [] as ProcessHeartbeat[]),
       this.series().catch(() => [] as SeriesSample[]),
@@ -134,6 +134,7 @@ export class SystemHealthService {
       this.notifyBacklog(),
       this.etmsRelay(),
       this.etmsMatrix(),
+      this.etmsDispatch(),
     ]);
     const routing = await this.routingHealth.collect(heartbeats, now, this.thresholds.heartbeatStaleSec).catch(() => undefined);
     const processes = this.processes(heartbeats, now);
@@ -158,6 +159,7 @@ export class SystemHealthService {
       etmsRelay,
       routing,
       etmsMatrix,
+      etmsDispatch,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -426,6 +428,28 @@ export class SystemHealthService {
       if (!raw) return { lastOkAt: null, hwm: null, full: false };
       const s = JSON.parse(raw) as { at?: unknown; hwm?: unknown; full?: unknown };
       return { lastOkAt: typeof s.at === 'number' ? s.at : null, hwm: typeof s.hwm === 'number' ? s.hwm : null, full: s.full === true };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Pooling (doc 20 §5.4): live dispatch worker state; undefined when ETMS or ETMS_LIVE_DISPATCH is off. */
+  async etmsDispatch(): Promise<CheckInput['etmsDispatch']> {
+    const env = process.env;
+    if ((env.ETMS ?? '').trim().toLowerCase() === 'off' || (env.ETMS_LIVE_DISPATCH ?? '').trim().toLowerCase() === 'off') return undefined;
+    try {
+      const raw = await withTimeout(this.valkey.get('vt:etms:dispatch:state'), TIMEOUT_MS, 'Valkey GET');
+      const at = raw ? Number((JSON.parse(raw) as { at?: unknown }).at) || null : null;
+      const [queued, oldest, failed] = await withTimeout(
+        Promise.all([
+          this.prisma.transportDispatchRequest.count({ where: { status: 'QUEUED' } }),
+          this.prisma.transportDispatchRequest.findFirst({ where: { status: 'QUEUED' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+          this.prisma.transportDispatchRequest.count({ where: { status: 'FAILED', attempts: { gte: 3 }, createdAt: { gt: new Date(Date.now() - 86_400_000) } } }),
+        ]),
+        TIMEOUT_MS,
+        'dispatch requests',
+      );
+      return { lastOkAt: at, queued, oldestQueuedAt: oldest?.createdAt.getTime() ?? null, failed };
     } catch {
       return null;
     }

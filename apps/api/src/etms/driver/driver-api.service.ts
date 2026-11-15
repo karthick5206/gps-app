@@ -760,6 +760,9 @@ export class DriverApiService {
       passengers,
       manifestHidden: hidden ? 'TRIP_CLOSED' : null,
       boardingCodeRequired: boardingOtpOn((await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { settings: true } })).settings),
+      // Pooling P5: live changes of a started trip and whether this driver still has to acknowledge the latest one.
+      routeVersion: tt.liveRouteVersion,
+      routeAckPending: tt.liveRouteAckVersion < tt.liveRouteVersion,
       counts: counts(tt.passengers),
       overlays,
       lastSeq: maxSeq(mySeqs.map((r) => r.clientSeq)),
