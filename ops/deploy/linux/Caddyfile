@@ -20,8 +20,10 @@ app.veetrax.com {
 		reverse_proxy 127.0.0.1:4000
 	}
 
-	# Self-hosted map: India vector tiles from Martin (/tiles/india/{z}/{x}/{y} -> martin /india/{z}/{x}/{y})
-	handle /tiles/india/* {
+	# Self-hosted map: vector tiles from Martin (/tiles/india/{z}/{x}/{y} -> martin /india/{z}/{x}/{y}); USA tiles as
+	# source "us" and the composite "india,us" the styles use (make-styles.sh TILE_SOURCES)
+	@martin path /tiles/india/* /tiles/us/* /tiles/india,us/*
+	handle @martin {
 		uri strip_prefix /tiles
 		header Cache-Control "public, max-age=86400"
 		reverse_proxy 127.0.0.1:3000
