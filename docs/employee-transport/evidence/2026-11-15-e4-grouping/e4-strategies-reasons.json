@@ -1,0 +1,88 @@
+{
+ "REASONS twoDir 1 van maxRide 45m [prod]": {
+  "veh": 1,
+  "km": 27.0,
+  "driveMin": 33,
+  "maxRide": 33,
+  "avgRide": 18.8,
+  "occ": "A:4/7",
+  "routes": "A:AnnaN>Kilpa>Thiru>Perun",
+  "unassigned": [
+   "Sholinganallur:TIME_LIMIT:null"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "REASONS twoDir 1 van maxRide 45m [proto]": {
+  "veh": 1,
+  "km": 27.0,
+  "driveMin": 33,
+  "maxRide": 33,
+  "avgRide": 18.8,
+  "occ": "A:4/7",
+  "routes": "A:AnnaN>Kilpa>Thiru>Perun",
+  "unassigned": [
+   "Sholinganallur:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 3}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "REASONS base5 2 vans maxRide 10m [prod]": {
+  "veh": 2,
+  "km": 13.4,
+  "driveMin": 19,
+  "maxRide": 9,
+  "avgRide": 7.0,
+  "occ": "A:2/7 B:2/7",
+  "routes": "A:Thiru>Perun | B:Besan>Adyar",
+  "unassigned": [
+   "Velachery:TIME_LIMIT:null"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "REASONS base5 2 vans maxRide 10m [proto]": {
+  "veh": 2,
+  "km": 13.4,
+  "driveMin": 19,
+  "maxRide": 9,
+  "avgRide": 7.0,
+  "occ": "A:2/7 B:2/7",
+  "routes": "A:Thiru>Perun | B:Besan>Adyar",
+  "unassigned": [
+   "Velachery:FLEET_TOO_SMALL:{\"binding\": [\"max_ride\"], \"freeSeats\": 10}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "REASONS nine 1 van maxRide 90m (capacity) [prod]": {
+  "veh": 1,
+  "km": 35.5,
+  "driveMin": 48,
+  "maxRide": 48,
+  "avgRide": 26.4,
+  "occ": "A:7/7",
+  "routes": "A:AnnaN>Kilpa>Adyar>Besan>Thiru>Perun>Velac",
+  "unassigned": [
+   "Sholinganallur:CAPACITY_EXHAUSTED:null",
+   "Tambaram:CAPACITY_EXHAUSTED:null"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ },
+ "REASONS nine 1 van maxRide 90m (capacity) [proto]": {
+  "veh": 1,
+  "km": 35.5,
+  "driveMin": 48,
+  "maxRide": 48,
+  "avgRide": 26.4,
+  "occ": "A:7/7",
+  "routes": "A:AnnaN>Kilpa>Adyar>Besan>Thiru>Perun>Velac",
+  "unassigned": [
+   "Sholinganallur:CAPACITY_EXHAUSTED:{\"seatsNeeded\": 9, \"seats\": 7}",
+   "Tambaram:CAPACITY_EXHAUSTED:{\"seatsNeeded\": 9, \"seats\": 7}"
+  ],
+  "status": "FEASIBLE",
+  "error": null
+ }
+}
