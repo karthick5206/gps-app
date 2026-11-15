@@ -5,6 +5,7 @@ import {
   type ChangeSetResult,
   type CreateTransportBookingInput,
   type DispatchBoardDto,
+  type SafetyWatchDto,
   type DispatchCandidatesDto,
   type DispatchChangeSetInput,
   type MeBookingDto,
@@ -358,6 +359,17 @@ export function useMyVehicle(tripId: string | null, active: boolean) {
 }
 
 /** The trip detail (stops for pickup / drop seqs), from the cache when fresh. */
+/** v1.16.7 night safety: settings + night drops awaiting the passenger's confirmation (every 60 s). */
+export function useSafetyWatch(enabled: boolean) {
+  return useQuery({
+    queryKey: ['transport', 'safety-watch'],
+    queryFn: ({ signal }) => api.get<SafetyWatchDto>('/transport/safety-watch', undefined, signal),
+    enabled,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+}
+
 /** The dispatch board of another day (Copy yesterday), outside the page's own board query. */
 export function fetchDispatchBoard(qc: QueryClient, q: { serviceDate: string; direction: string | null; shiftId: string | null }): Promise<DispatchBoardDto> {
   return qc.fetchQuery({

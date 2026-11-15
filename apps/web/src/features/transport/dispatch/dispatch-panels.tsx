@@ -42,6 +42,7 @@ import {
 } from './dispatch-draft';
 import { routeText } from './adhoc-booking';
 import type { RouteGroup } from './auto-allocate';
+import type { EscortWarning } from './night-safety';
 import { AfterCutoffBadge, GroupBadge, JourneyBadge } from './adhoc-ui';
 import { groupIdOf, groupSelection, groupSizes, purposeOf } from './group-booking';
 import { candidateReason, isEditableTrip, straightLineLabel } from './e3-format';
@@ -67,6 +68,8 @@ export interface PanelCtx {
   requestReassign: (trip: TransportTripSummaryDto, kind: 'VEHICLE' | 'DRIVER') => void;
   /** ▶ Start a published, scheduled trip now. */
   startTrip?: (trip: TransportTripSummaryDto) => void;
+  /** Night-safety escort warnings of the draft's new trips. */
+  escort?: EscortWarning[];
   approve: (b: TransportBookingDto) => void;
   /** Routes made by the Routing button (the waiting list is grouped by them); null before Routing. */
   routes?: RouteGroup[] | null;
@@ -623,6 +626,11 @@ function DraftTripCard({ tempId, ctx, diff }: { tempId: string; ctx: PanelCtx; d
           </Field>
         </div>
         <p className="text-xs text-muted-foreground">{t('Planned stop times are spaced evenly from the start; they are a plan, not a road estimate.')}</p>
+        {ctx.escort?.filter((w) => w.tempId === tempId).map((w) => (
+          <p key={w.tempId} className="rounded-md border border-warning/50 bg-warning/10 px-2 py-1 text-xs">
+            {w.end === 'FIRST_PICKUP' ? t('Night: {{name}} is first pickup alone at {{time}}. Escort or reorder.', { name: w.passenger, time: w.time }) : t('Night: {{name}} is last drop alone at {{time}}. Escort or reorder.', { name: w.passenger, time: w.time })}
+          </p>
+        ))}
         {ctx.canPlan && <DraftTripVehicleDriver tempId={tempId} ctx={ctx} />}
         <ol className="grid gap-1" aria-label={ctx.draft.direction === 'OUT' ? t('Drop order') : t('Pickup order')}>
           {order.map((id, i) => {

@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { MAX_RIDE_BOUNDS_S, TRANSPORT_COMPLIANCE_MODES, transportSettingsOf, type TransportComplianceMode, type TransportSettingsDto } from '@veetracer/shared';
+import { HHMM_RE, MAX_RIDE_BOUNDS_S, REACHED_HOME_BOUNDS_MIN, TRANSPORT_COMPLIANCE_MODES, transportSettingsOf, type TransportComplianceMode, type TransportSettingsDto } from '@veetracer/shared';
 import { IsBoolean, IsIn, IsInt, IsOptional, Matches, Max, Min, ValidateIf } from 'class-validator';
 import { TRANSPORT_DESK_PHONE_RE } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
@@ -26,6 +26,11 @@ export class UpdateTransportSettingsDto {
   @IsOptional() @IsBoolean() autoStart?: boolean;
   /** v1.16.7: vehicle / driver document compliance: OFF, WARN (default) or BLOCK. */
   @IsOptional() @IsIn(TRANSPORT_COMPLIANCE_MODES) compliance?: TransportComplianceMode;
+  /** v1.16.7 night safety: on / off, window (HH:MM, company zone) and reached-home minutes. */
+  @IsOptional() @IsBoolean() nightSafety?: boolean;
+  @IsOptional() @Matches(HHMM_RE, { message: 'nightFrom must be HH:MM' }) nightFrom?: string;
+  @IsOptional() @Matches(HHMM_RE, { message: 'nightTo must be HH:MM' }) nightTo?: string;
+  @IsOptional() @IsInt() @Min(REACHED_HOME_BOUNDS_MIN.min) @Max(REACHED_HOME_BOUNDS_MIN.max) reachedHomeMin?: number;
 }
 
 /** Key of `Company.settings` that holds the ETMS company settings (TransportSettingsDto). */
@@ -56,7 +61,7 @@ export class TransportSettingsService {
     // Keep `etms` keys this form does not manage (e.g. a hand-set `bookingCutoffMin`); only the DTO keys are rewritten.
     const rawEtms = (company.settings as Record<string, unknown> | null)?.[ETMS_SETTINGS_KEY];
     const unmanaged: Record<string, unknown> = rawEtms && typeof rawEtms === 'object' && !Array.isArray(rawEtms) ? { ...(rawEtms as Record<string, unknown>) } : {};
-    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart', 'compliance']) delete unmanaged[k];
+    for (const k of ['directoryListed', 'deskPhone', 'selfBooking', 'selfBookingApproval', 'maxRideS', 'autoRouting', 'autoStart', 'compliance', 'nightSafety', 'nightFrom', 'nightTo', 'reachedHomeMin']) delete unmanaged[k];
     const after: TransportSettingsDto = { ...before, ...(dto.directoryListed !== undefined ? { directoryListed: dto.directoryListed } : {}) };
     if (dto.deskPhone !== undefined) {
       if (dto.deskPhone === null || !dto.deskPhone.trim()) delete after.deskPhone;
@@ -83,6 +88,13 @@ export class TransportSettingsService {
       if (dto.compliance === 'WARN') delete after.compliance;
       else after.compliance = dto.compliance;
     }
+    if (dto.nightSafety !== undefined) {
+      if (dto.nightSafety) after.nightSafety = true;
+      else delete after.nightSafety;
+    }
+    if (dto.nightFrom !== undefined) after.nightFrom = dto.nightFrom;
+    if (dto.nightTo !== undefined) after.nightTo = dto.nightTo;
+    if (dto.reachedHomeMin !== undefined) after.reachedHomeMin = dto.reachedHomeMin;
     if (dto.maxRideS !== undefined) {
       if (dto.maxRideS === null) delete after.maxRideS;
       else after.maxRideS = dto.maxRideS;

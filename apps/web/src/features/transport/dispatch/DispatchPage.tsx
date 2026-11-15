@@ -51,6 +51,7 @@ import {
 } from './dispatch-draft';
 import { allocateRoutes, largestSeats, routeGroups, type RouteGroup } from './auto-allocate';
 import { NeedsAttention } from './NeedsAttention';
+import { escortWarnings } from './night-safety';
 import { ChangeSetDetailDialog } from './ChangeSetDetailDialog';
 import { copyDay, type CopyBooking, type CopyResult, type SourceTrip } from './copy-day';
 import { CandidatesPanel, DraftReview, DraftTray, QueuePanel, TripsPanel, type PanelCtx } from './dispatch-panels';
@@ -61,6 +62,7 @@ import { locatedStops } from './TransportMap';
 import {
   TRIPS_ENDPOINT,
   useBookingPolicy,
+  useSafetyWatch,
   fetchDispatchBoard,
   fetchTransportTrip,
   SHIFTS_ENDPOINT,
@@ -153,6 +155,7 @@ export function DispatchPage() {
   const [groupOpen, setGroupOpen] = useState(false);
   const [copyPick, setCopyPick] = useState<string | null>(null);
   const policy = useBookingPolicy();
+  const watch = useSafetyWatch(can('etms_dispatch'));
   const cutoffMin = policy.data?.cutoffMin ?? learnCutoffMin(rawQueue);
   const trips = data?.trips ?? [];
   const RUNNING = ['EN_ROUTE', 'AT_STOP', 'IN_PROGRESS'];
@@ -469,6 +472,7 @@ export function DispatchPage() {
         routes,
         moveToRoute,
         startTrip: (trip) => void startTrips([trip]),
+        escort: escortWarnings(draft, watch.data?.nightSafety, data.timeZone),
       }
     : null;
 
@@ -697,6 +701,7 @@ export function DispatchPage() {
       {board.data && day === today && (
         <NeedsAttention
           board={board.data}
+          watch={watch.data}
           onSelect={(ids) => {
             const first = board.data!.queue.find((b) => b.id === ids[0]);
             if (first) setMode(isRoster(first) ? 'roster' : 'adhoc');
@@ -780,6 +785,11 @@ export function DispatchPage() {
               </div>
             )}
             <DraftReview rows={rows} />
+            {escortWarnings(draft, watch.data?.nightSafety, data?.timeZone ?? 'Asia/Kolkata').map((w) => (
+              <p key={w.tempId} className="rounded-md border border-warning/50 bg-warning/10 p-2 text-sm">
+                {w.end === 'FIRST_PICKUP' ? t('Night trip: {{name}} is the first pickup at {{time}} and rides alone with the driver. Arrange an escort or change the order.', { name: w.passenger, time: w.time }) : t('Night trip: {{name}} is the last drop at {{time}} and rides alone with the driver. Arrange an escort or change the order.', { name: w.passenger, time: w.time })}
+              </p>
+            ))}
             {rows.some((r) => r.overCapacity) && <p className="text-sm text-destructive-fg">{t('A trip would have more passengers than seats. Fix it before publishing.')}</p>}
             <Field label={t('Reason (optional)')} htmlFor="cs-reason">
               <Input id="cs-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />

@@ -16,6 +16,7 @@ import { MaxRidePolicy } from './MaxRidePolicy';
 import { SelfBookingSetting } from './SelfBookingSetting';
 import { AutoRoutingSetting } from './AutoRoutingSetting';
 import { ComplianceSetting } from './ComplianceSetting';
+import { NightSafetySetting } from './NightSafetySetting';
 import { useTransportSettings, useUpdateTransportSettings } from './use-agreements';
 
 const ACTION_LABEL: Record<Action, string> = { view: 'View', create: 'Create', edit: 'Edit', delete: 'Delete', export: 'Export', command: 'Command' };
@@ -143,6 +144,7 @@ export function TransportSettingsPage() {
         {!platformHome && <SelfBookingSetting />}
         {!platformHome && <AutoRoutingSetting />}
         {!platformHome && <ComplianceSetting />}
+        {!platformHome && <NightSafetySetting />}
       </div>
 
       {!platformHome && <ConsentNoticesPanel />}
