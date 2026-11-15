@@ -1284,7 +1284,9 @@ describe('ETMS isolation matrix (E4): route plans leak checks', () => {
     expect(await codeOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan, { expectedVersion: 2 }, `k-${randomUUID()}`))).toBe('PLAN_NOT_EDITABLE');
     // The second plan over the same (now seated) booking cannot publish it again.
     const again = await errorOf(w.controllers.e4.plans.publish(admin, w.plans.party.plan2, { expectedVersion: 1 }, `k-${randomUUID()}`));
-    expect(again).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE', routes: [{ code: 'INVALID_STATE' }] } });
+    // WP-B: the availability pre-check also names the vehicle, now busy with the first plan's trip (VEHICLE_BUSY).
+    expect(again).toMatchObject({ status: 409, body: { code: 'PLAN_NOT_PUBLISHABLE' } });
+    expect((again!.body as { routes: { code: string }[] }).routes.map((r) => r.code).sort()).toEqual(['INVALID_STATE', 'VEHICLE_BUSY']);
     // Audit: CHANGE entry for the plan and the E3 trip entries.
     expect(w.store.table('auditLog').some((a) => a.entity === 'RoutePlan' && (a.changes as { published?: boolean }).published)).toBe(true);
     expect(w.store.table('auditLog').some((a) => a.entity === 'TransportTrip' && a.action === 'CREATE')).toBe(true);
