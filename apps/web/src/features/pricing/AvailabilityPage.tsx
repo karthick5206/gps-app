@@ -56,9 +56,11 @@ export function AvailabilityPage() {
       description={t('Periods per dedicated vehicle: days attached and billable, downtime, included versus used km / hours, excess. Closed periods go on the next invoice.')}
       actions={
         <>
-          <Button size="sm" variant="outline" onClick={() => start('compute')} disabled={!contracts.length}>
-            <RefreshCwIcon /> {t('Compute period')}
-          </Button>
+          {can('pricing_availability', 'command') && (
+            <Button size="sm" variant="outline" onClick={() => start('compute')} disabled={!contracts.length}>
+              <RefreshCwIcon /> {t('Compute period')}
+            </Button>
+          )}
           {can('pricing_availability', 'command') && (
             <Button size="sm" onClick={() => start('close')} disabled={!contracts.length}>
               <LockIcon /> {t('Close period')}

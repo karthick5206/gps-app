@@ -93,6 +93,12 @@ export function AdjustmentsPage() {
                         <Td>{t(enumLabel(a.kind))}</Td>
                         <Td className="max-w-64 text-xs">
                           {a.reason}
+                          {typeof a.data?.creditNoteNumber === 'string' && <span className="block text-muted-foreground">{t('Credit note')} {a.data.creditNoteNumber}</span>}
+                          {a.invoiceId && can('pricing_invoices') && (
+                            <Link to={`/pricing/invoices/${a.invoiceId}`} className="block text-primary hover:underline">
+                              {t('Open invoice')}
+                            </Link>
+                          )}
                           {a.decisionNote && <span className="block text-muted-foreground">{t('Decision')}: {a.decisionNote}</span>}
                         </Td>
                         <Td>

@@ -1,4 +1,4 @@
-import type { BillableDistanceRequest, TripChargeDetailResponse, TripOverrideRequest, TripOverrideResponse, TripPriceSnapshotDto } from '@veetracer/shared';
+import type { BillableDistanceRequest, BillableDistanceResponse, TripChargeDetailResponse, TripOverrideRequest, TripOverrideResponse, TripPriceSnapshotDto } from '@veetracer/shared';
 import { AlertTriangleIcon, CalculatorIcon, HandCoinsIcon, RulerIcon } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,7 +55,7 @@ export function TripChargeDetailPage() {
   const [override, setOverride] = useState(false);
   const [amount, setAmount] = useState('');
   const recalculate = usePricingMutation((reason: string) => api.post(`${P}/trip-charges/${tripId}/recalculate`, { reason: reason || null }), { success: 'Trip recalculated', toastError: false, onSuccess: () => setRecalc(false) });
-  const setBillable = usePricingMutation((reason: string) => api.post(`${P}/trip-charges/${tripId}/billable-distance`, { distanceKm: km.trim(), reason } satisfies BillableDistanceRequest), { success: 'Billable distance saved', toastError: false, onSuccess: () => setDistance(false) });
+  const setBillable = usePricingMutation((reason: string) => api.post<BillableDistanceResponse>(`${P}/trip-charges/${tripId}/billable-distance`, { distanceKm: km.trim(), reason } satisfies BillableDistanceRequest), { success: (r) => (r.adjustment ? t('Distance correction sent for approval (Billing adjustments)') : t('Billable distance saved')), toastError: false, onSuccess: () => setDistance(false) });
   const doOverride = usePricingMutation((reason: string) => api.post<TripOverrideResponse>(`${P}/trip-charges/${tripId}/override`, { amount: amount.trim(), reason } satisfies TripOverrideRequest), {
     success: (r) => (r.adjustment ? t('Override sent for approval (Billing adjustments)') : t('Trip price overridden')),
     toastError: false,
@@ -219,7 +219,7 @@ export function TripChargeDetailPage() {
             )}
 
             <ReasonDialog open={recalc} onOpenChange={setRecalc} title="Recalculate trip" description="Prices the trip again from the current contract and trip data. The previous calculation is kept in the history." reasonRequired={false} pending={recalculate.isPending} error={recalculate.error} onSubmit={(r) => recalculate.mutate(r)} confirmLabel="Recalculate" />
-            <ReasonDialog open={distance} onOpenChange={setDistance} title="Set billable distance" description="Overrides the GPS / planned distance for this trip and prices it again." pending={setBillable.isPending} error={setBillable.error} canSubmit={!!km.trim() && !kmError} onSubmit={(r) => setBillable.mutate(r)} confirmLabel="Save">
+            <ReasonDialog open={distance} onOpenChange={setDistance} title="Set billable distance" description="Overrides the GPS / planned distance for this trip and prices it again. Needs a contract that permits trip overrides; when the contract requires approval, a second user approves the correction first." pending={setBillable.isPending} error={setBillable.error} canSubmit={!!km.trim() && !kmError} onSubmit={(r) => setBillable.mutate(r)} confirmLabel="Save">
               <Labeled label="Billable km" error={kmError ?? (!km.trim() ? 'Required' : null)}>
                 {(id) => <Input id={id} inputMode="decimal" value={km} onChange={(e) => setKm(e.target.value)} />}
               </Labeled>

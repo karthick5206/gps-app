@@ -15,7 +15,7 @@ export const PRICING_ERROR_MESSAGES: Partial<Record<PricingErrorCode | 'REASON_R
   NO_APPLICABLE_PRICING: 'No contract applies to this trip (customer, branch, vehicle or date).',
   VEHICLE_OVERRIDE_NOT_PERMITTED: 'This contract does not permit vehicle-level rates. Switch on “Vehicle rates permitted” in the contract header first (needs a draft contract).',
   TRIP_OVERRIDE_NOT_PERMITTED: 'This contract does not permit trip price overrides.',
-  MAKER_CHECKER_SAME_USER: 'You can’t approve your own submission. Another user with approval rights must decide.',
+  MAKER_CHECKER_SAME_USER: 'You can’t approve this: the approver must be a different user from the one who submitted, wrote or last edited it.',
   ALREADY_INVOICED: 'This trip is already on an invoice. Use an adjustment or a credit note instead.',
   INVOICE_ISSUED_IMMUTABLE: 'An issued invoice cannot be changed or deleted. Issue a credit note instead.',
   INVOICE_NOT_DRAFT: 'Only a draft invoice can do this.',
@@ -35,6 +35,10 @@ export const PRICING_ERROR_MESSAGES: Partial<Record<PricingErrorCode | 'REASON_R
   COST_HIDDEN: 'Cost and margin need the “Operating costs & margin” permission.',
   NOT_FOUND: 'Not found. It may have been deleted, or it is outside your branches.',
   REASON_REQUIRED: 'A reason is required.',
+  PERIOD_NOT_ENDED: 'This period has not ended yet. Close or invoice it after its last day.',
+  INVOICE_DATE_INVALID: 'The invoice date is not allowed (it must not be before the period end, in the future, or before the last issued invoice).',
+  TAX_SPLIT_CHANGED: 'The invoice tax split changed meanwhile. Reload the invoice and try again.',
+  SNAPSHOT_SUPERSEDED: 'This trip was recalculated meanwhile; the request refers to an older price. Reload and try again.',
 };
 
 /** Message for a failed pricing request; `t` translates the mapped English text. */

@@ -1,4 +1,4 @@
-import { PAYMENT_METHODS, type BillingPaymentDto, type CreateCreditNoteRequest, type CustomerInvoiceDto, type InvoicePartySnapshot, type RecordPaymentRequest } from '@veetracer/shared';
+import { PAYMENT_METHODS, type BillingPaymentDto, type CreateCreditNoteRequest, type CreditNoteRequestResponse, type CustomerInvoiceDto, type InvoicePartySnapshot, type RecordPaymentRequest } from '@veetracer/shared';
 import { useQuery } from '@tanstack/react-query';
 import { BadgeCheckIcon, FileDownIcon, FileMinusIcon, HandCoinsIcon, Trash2Icon, Undo2Icon } from 'lucide-react';
 import { useState } from 'react';
@@ -54,7 +54,7 @@ export function InvoiceDetailPage() {
   const del = usePricingMutation(() => api.delete(`${P}/invoices/${id}`), { success: 'Draft invoice deleted', onSuccess: () => navigate('/pricing/invoices') });
   const record = usePricingMutation(() => api.post(`${P}/invoices/${id}/payments`, { ...pay, amount: pay.amount.trim(), receivedAt: new Date(`${pay.receivedAt}T12:00:00`).toISOString(), reference: pay.reference || null, note: pay.note || null }), { success: 'Payment recorded', toastError: false, onSuccess: () => setPaying(false) });
   const reverse = usePricingMutation((reason: string) => api.post(`${P}/payments/${reversing!.id}/reverse`, { reason }), { success: 'Payment reversed', toastError: false, onSuccess: () => setReversing(null) });
-  const credit = usePricingMutation((reason: string) => api.post(`${P}/invoices/${id}/credit-notes`, { reason, amount: creditAmount.trim() || null } satisfies CreateCreditNoteRequest), { success: 'Credit note issued', toastError: false, onSuccess: () => setCrediting(false) });
+  const credit = usePricingMutation((reason: string) => api.post<CreditNoteRequestResponse>(`${P}/invoices/${id}/credit-notes`, { reason, amount: creditAmount.trim() || null } satisfies CreateCreditNoteRequest), { success: 'Credit note requested: another user approves it under Billing adjustments', toastError: false, onSuccess: () => setCrediting(false) });
   const pdf = async () => {
     if (!inv) return;
     setPdfBusy(true);
@@ -106,9 +106,9 @@ export function InvoiceDetailPage() {
                     <HandCoinsIcon /> {t('Record payment')}
                   </Button>
                 )}
-                {issued && can('pricing_adjustments', 'approve') && creditable > 0n && (
+                {issued && can('pricing_adjustments', 'create') && creditable > 0n && (
                   <Button size="sm" variant="outline" onClick={() => (setCreditAmount(''), setCrediting(true))}>
-                    <FileMinusIcon /> {t('Credit note')}
+                    <FileMinusIcon /> {t('Request credit note')}
                   </Button>
                 )}
               </>
@@ -280,7 +280,7 @@ export function InvoiceDetailPage() {
               </div>
             </SimpleDialog>
             <ReasonDialog open={!!reversing} onOpenChange={(o) => !o && setReversing(null)} title="Reverse payment" description="Adds a reversal entry; the original payment stays in the ledger." destructive pending={reverse.isPending} error={reverse.error} onSubmit={(r) => reverse.mutate(r)} confirmLabel="Reverse" />
-            <ReasonDialog open={crediting} onOpenChange={setCrediting} title="Issue credit note" description="A credit note reduces what the customer owes. Tax is split in proportion to the invoice." pending={credit.isPending} error={credit.error} canSubmit={!creditErr} onSubmit={(r) => credit.mutate(r)} confirmLabel="Issue credit note">
+            <ReasonDialog open={crediting} onOpenChange={setCrediting} title="Request credit note" description="A credit note reduces what the customer owes; tax is split in proportion to the invoice. It is issued when a different user approves the request under Billing adjustments." pending={credit.isPending} error={credit.error} canSubmit={!creditErr} onSubmit={(r) => credit.mutate(r)} confirmLabel="Request credit note">
               <Labeled label={`${t('Amount including tax')} (${i.currency})`} error={creditErr} hint={t('Empty = full credit of {{amount}}', { amount: minorToMajorString(creditable.toString(), i.currency) })}>
                 {(fid) => <Input id={fid} inputMode="decimal" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} />}
               </Labeled>
