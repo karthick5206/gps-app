@@ -45,6 +45,7 @@ export * from './transport';
 export * from './transport-people';
 export * from './transport-trips';
 export * from './transport-compliance';
+export * from './transport-insights';
 export * from './transport-driver';
 export * from './transport-self';
 export * from './transport-provider';
