@@ -264,3 +264,64 @@ def test_acceptance_50_requests_2_vehicles():
     assert len(res['unserved']) == 50 - m['served'] and all(u['code'] for u in res['unserved'])
     # PRIVATE riders are not starved (priority 3 vs 1): some are in the plan, each alone on its trip
     assert any(x['servedAs'] == 'PRIVATE' for x in res['requests'])
+
+
+# --- review regressions -------------------------------------------------------------------------------------------
+
+def _flat(n=5, leg=100):
+    return {'durationsS': [[0 if i == j else leg for j in range(n)] for i in range(n)]}
+
+
+@pytest.mark.parametrize('opts', [{'insertOnly': True, 'warmStart': {'v1': ['P:A', 'D:A']}}, {'timeLimitS': 1}],
+                         ids=['insertOnly', 'batch'])
+def test_insertion_before_first_stop_rechecks_span(opts):
+    """Inserting B (t=1000) before A (t=5000) would make the span 4290 > maxSpanS 3000: never accepted."""
+    pb = {'schemaVersion': 3, 'mode': 'pdp', 'horizonS': 20000, 'matrix': _flat(),
+          'vehicles': [{'id': 'v1', 'startIndex': 0, 'capacity': 4, 'maxSpanS': 3000}],
+          'requests': [{'id': 'A', 'pickupIndex': 1, 'dropIndex': 2, 'pickupWindow': [5000, 5000]},
+                       {'id': 'B', 'pickupIndex': 3, 'dropIndex': 4, 'pickupWindow': [1000, 1000]}],
+          'options': opts}
+    res = run(pb)
+    assert [(u['requestId'], u['code']) for u in res['unserved']] == [('B', 'DRIVER_HOURS')]
+
+
+def test_every_vehicle_with_end_index():
+    pb = {'schemaVersion': 3, 'mode': 'pdp', 'matrix': _flat(3),
+          'vehicles': [{'id': 'v', 'startIndex': 0, 'endIndex': 0, 'capacity': 2}],
+          'requests': [{'id': 'a', 'pickupIndex': 1, 'dropIndex': 2, 'pickupWindow': [0, 3600]}],
+          'options': {'timeLimitS': 1}}
+    res = run(pb)
+    assert res['status'] == 'FEASIBLE' and res['unserved'] == [] and res['routes'][0]['endS'] >= 200
+
+
+def test_insert_only_respects_time_limit():
+    rnd = random.Random(1)
+    n = 60
+    m = {'durationsS': [[0 if i == j else rnd.randint(30, 90) for j in range(n)] for i in range(n)]}
+    reqs = []
+    for k in range(250):
+        p = rnd.randrange(n)
+        reqs.append({'id': f'r{k}', 'pickupIndex': p, 'dropIndex': (p + 1 + rnd.randrange(n - 1)) % n,
+                     'pickupWindow': [0, 7 * 86400], 'pickupServiceS': 0, 'dropServiceS': 0})
+    pb = {'schemaVersion': 3, 'mode': 'pdp', 'horizonS': 7 * 86400, 'matrix': m,
+          'vehicles': [{'id': 'v0', 'startIndex': 0, 'capacity': 100}], 'requests': reqs,
+          'options': {'insertOnly': True, 'timeLimitS': 1}}
+    res = run(pb)
+    assert res['stats']['wallTimeMs'] < 5000 and res['stats']['timedOut']
+    assert len(res['unserved']) + res['metrics']['served'] == 250
+    assert all(u['code'] == 'NOT_SELECTED' for u in res['unserved'])
+
+
+def test_many_turnaround_values_share_few_matrices():
+    c, vs, rs = random_city(12, 5, 4)
+    for k, v in enumerate(vs):
+        v['turnaroundS'] = 60 + 37 * k                    # 5 distinct values -> at most 3 buckets (rounded up)
+    res = run(problem(c, vs, rs))
+    assert len(res['stats']['turnaroundBuckets']) <= 3
+
+
+@pytest.mark.parametrize('opt', ['strategy', 'firstSolution', 'localSearch'])
+def test_unhashable_options_are_invalid_input(opt):
+    c = City()
+    res = solve(problem(c, [veh(c, 'v1', (1, 1))], [req(c, 'a', (2, 2), (5, 5), 100)], **{opt: ['x']}))
+    assert res['status'] == 'INVALID_INPUT'
