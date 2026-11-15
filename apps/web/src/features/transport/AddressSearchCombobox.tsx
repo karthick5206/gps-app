@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MapPinIcon, SearchIcon, XIcon } from 'lucide-react';
+import { CrosshairIcon, MapPinIcon, SearchIcon, XIcon } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorMessage } from '@/lib/api';
+import { coordinateHit, withCoordinateHit } from '@/lib/place-search';
 import { cn } from '@/lib/utils';
 import { ADDRESS_SEARCH_DEFAULTS, addressSearchView, moveActive, roundHit, searchTerm, type AddressHit } from './address-search';
 
@@ -62,7 +63,7 @@ export function AddressSearchCombobox({
   const [text, setText] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const typed = searchTerm(text, minChars);
+  const typed = searchTerm(text, minChars) ?? (coordinateHit(text) ? searchTerm(text, 1) : null);
   const [settled, setSettled] = useState<string | null>(null);
 
   // Debounce: the term settles once typing pauses.
@@ -89,8 +90,10 @@ export function AddressSearchCombobox({
     gcTime: 2 * ADDRESS_SEARCH_DEFAULTS.staleMs,
     retry: false,
   });
-  const hits = (settled === typed ? (search.data ?? []) : []).slice(0, maxResults);
-  const view = addressSearchView({ typed, settled, fetching: search.isFetching, error: search.error, hits: hits.length });
+  // Typed coordinates are a hit at once (labelled with the API's address for that point once it answers).
+  const hits = typed ? withCoordinateHit(typed, settled === typed ? search.data : undefined, maxResults) : [];
+  const isPoint = !!typed && coordinateHit(typed) !== null;
+  const view = isPoint ? 'results' : addressSearchView({ typed, settled, fetching: search.isFetching, error: search.error, hits: hits.length });
   const expanded = open && view !== 'idle';
 
   useEffect(() => setActive(-1), [settled]);
@@ -187,8 +190,11 @@ export function AddressSearchCombobox({
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(h)}
               >
-                <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="min-w-0 flex-1 break-words">{h.label}</span>
+                {h.coordinates ? <CrosshairIcon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden /> : <MapPinIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />}
+                <span className="min-w-0 flex-1 break-words">
+                  {h.label}
+                  {h.coordinates && <span className="ml-1.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground uppercase">{t('Coordinates')}</span>}
+                </span>
               </div>
             ))}
         </div>

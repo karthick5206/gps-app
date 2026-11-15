@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
+import { MapPlaceSearch } from '@/components/map-place-search';
 import { MapTools, vehicleCaption } from '@/components/map-tools';
 import { storage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
@@ -201,6 +202,15 @@ export function LiveMapPage() {
             setActiveId(null);
             setFollowing(false);
           }}
+        />
+      )}
+
+      {!unsupported && (
+        // Phones: under the list / map switch while the map shows; tablets: hidden (the list panel takes the left);
+        // desktop: next to the list panel.
+        <MapPlaceSearch
+          map={controller?.mapInstance ?? null}
+          className={cn('absolute top-14 right-14 left-2 z-10 md:hidden lg:top-3 lg:right-auto lg:left-[24rem] lg:block lg:w-64', mobileView === 'list' && 'hidden')}
         />
       )}
 

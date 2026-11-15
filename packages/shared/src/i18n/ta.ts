@@ -3616,6 +3616,7 @@ export const TA: Record<string, string> = {
   'Search address': 'முகவரியைத் தேடு',
   'Search alerts': 'எச்சரிக்கைகளைத் தேடு',
   'Search an address or place': 'முகவரி அல்லது இடத்தைத் தேடு',
+  'Search an address, place or coordinates': 'முகவரி, இடம் அல்லது ஆயத்தொலைவுகளைத் தேடு',
   'Search by company name instead': 'அதற்குப் பதிலாக நிறுவனப் பெயரால் தேடவும்',
   'Search by company name. Only companies with employee transport switched on are listed.': 'நிறுவனப் பெயரால் தேடவும். ஊழியர் போக்குவரத்து இயக்கப்பட்ட நிறுவனங்கள் மட்டுமே பட்டியலிடப்படும்.',
   'Search by IMEI / unique id.': 'IMEI / தனித்துவ அடையாளம் மூலம் தேடவும்.',
