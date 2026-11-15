@@ -128,6 +128,18 @@ All three only fill the dispatcher's local draft. Nothing is saved until **Revie
     - A driver BOARDED without the right `boardingCode` is REJECTED BOARDING_CODE_INVALID.
     - Mobile: the driver gets a code prompt (the queued `pin` is sent as `boardingCode`), and the passenger TripCard shows the code. Needs the next VeeTrax APK.
 - **Mobile vehicle screen:** the address is under the status pill in the top card (`HeaderAddress`), no longer a Status row.
+- **v1.16.9 vendors and billing (item 7 part A):**
+  - Tables: `TransportVendor`, `TransportRateCard`, `TransportVendorVehicle`, `TransportVendorDriver` (migration `20261123090000_etms_vendors`, additive).
+  - Code: `apps/api/src/etms/vendors/vendors.ts`, with endpoints `/transport/vendors` (CRUD, `/:id/assets`, `/:id/rate-cards`) and `GET /transport/billing/statement?month&vendorId&branchId`.
+  - Menus `etms_vendors` and `etms_billing`; new Transport admin templates get them via `ETMS_VENDOR_TEMPLATE_PERMISSIONS`.
+  - Rate engine (`packages/shared/src/transport-vendors.ts`, spec `etms/vendors/rate-engine.spec.ts`):
+    - Models: TRIP, KM (min km, base fare), SLAB, MONTHLY (per vehicle, included km), PACKAGE (hours + km), SEAT.
+    - Add-ons: night allowance and escort (company night window), waiting beyond plan + free minutes, dead km.
+    - GST % per card. `pickRateCard` chooses the most specific active card valid on the day.
+  - The statement prices COMPLETED / INCOMPLETE, not cancelled trips of the vendor's vehicles, from GPS `distanceKm`, actual times and employees carried, per trip and per vehicle, with GST.
+  - Web: `features/transport/vendors/` (VendorsPage, RateCardsSheet, VendorBillingPage with CSV / PDF).
+  - Part B (vendor bill upload, compare, approve, payments) not built.
+  - **Open:** the ETMS isolation-matrix completeness test needs entries for the v1.16.7 / v1.16.9 routes (insights, safety-watch, vendors, billing).
 - **Not yet built:** the road optimiser behind Routing, grouping on Bookings, masked calling, vendors / rate cards / billing.
 
 ### 2.3 Mobile apps

@@ -4793,6 +4793,8 @@ export const TA: Record<string, string> = {
   'Bookings': 'முன்பதிவுகள்',
   'Dispatch': 'அனுப்புதல்',
   'Daily transport': 'தினசரி போக்குவரத்து',
+  'Vendors & rate cards': 'விற்பனையாளர்கள் மற்றும் கட்டண அட்டைகள்',
+  'Vendor billing': 'விற்பனையாளர் பில்லிங்',
   'Auto-start': 'தானாகத் தொடங்கு',
   'Roster': 'பணிப்பட்டியல்',
   'Ad-hoc': 'தற்காலிகம்',

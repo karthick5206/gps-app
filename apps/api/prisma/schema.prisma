@@ -124,6 +124,7 @@ model Company {
   transportConsentNotices        TransportConsentNotice[]
   /// ETMS E3 (doc 15 §5): shifts, bookings, trips, passengers, events and dispatch change sets.
   transportShifts                TransportShift[]
+  transportVendors               TransportVendor[]
   transportBookingsAsCustomer    TransportBooking[]          @relation("TransportBookingCustomer")
   transportBookingsAsProvider    TransportBooking[]          @relation("TransportBookingProvider")
   transportTripsAsProvider       TransportTrip[]             @relation("TransportTripProvider")
@@ -388,6 +389,7 @@ model TrackedObject {
   stockMovements        StockMovement[]
   /// ETMS E2: seats / wheelchair spaces (side table, doc 15 §7.3).
   transportProfile      TransportVehicleProfile?
+  transportVendor       TransportVendorVehicle?
   /// ETMS E5: driver duties bound to this vehicle (SetNull on a vehicle purge).
   transportDriverDuties TransportDriverDuty[]
   /// ETMS E1b: allocations of this vehicle to customers under an agreement (Cascade).
@@ -453,6 +455,7 @@ model Driver {
   user                 User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignments          DriverAssignment[]
   documents            Document[]
+  transportVendor      TransportVendorDriver?
   driverEvents         DriverEvent[]
   /// ETMS E5: duty records (Cascade).
   transportDuties      TransportDriverDuty[]
@@ -4010,4 +4013,84 @@ model TransportFleetAllocation {
   @@index([customerCompanyId])
   @@index([objectId])
   @@index([driverId])
+}
+
+/// v1.16.9 Employee transport: a company's cab operators (vendors). branchIds empty = serves every branch.
+model TransportVendor {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  name        String
+  gstin       String?
+  pan         String?
+  contactName String?
+  phone       String?
+  email       String?
+  address     String?
+  bankName    String?
+  bankAccount String?
+  ifsc        String?
+  upiId       String?
+  branchIds   String[] @default([]) @db.Uuid
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  company   Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rateCards TransportRateCard[]
+  vehicles  TransportVendorVehicle[]
+  drivers   TransportVendorDriver[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+/// v1.16.9: a vendor's price list for a branch (null = all) and vehicle category (null = all), valid from a date.
+model TransportRateCard {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @db.Uuid
+  vendorId        String    @db.Uuid
+  name            String
+  branchId        String?   @db.Uuid
+  vehicleCategory String?
+  /// TRIP | KM | SLAB | MONTHLY | PACKAGE | SEAT (transport-vendors.ts)
+  model           String
+  params          Json      @default("{}")
+  addons          Json      @default("{}")
+  gstPct          Float     @default(0)
+  validFrom       DateTime  @db.Date
+  validTo         DateTime? @db.Date
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, vendorId])
+}
+
+/// v1.16.9: a vehicle operated by a vendor (one vendor per vehicle).
+model TransportVendorVehicle {
+  objectId  String   @id @db.Uuid
+  companyId String   @db.Uuid
+  vendorId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  object TrackedObject   @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+}
+
+/// v1.16.9: a driver employed by a vendor (one vendor per driver).
+model TransportVendorDriver {
+  driverId  String   @id @db.Uuid
+  companyId String   @db.Uuid
+  vendorId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  vendor TransportVendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  driver Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
 }

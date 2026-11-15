@@ -78,6 +78,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   // E5 WP 5.4: the open SOS lane (acknowledge / resolve).
   etms_incidents: page(() => import('@/features/transport/incidents/IncidentsPage'), 'IncidentsPage'),
   etms_settings: page(() => import('@/features/transport/TransportSettingsPage'), 'TransportSettingsPage'),
+  etms_vendors: page(() => import('@/features/transport/vendors/VendorsPage'), 'VendorsPage'),
+  etms_billing: page(() => import('@/features/transport/vendors/VendorBillingPage'), 'VendorBillingPage'),
   // E3 WP 3.6: the passenger's own bookings and trips (vehicle only inside the trip window).
   etms_self: page(() => import('@/features/transport/dispatch/MyTransportPage'), 'MyTransportPage'),
   etms_driver: page(() => import('@/features/transport/MobileAppOnlyPage'), 'MyTransportDutyPage'),

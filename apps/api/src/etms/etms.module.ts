@@ -13,6 +13,7 @@ import { EtmsPeopleModule } from './people/people.module';
 import { EtmsPlanningModule } from './planning/planning.module';
 import { EtmsSafetyModule } from './safety/safety.module';
 import { EtmsSelfServiceModule } from './self-service/self-service.module';
+import { EtmsVendorsModule } from './vendors/vendors';
 import { TransportSettingsController } from './settings/transport-settings.controller';
 import { TransportSettingsService } from './settings/transport-settings.service';
 
@@ -23,7 +24,7 @@ import { TransportSettingsService } from './settings/transport-settings.service'
  * context and the sensitive-access log (TransportProviderController); later phases add theirs here.
  */
 @Module({
-  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule, EtmsSafetyModule, EtmsSelfServiceModule],
+  imports: [EtmsPeopleModule, EtmsDispatchModule, EtmsDriverModule, EtmsPlanningModule, EtmsSafetyModule, EtmsSelfServiceModule, EtmsVendorsModule],
   controllers: [AgreementsController, CompanyDirectoryController, TransportSettingsController, TransportProviderController],
   providers: [AgreementsService, AgreementViewsService, FleetAllocationsService, CompanyDirectoryService, TransportSettingsService, TransportProviderService],
   exports: [AgreementsService],

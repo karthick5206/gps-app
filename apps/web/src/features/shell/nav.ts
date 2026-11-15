@@ -101,6 +101,8 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   etms_dispatch: RadarIcon,
   etms_planning: WaypointsIcon,
   etms_incidents: SirenIcon,
+  etms_vendors: TruckIcon,
+  etms_billing: ReceiptIndianRupeeIcon,
   etms_settings: Settings2Icon,
   etms_self: BusIcon,
   etms_driver: CarFrontIcon,

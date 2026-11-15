@@ -4793,6 +4793,8 @@ export const HI: Record<string, string> = {
   'Bookings': 'बुकिंग',
   'Dispatch': 'डिस्पैच',
   'Daily transport': 'दैनिक परिवहन',
+  'Vendors & rate cards': 'विक्रेता और दर कार्ड',
+  'Vendor billing': 'विक्रेता बिलिंग',
   'Auto-start': 'अपने आप शुरू',
   'Roster': 'रोस्टर',
   'Ad-hoc': 'एड-हॉक',
