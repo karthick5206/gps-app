@@ -1,0 +1,38 @@
+{
+  "id": "39-in-comfort-guard-small-fleet",
+  "description": "IN, 40 passengers, Comfort preset + guard, 40-minute max ride, fleet too small: reasons",
+  "matrixSource": "synthetic-haversine-x1.35-25kmh",
+  "generator": {
+    "seed": 139,
+    "direction": "IN",
+    "passengers": 40,
+    "fleet": {
+      "6": 5
+    },
+    "maxRideS": 2400,
+    "radiusKm": 14,
+    "weights": {
+      "vehicle": 1800,
+      "time": 1,
+      "rideTime": 2
+    },
+    "detourGuard": {
+      "ratio": 1.5,
+      "extraS": 600,
+      "costPerS": 2
+    },
+    "timeLimitS": 10
+  },
+  "expect": {
+    "maxUnassigned": 25,
+    "requireCodes": [
+      "MAX_RIDE_UNACHIEVABLE",
+      "FLEET_TOO_SMALL"
+    ],
+    "allowedCodes": [
+      "MAX_RIDE_UNACHIEVABLE",
+      "FLEET_TOO_SMALL"
+    ],
+    "objectiveBound": 84074192
+  }
+}

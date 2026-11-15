@@ -14,6 +14,10 @@ Two problem shapes (README "Input / output contract"):
   - `OUT` (logout, site -> homes): vehicles depart from the site; ride time is `Cumul(node) - Cumul(Start(v))`.
   Max ride time uses a second dimension whose slack is tied to the time dimension's slack, so its cumul is exactly
   the time elapsed since the vehicle left (IN: until it reaches) the site.
+  E4 strategies (WP-S, doc 18 §7): `options.weights.rideTime` puts the passengers' ride time in the objective and
+  `trip.detourGuard` adds a SOFT cost per second of ride beyond max(direct x ratio, direct + extraS). Both are soft
+  upper bounds on that ride cumul; OR-Tools allows one soft upper bound per cumul variable, so when both are set the
+  guard lives on a copy of the Ride dimension ('Detour', slack tied the same way). Max ride stays hard.
 
 The solver never claims optimality unless OR-Tools proves it (`provenOptimal`): a normal result is `FEASIBLE`
 (best solution found within the time limit). Every stop is either routed or listed in `unassigned` with a reason.
@@ -50,8 +54,12 @@ REASON_CODES = {
     'max_ride_unachievable': 'MAX_RIDE_UNACHIEVABLE',
     'exceeds_max_route_duration': 'MAX_ROUTE_DURATION',               # (ext) driver duty / route span
     'no_solution_found': 'NO_SOLUTION',                               # (ext)
-    # 'not_scheduled_capacity_or_time' -> CAPACITY_EXHAUSTED | TIME_LIMIT | NOT_SCHEDULED (ext), decided post-solve
+    # 'not_scheduled_capacity_or_time' -> CAPACITY_EXHAUSTED | FLEET_TOO_SMALL (ext) | TIME_LIMIT | NOT_SCHEDULED (ext),
+    # decided post-solve by _classify_drop
 }
+# Post-solve codes for 'not_scheduled_capacity_or_time' (the README table explains when each is used).
+DROP_CODES = ('CAPACITY_EXHAUSTED', 'FLEET_TOO_SMALL', 'TIME_LIMIT', 'NOT_SCHEDULED')
+CLASSIFY_BUDGET_S = 0.25     # wall-time cap of the insertion re-check over all dropped stops (then binding "unknown")
 _PRECHECK_ORDER = ('unreachable_location', 'time_window_unreachable', 'max_ride_unachievable',
                    'exceeds_max_route_duration')
 FIRST_SOLUTION = {
@@ -118,7 +126,7 @@ def _window(w: Any, horizon: int, what: str) -> tuple[int, int]:
 def _num(x: Any, what: str, *, integer: bool = False, positive: bool = False) -> float | int | None:
     if x is None:
         return None
-    if isinstance(x, bool) or not isinstance(x, (int, float)):
+    if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x):
         raise InvalidProblem(f'{what} must be a number')
     if x < 0 or (positive and x <= 0):
         raise InvalidProblem(f'{what} must be {"> 0" if positive else ">= 0"}')
@@ -153,7 +161,26 @@ def _trip(t: Any, n: int, horizon: int) -> dict | None:
     if not 0 <= w0 <= w1 <= horizon:
         raise InvalidProblem('trip.siteWindow must satisfy 0 <= startS <= endS <= horizonS')
     return {'direction': direction, 'site': site, 'window': (w0, w1),
-            'maxRide': _num(t.get('maxRideS'), 'trip.maxRideS', integer=True, positive=True)}
+            'maxRide': _num(t.get('maxRideS'), 'trip.maxRideS', integer=True, positive=True),
+            'guard': _detour_guard(t.get('detourGuard'))}
+
+
+def _detour_guard(g: Any) -> dict | None:
+    """trip.detourGuard {ratio >= 1 (default 1), extraS >= 0 (default 0), costPerS > 0 (required)}: a soft cost per
+    second of a passenger's ride beyond max(direct x ratio, direct + extraS). Never a hard limit."""
+    if g is None:
+        return None
+    if not isinstance(g, dict):
+        raise InvalidProblem('trip.detourGuard must be an object')
+    ratio = _num(g.get('ratio', 1), 'trip.detourGuard.ratio')
+    if ratio < 1:
+        raise InvalidProblem('trip.detourGuard.ratio must be >= 1')
+    extra = _num(g.get('extraS', 0), 'trip.detourGuard.extraS', integer=True)
+    if g.get('costPerS') is None:
+        raise InvalidProblem('trip.detourGuard.costPerS is required')
+    cost = _num(g.get('costPerS'), 'trip.detourGuard.costPerS', positive=True)
+    # The solver's costs are integers: a fractional cost is rounded, but never to 0 (the guard would vanish).
+    return {'ratio': ratio, 'extraS': extra, 'costPerS': cost, 'cost': max(1, int(round(cost)))}
 
 
 def _weights(w: Any, has_dist: bool) -> dict | None:
@@ -161,12 +188,32 @@ def _weights(w: Any, has_dist: bool) -> dict | None:
         return None
     if not isinstance(w, dict):
         raise InvalidProblem('options.weights must be an object')
-    out = {k: _num(w.get(k), f'options.weights.{k}') or 0 for k in ('vehicle', 'distance', 'time', 'routeDuration')}
-    if not (out['distance'] or out['time'] or out['routeDuration']):
-        raise InvalidProblem('options.weights needs distance, time or routeDuration > 0')
+    keys = ('vehicle', 'distance', 'time', 'routeDuration', 'rideTime')
+    out = {k: _num(w.get(k), f'options.weights.{k}') or 0 for k in keys}
+    if not (out['distance'] or out['time'] or out['routeDuration'] or out['rideTime']):
+        raise InvalidProblem('options.weights needs distance, time, routeDuration or rideTime > 0')
     if out['distance'] and not has_dist:
         raise InvalidProblem('options.weights.distance needs matrix.distancesM')
+    if 'rideTime' not in w:
+        del out['rideTime']    # echo unchanged for callers that never send it (result `weights`)
     return out
+
+
+def _ride_coef(ride_w: float, demand: int) -> int:
+    """Objective cost per second of this stop's ride: rideTime x passengers, an integer, never 0 when both are > 0."""
+    if not ride_w or demand <= 0:
+        return 0
+    return max(1, int(round(ride_w * demand)))
+
+
+def _direct_ride(ctx: _Ctx, s: dict) -> int | None:
+    """The stop's ride on a direct trip, measured like `rideS`: IN = own boarding (serviceS) + leg to the site
+    (pickup service start -> site arrival); OUT = leg from the site (site departure -> drop service start)."""
+    site = ctx.trip['site']
+    if ctx.trip['direction'] == 'IN':
+        leg = ctx.dur[s['loc']][site]
+        return None if leg is None else s['service'] + leg
+    return ctx.dur[site][s['loc']]
 
 
 def validate(problem: dict) -> _Ctx:
@@ -206,6 +253,11 @@ def validate(problem: dict) -> _Ctx:
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)):
             raise InvalidProblem(f'options.{key} must be a finite number')
     weights = _weights(opts.get('weights'), dist is not None)
+    # Ride time exists only in trip mode (like maxRideS): refuse rather than silently ignore it.
+    if weights and weights.get('rideTime') and trip is None:
+        raise InvalidProblem('options.weights.rideTime needs trip.direction')
+    if problem.get('detourGuard') is not None or opts.get('detourGuard') is not None:
+        raise InvalidProblem('detourGuard belongs in trip.detourGuard and needs trip.direction')
 
     norm_v, vids = [], set()
     for i, v in enumerate(vehicles):
@@ -623,15 +675,39 @@ def solve(problem: dict) -> dict:
         routing.AddDimensionWithVehicleCapacity(reg_vector(occ), 0, [big] * len(mv), True,
                                                 'Exclusive')
 
-    # Ride time: same transits as Time, slack tied to the time slack, cumul 0 at the site.
-    if trip and any(s['maxRide'] is not None for s in active):
-        routing.AddDimension(time_idx, dim_cap, dim_cap, True, 'Ride')
-        ride = routing.GetDimensionOrDie('Ride')
+    # Per-stop ride quantities for the E4 strategy costs (trip mode only; zero / None otherwise).
+    ride_w = (w.get('rideTime') or 0) if (w and trip) else 0
+    guard = trip['guard'] if trip else None
+    for s in active:
+        s['_rideCoef'] = _ride_coef(ride_w, s['demand'])
+        s['_direct'] = _direct_ride(ctx, s) if trip else None
+        s['_guardBound'] = (max(int(round(s['_direct'] * guard['ratio'])), s['_direct'] + guard['extraS'])
+                            if guard and s['_direct'] is not None else None)
+
+    # Ride time: same transits as Time, slack tied to the time slack, cumul 0 at the site, so a stop's cumul is the
+    # passenger's ride exactly as `rideS` reports it (IN: pickup service start -> site arrival; OUT: site departure ->
+    # drop service start), waits included. Built for a max ride (hard SetMax), a ride-time cost or a detour guard.
+    def ride_like(name: str):
+        routing.AddDimension(time_idx, dim_cap, dim_cap, True, name)
+        d = routing.GetDimensionOrDie(name)
         for idx in range(routing.Size()):
-            solver.Add(ride.SlackVar(idx) == tdim.SlackVar(idx))
+            solver.Add(d.SlackVar(idx) == tdim.SlackVar(idx))
+        return d
+
+    if trip and (ride_w or guard or any(s['maxRide'] is not None for s in active)):
+        ride = ride_like('Ride')
+        # One soft upper bound per cumul var: with both a ride-time cost and a guard, the guard gets its own copy.
+        gdim = (ride_like('Detour') if ride_w else ride) if guard else None
         for k, s in enumerate(active):
+            idx = manager.NodeToIndex(nd + k)
             if s['maxRide'] is not None:
-                ride.CumulVar(manager.NodeToIndex(nd + k)).SetMax(s['maxRide'])
+                ride.CumulVar(idx).SetMax(s['maxRide'])
+            if s['_rideCoef']:
+                # Bound 0: cost = rideTime x demand x ride seconds (comfort as a cost, not only a cap).
+                ride.SetCumulVarSoftUpperBound(idx, 0, s['_rideCoef'])
+            if gdim is not None and s['_guardBound'] is not None:
+                # Soft: every second beyond the guard costs costPerS; the stop is never made infeasible by it.
+                gdim.SetCumulVarSoftUpperBound(idx, s['_guardBound'], guard['cost'])
 
     # Fixed vehicle cost and route-duration weight.
     fixed = [v['fixedCost'] if v['fixedCost'] is not None else (w['vehicle'] if w else 0) for v in mv]
@@ -642,8 +718,11 @@ def solve(problem: dict) -> dict:
         if span_w:
             tdim.SetSpanCostCoefficientForVehicle(span_w, vi)
 
-    # Dropping a passenger must always cost more than any route could save.
-    penalty_base = max(DROP_PENALTY, 2 * (int(round(max(fixed, default=0))) + (nn + 1) * max_arc + span_w * dim_cap) + 1)
+    # Dropping a passenger must always cost more than any route could save. A ride cumul is at most dim_cap, so the
+    # ride-time and guard costs of the whole plan are bounded by (sum of coefficients) x dim_cap.
+    soft_w = sum(s['_rideCoef'] for s in active) + (guard['cost'] * len(active) if guard else 0)
+    penalty_base = max(DROP_PENALTY, 2 * (int(round(max(fixed, default=0))) + (nn + 1) * max_arc + span_w * dim_cap
+                                          + soft_w * dim_cap) + 1)
 
     # Customer mixing (P2: one customer per trip in R1) via hard visit-type incompatibilities.
     customers = sorted({s['customer'] for s in active if s['customer'] is not None})
@@ -723,6 +802,7 @@ def solve(problem: dict) -> dict:
                 'stats': stats({'stoppedBy': stopped_by, 'deterministic': deterministic and not hit_limit})}
 
     routes, served = [], set()
+    ride_cost = detour_cost = 0
     for vi, v in enumerate(mv):
         f = mf[vi]
         idx = routing.Start(vi)
@@ -760,6 +840,12 @@ def solve(problem: dict) -> dict:
                 visit['onBoard'] = load if rev else total - load
                 visit['rideS'] = (T - start_c) - begin if rev else begin - start_c
                 visit['maxRideS'] = s['maxRide']
+                # Direct ride (same measure as rideS) and the detour on top of it, for the API's detour display.
+                visit['directS'] = s['_direct']
+                visit['detourS'] = max(0, visit['rideS'] - s['_direct'])
+                ride_cost += s['_rideCoef'] * visit['rideS']
+                if s['_guardBound'] is not None:
+                    detour_cost += guard['cost'] * max(0, visit['rideS'] - s['_guardBound'])
             visits.append(visit)
             served.add(s['id'])
             prev_loc, prev_dep = s['loc'], begin + s['service']
@@ -786,8 +872,7 @@ def solve(problem: dict) -> dict:
 
     dropped = [s for s in active if s['id'] not in served]
     if dropped:
-        need = sum(s['demand'] for s in active)
-        seats = sum(v['capacity'] for v in mv)
+        cls = _DropClassifier(ctx, mv, mf, routes, hit_limit, no_mix)
         for s in dropped:
             if s['escortEnds'] and not any(mv[k]['escort'] for k in s['_allowed']):
                 unassigned.append(_unassigned(s, 'safety_rule', {'rule': 'escortIfFirstOrLast'}))
@@ -795,8 +880,8 @@ def solve(problem: dict) -> dict:
                 unassigned.append(_unassigned(s, 'pinned_assignment_infeasible',
                                               {'pinnedVehicleId': s['pinned'], 'failed': ['not_scheduled']}))
             else:
-                code = 'CAPACITY_EXHAUSTED' if need > seats else 'TIME_LIMIT' if hit_limit else 'NOT_SCHEDULED'
-                unassigned.append(_unassigned(s, 'not_scheduled_capacity_or_time', None, code))
+                code, detail = cls.classify(s)
+                unassigned.append(_unassigned(s, 'not_scheduled_capacity_or_time', detail, code))
 
     proven = status_name == 'ROUTING_OPTIMAL'
     penalty = sum(penalty_base * s['priority'] * (PINNED_PENALTY_FACTOR if s['pinned'] is not None else 1)
@@ -807,7 +892,7 @@ def solve(problem: dict) -> dict:
         'provenOptimal': proven,
         'solverStatus': status_name,
         'objective': solution.ObjectiveValue(),
-        'objectiveBreakdown': _breakdown(routes, penalty),
+        'objectiveBreakdown': _breakdown(routes, penalty, ride_cost, detour_cost),
         'weights': w,
         'routes': routes,
         'unassigned': unassigned,
@@ -818,13 +903,197 @@ def solve(problem: dict) -> dict:
     }
 
 
-def _breakdown(routes: list[dict], penalty: int) -> dict:
+# ----------------------------------------------------------------------------------------------------------------
+# Post-solve reasons for dropped stops
+# ----------------------------------------------------------------------------------------------------------------
+
+class _DropClassifier:
+    """Why the search left out a stop that passed every pre-check (README "Unassigned reasons").
+
+    1. A compatible vehicle stayed unused (alone on it the stop is feasible: that is what the pre-check proved; an
+       `escortIfFirstOrLast` stop only counts escort vehicles) -> the search, not the problem, is the limit:
+       `TIME_LIMIT` when it stopped on the clock, else `NOT_SCHEDULED` (local optimum), detail `{unusedVehicles}`.
+    2. No compatible used vehicle has a free seat (seats, wheelchair space, exclusive occupancy) ->
+       `CAPACITY_EXHAUSTED`, detail `{freeSeats: 0}`.
+    3. Otherwise the stop is re-inserted at every position of every compatible route with room, and the whole route
+       is re-timed the way the model times it (windows, site window, availability, max ride, max route duration,
+       escort position, customer mixing). A feasible insertion -> the search is the limit again (`TIME_LIMIT` /
+       `NOT_SCHEDULED`, detail `{insertableInto}`); none -> `FLEET_TOO_SMALL`, detail `{binding, freeSeats}`.
+
+    The re-timing is exact for single-window stops (the usual trip case). With several windows per stop the
+    feasibility of reaching every window is still exact, but the choice of departure / arrival time that minimises the
+    rides is not, so a max-ride / duration failure on such a route also reports binding "unknown". The work is capped
+    at CLASSIFY_BUDGET_S over all dropped stops; whatever is not checked by then reports binding "unknown".
+    """
+
+    def __init__(self, ctx: _Ctx, mv: list[dict], mf: list[dict], routes: list[dict], hit_limit: bool,
+                 no_mix: bool) -> None:
+        self.ctx, self.mv, self.mf, self.no_mix = ctx, mv, mf, no_mix
+        self.search_code = 'TIME_LIMIT' if hit_limit else 'NOT_SCHEDULED'
+        by_id = {s['id']: s for s in ctx.stops}
+        vpos = {v['id']: k for k, v in enumerate(mv)}
+        self.routes = [(vpos[r['vehicleId']], [by_id[x['stopId']] for x in r['stops']]) for r in routes]
+        self.used = {k for k, _ in self.routes}
+        self.deadline = time.perf_counter() + CLASSIFY_BUDGET_S
+
+    def classify(self, s: dict) -> tuple[str, dict]:
+        allowed = set(s['_allowed'])
+        unused = [k for k in s['_allowed'] if k not in self.used and (self.mv[k]['escort'] or not s['escortEnds'])]
+        if unused:
+            return self.search_code, {'unusedVehicles': len(unused)}
+        room, wheelchair_full = [], False
+        for k, members in self.routes:
+            if k not in allowed:
+                continue
+            v = self.mv[k]
+            free = v['capacity'] - sum(m['demand'] for m in members)
+            if free < s['demand'] or any(m['exclusive'] for m in members):
+                continue
+            if sum(m['wheelchair'] for m in members) + s['wheelchair'] > v['wheelchair']:
+                wheelchair_full = True
+                continue
+            room.append((k, members, free))
+        if not room:
+            return 'CAPACITY_EXHAUSTED', {'freeSeats': 0, **({'failed': ['wheelchair']} if wheelchair_full else {})}
+        unlimited = any(self.mv[k]['rawCapacity'] is None for k, _, _ in room)
+        free_seats = None if unlimited else sum(f for _, _, f in room)
+        binding: set[str] = set()
+        for k, members, _ in room:
+            if time.perf_counter() > self.deadline:
+                binding.add('unknown')
+                break
+            if s['exclusive']:
+                binding.add('exclusive')      # an individual journey needs an empty vehicle
+                continue
+            if self.no_mix and s['customer'] is not None and \
+                    any(m['customer'] not in (None, s['customer']) for m in members):
+                binding.add('customer')
+                continue
+            for pos in range(len(members) + 1):
+                fails = self._check(self.mv[k], self.mf[k], members[:pos] + [s] + members[pos:])
+                if not fails:
+                    return self.search_code, {'insertableInto': self.mv[k]['id']}
+                binding |= fails
+        return 'FLEET_TOO_SMALL', {'binding': sorted(binding), 'freeSeats': free_seats}
+
+    # -- route re-timing (real, forward time; same semantics as `_direct` and the model) --------------------------
+
+    def _legs(self, locs: list[int | None]) -> list[int] | None:
+        out = []
+        for a, b in zip(locs, locs[1:]):
+            if a is None or b is None:
+                out.append(0)              # open start / end
+                continue
+            leg = self.ctx.dur[a][b]
+            if leg is None:
+                return None
+            out.append(leg)
+        return out
+
+    def _check(self, v: dict, f: dict, seq: list[dict]) -> set[str]:
+        """Constraints the sequence breaks on this vehicle; empty = feasible."""
+        trip = self.ctx.trip
+        if trip is not None and not v['escort']:
+            edge = seq[0] if trip['direction'] == 'IN' else seq[-1]
+            if edge['escortEnds']:
+                return {'escort_position'}
+        wins = [[(a, b) for a, b in st['tws'] if a <= b] for st in seq]
+        if trip is None:
+            return self._forward(v, seq, wins, v['start'], v['end'], f['start'], 'vehicle_availability', False)
+        if trip['direction'] == 'OUT':
+            return self._forward(v, seq, wins, trip['site'], v['end'], f['start'], 'site_window', True)
+        return self._in(v, f, seq, wins)
+
+    @staticmethod
+    def _latest(seq: list[dict], wins: list, legs: list[int], end_by: int) -> list[int] | None:
+        """Latest service starts so that every later stop and `end_by` (latest arrival at the route end) still hold;
+        element n is the latest departure from the route start. None if some window cannot be met."""
+        out = [0] * (len(seq) + 1)
+        latest = end_by - legs[-1]
+        for i in range(len(seq) - 1, -1, -1):
+            bound = latest - seq[i]['service']
+            pts = [min(b, bound) for a, b in wins[i] if a <= bound]
+            if not pts:
+                return None
+            out[i] = max(pts)
+            latest = out[i] - legs[i]
+        out[-1] = latest
+        return out
+
+    def _forward(self, v: dict, seq: list[dict], wins: list, loc0: int | None, end_loc: int | None,
+                 start_rng: tuple[int, int], early_tag: str, ride: bool) -> set[str]:
+        """OUT (start = site departure) and generic (start = vehicle start). Leaving as late as the windows and the
+        vehicle's end allow gives the shortest rides and route duration, so only that departure is checked."""
+        legs = self._legs([loc0] + [st['loc'] for st in seq] + [end_loc])
+        if legs is None:
+            return {'unreachable'}
+        lo, hi = start_rng
+        late = self._latest(seq, wins, legs, v['tw'][1])
+        if late is None:
+            return {'vehicle_availability' if self._latest(seq, wins, legs, 10**12) else 'time_window'}
+        d = min(hi, late[-1])
+        if d < lo:
+            return {early_tag}
+        t, begins = d, []
+        for i, st in enumerate(seq):           # earliest service starts from d (each <= its latest by construction)
+            arr = t + legs[i]
+            begins.append(min(max(a, arr) for a, b in wins[i] if b >= arr))
+            t = begins[-1] + st['service']
+        fails = set()
+        if ride and any(st['maxRide'] is not None and b - d > st['maxRide'] for st, b in zip(seq, begins)):
+            fails.add('max_ride')
+        if v['maxDuration'] is not None and t + legs[-1] - d > v['maxDuration']:
+            fails.add('max_route_duration')
+        if fails and any(len(w) > 1 for w in wins):
+            fails.add('unknown')
+        return fails
+
+    def _in(self, v: dict, f: dict, seq: list[dict], wins: list) -> set[str]:
+        """IN: earliest feasible site arrival A (forward pass from the garage), then the latest pickups that still
+        reach the site by A. Arriving as early as possible gives the shortest rides and route duration."""
+        legs = self._legs([v['start']] + [st['loc'] for st in seq] + [self.ctx.trip['site']])
+        if legs is None:
+            return {'unreachable'}
+
+        def earliest(t0: int) -> int | None:
+            t = t0
+            for i, st in enumerate(seq):
+                arr = t + legs[i]
+                pts = [max(a, arr) for a, b in wins[i] if b >= arr]
+                if not pts:
+                    return None
+                t = min(pts) + st['service']
+            return t + legs[-1]
+
+        reach = earliest(max(v['tw'][0], 0))
+        if reach is None:
+            return {'vehicle_availability' if earliest(0) is not None else 'time_window'}
+        lo_arr, hi_arr = f['arrive']
+        A = max(lo_arr, reach)
+        if A > hi_arr:
+            return {'site_window'}
+        late = self._latest(seq, wins, legs, A)   # never None: the forward pass is a schedule arriving by A
+        fails = set()
+        if any(st['maxRide'] is not None and A - b > st['maxRide'] for st, b in zip(seq, late)):
+            fails.add('max_ride')
+        if v['maxDuration'] is not None and A - late[-1] > v['maxDuration']:
+            fails.add('max_route_duration')
+        if fails and any(len(w) > 1 for w in wins):
+            fails.add('unknown')
+        return fails
+
+
+def _breakdown(routes: list[dict], penalty: int, ride_cost: int = 0, detour_cost: int = 0) -> dict:
+    """`rideTimeCost` / `detourCost`: the objective terms of weights.rideTime / trip.detourGuard, recomputed from the
+    reported rides (0 when the feature is off)."""
     dist = [r['distanceM'] for r in routes if r.get('distanceM') is not None]
     return {'vehiclesUsed': len(routes),
             'totalDistanceM': sum(dist) if len(dist) == len(routes) else None,
             'totalDurationS': sum(r['durationS'] for r in routes),
             'fixedCost': sum(r.get('fixedCost') or 0 for r in routes),
-            'dropPenalty': penalty}
+            'dropPenalty': penalty,
+            'rideTimeCost': ride_cost,
+            'detourCost': detour_cost}
 
 
 def _status_name(raw: Any) -> str:

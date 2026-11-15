@@ -1,4 +1,7 @@
+import type { Prisma } from '@prisma/client';
 import type { RoutePlanSkipReason, TransportDirection } from '@veetracer/shared';
+import { PERSONAL_STOP_NAME } from '../dispatch/personal-points';
+import { relS } from './plan-rules';
 
 /**
  * WP 3.9 (ad-hoc bookings in E4 drafts): which bookings of a plan's date / direction a new plan takes, and why the
@@ -54,4 +57,91 @@ export function planSkipReason(b: PlanScopeBooking, p: PlanScope): RoutePlanSkip
   if (p.branchId && b.branchId && b.branchId !== p.branchId) return 'out_of_scope';
   if (b.status !== 'PENDING_ASSIGNMENT') return 'needs_approval';
   return null;
+}
+
+/** The booking facts the plan stops of one booking are built from. */
+export interface StopBooking {
+  id: string;
+  customerCompanyId: string;
+  profileId: string;
+  passengerCount: number;
+  pickupPoiId: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropPoiId: string | null;
+  dropLat: number | null;
+  dropLng: number | null;
+  windowStart: Date;
+  windowEnd: Date;
+}
+
+/** The passenger's end of a booking (IN: pickup, OUT: drop): personal unless it is a company place. */
+export function personalEnd(b: Pick<StopBooking, 'pickupPoiId' | 'pickupLat' | 'pickupLng' | 'dropPoiId' | 'dropLat' | 'dropLng'>, direction: TransportDirection): { poiId: string | null; lat: number | null; lng: number | null } {
+  return direction === 'IN' ? { poiId: b.pickupPoiId, lat: b.pickupLat, lng: b.pickupLng } : { poiId: b.dropPoiId, lat: b.dropLat, lng: b.dropLng };
+}
+
+/**
+ * Why a booking's passenger end cannot be planned (plan create and WP-B add-booking alike): no point (`needs_location`),
+ * or a personal point without the passenger's active routing consent (`consent_required`); null when usable.
+ */
+export function endProblem(b: Parameters<typeof personalEnd>[0] & { profileId: string }, direction: TransportDirection, consents: ReadonlySet<string>): 'needs_location' | 'consent_required' | null {
+  const end = personalEnd(b, direction);
+  if (end.lat === null || end.lng === null) return 'needs_location';
+  if (!end.poiId && !consents.has(b.profileId)) return 'consent_required';
+  return null;
+}
+
+/**
+ * The two unassigned plan stops of one booking (plan create, and WP-B add-booking): the passenger's end (the booking's
+ * own point, consented at the source, or its company place; demand = seats; 60 s service) and the site end (the plan's
+ * site, carrying the booking window in seconds after planStartAt). Refs `p-<booking>` / `d-<booking>`. `id` optional
+ * (add-booking gives ids up front so the edit checks can see the new stops).
+ */
+export function bookingStopRows(
+  b: StopBooking,
+  plan: { id: string; companyId: string; direction: TransportDirection; startMs: number },
+  site: { id: string; name: string; lat: number; lng: number },
+  placeName: (poiId: string) => string | null,
+  ids?: { passenger: string; site: string },
+): [Prisma.RoutePlanStopCreateManyInput, Prisma.RoutePlanStopCreateManyInput] {
+  const end = personalEnd(b, plan.direction);
+  const IN = plan.direction === 'IN';
+  // Unset columns spelled out (null), so every reader sees the same row as after a database round trip.
+  const blank = { assignmentId: null, sequence: null, etaS: null, unassignedReason: null, snappedLat: null, snappedLng: null, snapDistanceM: null, snapGraphVersion: null };
+  const passenger: Prisma.RoutePlanStopCreateManyInput = {
+    ...blank,
+    ...(ids ? { id: ids.passenger } : {}),
+    planId: plan.id,
+    companyId: plan.companyId,
+    ref: `${IN ? 'p' : 'd'}-${b.id}`,
+    name: end.poiId ? placeName(end.poiId) : PERSONAL_STOP_NAME[IN ? 'PICKUP' : 'DROP'],
+    lat: end.lat!,
+    lng: end.lng!,
+    demand: b.passengerCount,
+    serviceS: 60,
+    stopKind: IN ? 'PICKUP' : 'DROP',
+    customerCompanyId: b.customerCompanyId,
+    bookingId: b.id,
+    profileId: end.poiId ? null : b.profileId,
+    poiId: end.poiId,
+  };
+  const atSite: Prisma.RoutePlanStopCreateManyInput = {
+    ...blank,
+    ...(ids ? { id: ids.site } : {}),
+    planId: plan.id,
+    companyId: plan.companyId,
+    ref: `${IN ? 'd' : 'p'}-${b.id}`,
+    name: site.name,
+    lat: site.lat,
+    lng: site.lng,
+    demand: 0,
+    serviceS: 0,
+    timeWindows: [[relS(b.windowStart, plan.startMs), relS(b.windowEnd, plan.startMs)]],
+    stopKind: IN ? 'DROP' : 'PICKUP',
+    customerCompanyId: b.customerCompanyId,
+    bookingId: b.id,
+    profileId: null,
+    poiId: site.id,
+  };
+  return [passenger, atSite];
 }
