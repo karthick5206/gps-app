@@ -90,6 +90,8 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
 /** Detail pages inside a menu (same permission as the menu). */
 const PlannedTripDetailPage = page(() => import('@/features/planned-trips/PlannedTripDetailPage'), 'PlannedTripDetailPage');
 const TransportTripDetailPage = page(() => import('@/features/transport/dispatch/TransportTripDetailPage'), 'TransportTripDetailPage');
+/** v1.16.12: one vendor on one page (details, branches, vehicles with type / seats / rate applied, drivers, rates). */
+const VendorDetailPage = page(() => import('@/features/transport/vendors/VendorDetailPage'), 'VendorDetailPage');
 const PlanReviewPage = page(() => import('@/features/transport/planning/PlanReviewPage'), 'PlanReviewPage');
 const AgreementDetailPage = page(() => import('@/features/transport/AgreementDetailPage'), 'AgreementDetailPage');
 /** E1b: the customer's sensitive-access log (static path, ranked above /transport/partners/:id). */
@@ -180,6 +182,16 @@ export const router = createBrowserRouter([
               <RequirePermission menu="etms_partners">
                 <Suspense fallback={<PageFallback />}>
                   <AgreementDetailPage />
+                </Suspense>
+              </RequirePermission>
+            ),
+          },
+          {
+            path: '/vendors/:id',
+            element: (
+              <RequirePermission menu="etms_vendors">
+                <Suspense fallback={<PageFallback />}>
+                  <VendorDetailPage />
                 </Suspense>
               </RequirePermission>
             ),

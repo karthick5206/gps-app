@@ -75,7 +75,7 @@ function useAssets(vendorId: string) {
   return useQuery({ queryKey: ['vendor-assets', vendorId], queryFn: ({ signal }) => api.get<TransportVendorAssetsDto>(`${V(vendorId)}/assets`, undefined, signal) });
 }
 
-function BranchesTab({ vendor, next }: { vendor: TransportVendorDto; next: () => void }) {
+export function BranchesTab({ vendor, next }: { vendor: TransportVendorDto; next?: () => void }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const refresh = useRefresh(vendor.id);
@@ -86,7 +86,7 @@ function BranchesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
     onSuccess: () => {
       toast.success(t('Branches saved'));
       refresh();
-      next();
+      next?.();
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -96,14 +96,14 @@ function BranchesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
       <MultiSelect value={ids} onChange={setIds} options={branches.options} loading={branches.loading} placeholder={t('All branches')} disabled={!can('etms_vendors', 'edit')} />
       {can('etms_vendors', 'edit') && (
         <Button className="justify-self-start" onClick={() => save.mutate()} disabled={save.isPending}>
-          {t('Save and next')}
+          {next ? t('Save and next') : t('Save')}
         </Button>
       )}
     </div>
   );
 }
 
-function VehiclesTab({ vendor, next }: { vendor: TransportVendorDto; next: () => void }) {
+export function VehiclesTab({ vendor, next, rateOf }: { vendor: TransportVendorDto; next?: () => void; rateOf?: (category: string) => string }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const refresh = useRefresh(vendor.id);
@@ -133,7 +133,7 @@ function VehiclesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
     onSuccess: () => {
       toast.success(t('Vehicles saved'));
       refresh();
-      next();
+      next?.();
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -148,6 +148,7 @@ function VehiclesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
               <th className="py-1 text-left font-medium">{t('Vehicle')}</th>
               <th className="w-44 py-1 text-left font-medium">{t('Type')}</th>
               <th className="w-24 py-1 text-left font-medium">{t('Seats')}</th>
+              {rateOf && <th className="py-1 pl-3 text-left font-medium">{t('Rate applied')}</th>}
             </tr>
           </thead>
           <tbody>
@@ -169,6 +170,7 @@ function VehiclesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
                   <td className="py-1.5">
                     <Input type="number" min={1} max={100} value={r.seats} disabled={!editable} onChange={(e) => setRows({ ...rows, [id]: { ...r, seats: e.target.value } })} className="h-8" aria-label={t('Seats')} />
                   </td>
+                  {rateOf && <td className="py-1.5 pl-3 text-sm">{r.category ? rateOf(r.category) : <span className="text-muted-foreground">{t('Choose a type')}</span>}</td>}
                 </tr>
               );
             })}
@@ -177,14 +179,14 @@ function VehiclesTab({ vendor, next }: { vendor: TransportVendorDto; next: () =>
       )}
       {editable && (
         <Button className="justify-self-start" onClick={() => save.mutate()} disabled={save.isPending}>
-          {t('Save and next')}
+          {next ? t('Save and next') : t('Save')}
         </Button>
       )}
     </div>
   );
 }
 
-function DriversTab({ vendor, next }: { vendor: TransportVendorDto; next: () => void }) {
+export function DriversTab({ vendor, next }: { vendor: TransportVendorDto; next?: () => void }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const refresh = useRefresh(vendor.id);
@@ -201,7 +203,7 @@ function DriversTab({ vendor, next }: { vendor: TransportVendorDto; next: () => 
     onSuccess: () => {
       toast.success(t('Drivers saved'));
       refresh();
-      next();
+      next?.();
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
@@ -212,7 +214,7 @@ function DriversTab({ vendor, next }: { vendor: TransportVendorDto; next: () => 
       <MultiSelect value={ids} onChange={setIds} options={options.options} selectedOptions={selected} loading={options.loading} onSearch={setQ} placeholder={t('Add drivers…')} disabled={!can('etms_vendors', 'edit')} />
       {can('etms_vendors', 'edit') && (
         <Button className="justify-self-start" onClick={() => save.mutate()} disabled={save.isPending}>
-          {t('Save and next')}
+          {next ? t('Save and next') : t('Save')}
         </Button>
       )}
     </div>
@@ -220,7 +222,7 @@ function DriversTab({ vendor, next }: { vendor: TransportVendorDto; next: () => 
 }
 
 /** Simple rates: one row per vehicle type, one model (per trip or per km) for all branches. */
-function RatesTab({ vendor, onAdvanced }: { vendor: TransportVendorDto; onAdvanced: () => void }) {
+export function RatesTab({ vendor, onAdvanced }: { vendor: TransportVendorDto; onAdvanced: () => void }) {
   const { t } = useTranslation();
   const { can } = useAuth();
   const refresh = useRefresh(vendor.id);

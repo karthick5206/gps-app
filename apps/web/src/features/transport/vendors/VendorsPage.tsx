@@ -2,6 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import type { BranchDto, TransportVendorDto } from '@veetracer/shared';
 import { CarFrontIcon, ReceiptIndianRupeeIcon, TruckIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
@@ -102,7 +103,7 @@ function VendorForm({ record, open, onOpenChange }: MasterFormProps<TransportVen
 }
 
 const columns: MasterColumn<TransportVendorDto>[] = [
-  { id: 'name', header: 'Vendor', sortable: true, hideable: false, cell: (r) => <span className="font-medium">{r.name}</span> },
+  { id: 'name', header: 'Vendor', sortable: true, hideable: false, cell: (r) => <Link to={`/vendors/${r.id}`} className="font-medium text-primary hover:underline">{r.name}</Link> },
   { id: 'gstin', header: 'GSTIN', cell: (r) => (r.gstin ? <span className="font-mono text-xs">{r.gstin}</span> : <Muted>—</Muted>) },
   { id: 'contact', header: 'Contact', cell: (r) => <span className="text-sm">{[r.contactName, r.phone].filter(Boolean).join(' · ') || '—'}</span> },
   { id: 'branches', header: 'Branches', cell: (r) => <span className="text-xs">{r.branchNames.length ? r.branchNames.join(', ') : 'All'}</span> },
@@ -117,8 +118,10 @@ export function VendorsPage() {
   const { t } = useTranslation();
   const [setup, setSetup] = useState<{ vendor: TransportVendorDto; tab: string } | null>(null);
   const [cards, setCards] = useState<TransportVendorDto | null>(null);
-  const setAssets = (v: TransportVendorDto) => setSetup({ vendor: v, tab: 'vehicles' });
-  const setRates = (v: TransportVendorDto) => setSetup({ vendor: v, tab: 'rates' });
+  // v1.16.12: one page per vendor (everything visible); the row buttons open it.
+  const navigate = useNavigate();
+  const setAssets = (v: TransportVendorDto) => navigate(`/vendors/${v.id}`);
+  const setRates = (v: TransportVendorDto) => navigate(`/vendors/${v.id}`);
   // The links are buttons in the row: vehicles / drivers and rate cards open their panels.
   const cols = useMemo<MasterColumn<TransportVendorDto>[]>(
     () => [
@@ -153,11 +156,11 @@ export function VendorsPage() {
       </li>
       <li>
         <span className="font-semibold text-primary">2. {t('Link vehicles & drivers')}</span>
-        <span className="block text-xs text-muted-foreground">{t('Click the vehicles / drivers button on the row. Each vehicle needs its category (Sedan, SUV, Tempo, Bus…) in Masters → Objects.')}</span>
+        <span className="block text-xs text-muted-foreground">{t('Click the vendor name: add vehicles, set each one’s type (Hatchback, Sedan, SUV, Tempo, Bus…) and seats, and the drivers, on one page.')}</span>
       </li>
       <li>
         <span className="font-semibold text-primary">3. {t('Add rate cards')}</span>
-        <span className="block text-xs text-muted-foreground">{t('Click the rate cards button: price per category and branch. Vendor billing then prices every finished trip.')}</span>
+        <span className="block text-xs text-muted-foreground">{t('On the same page, enter one rate per vehicle type (per trip or per km). Each vehicle shows the rate it will be billed at.')}</span>
       </li>
     </ol>
   );
