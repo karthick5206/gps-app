@@ -102,7 +102,11 @@ export type PricingErrorCode =
   | 'IDEMPOTENCY_KEY_REQUIRED'
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'FORBIDDEN_GRANT'
-  | 'COST_HIDDEN';
+  | 'COST_HIDDEN'
+  | 'PERIOD_NOT_ENDED'
+  | 'INVOICE_DATE_INVALID'
+  | 'TAX_SPLIT_CHANGED'
+  | 'SNAPSHOT_SUPERSEDED';
 
 export interface PricingPage<T> {
   items: T[];
@@ -488,6 +492,8 @@ export interface BillableDistanceRequest {
   distanceKm: string;
   reason: string;
 }
+/** POST …/billable-distance: a new snapshot, or a DISTANCE_CORRECTION adjustment waiting for a second user (policy tripOverrideNeedsApproval). Allowed only when the contract permits trip overrides or prices on MANUAL_APPROVED distances. */
+export type BillableDistanceResponse = TripOverrideResponse;
 export interface TripOverrideRequest {
   /** Negotiated trip price before tax, decimal MAJOR units of the contract currency. */
   amount: string;
@@ -696,12 +702,19 @@ export interface IssueInvoiceRequest {
   invoiceDate?: string | null;
 }
 
-/** Full credit (default) or a partial amount including tax (split pro rata over the invoice's tax). */
+/**
+ * POST /invoices/:id/credit-notes (pricing_adjustments:create) returns a pending CREDIT adjustment (invoiceId set); a
+ * different user approves it (POST /adjustments/:id/approve, pricing_adjustments:approve), which issues the credit note
+ * (its id / number are then in the adjustment data: creditNoteId, creditNoteNumber).
+ * Full credit (default) or a partial amount including tax (split pro rata; the last credit takes the remaining tax).
+ */
 export interface CreateCreditNoteRequest {
   reason: string;
   /** Decimal MAJOR units including tax; absent = everything still creditable. */
   amount?: string | null;
 }
+
+export type CreditNoteRequestResponse = BillingAdjustmentDto;
 
 export interface RecordPaymentRequest {
   amount: string;

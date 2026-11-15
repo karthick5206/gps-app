@@ -38,6 +38,13 @@ export function selectContract(candidates: readonly ContractCandidate[], q: Cont
   }
   // A customer contract exists for the date but none matches the branch / category: no fallback to the default.
   if (own.length) return { ok: false, code: 'NO_APPLICABLE_PRICING', reason: `the customer's contract does not cover this branch / vehicle category on ${q.serviceDate}` };
+  // QA 4 (§5.7): the default applies only when the customer has NO contract. A suspended contract, a gap between versions
+  // or an inactive agreement is still the customer's contract: explicit failure, never the default.
+  const blocked = candidates.filter((c) => !c.isDefault && c.customerCompanyId === q.customerCompanyId && c.status !== 'EXPIRED' && specificity(c, q) >= 0 && !covers(c, q.serviceDate));
+  if (blocked.length) {
+    const why = [...new Set(blocked.map((c) => c.status.toLowerCase().replace(/_/g, ' ')))].join(', ');
+    return { ok: false, code: 'NO_APPLICABLE_PRICING', reason: `the customer's contract is not priceable on ${q.serviceDate} (${why}); the default contract is not used` };
+  }
   const need = q.customerCompanyId === null ? 'INTERNAL' : 'EXTERNAL';
   const defaults = live.filter((c) => c.isDefault && c.customerCompanyId === null && (c.defaultCovers ?? []).includes(need));
   if (defaults.length) {

@@ -10,3 +10,4 @@ export * from './engine';
 export * from './fare-allocation';
 export * from './precedence';
 export * from './api';
+export * from './credit';

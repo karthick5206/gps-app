@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   addDaysYmd,
   daysBetweenInclusive,
+  unionDaysWithin,
   isYmd,
   periodBounds,
   pricePeriod,
@@ -22,7 +23,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingRunsService, runDto } from './billing-runs.service';
 import { engineComponents, PricingContractsService } from './contracts.service';
-import { asJson, branchWhere, conflict, contractVisible, invalid, isoOf, jsonLines, jsonTaxLines, lineDto, localMinuteOfDay, notFound, pageOf, paging, taxLineDto, ymd, type Db } from './pricing-common';
+import { asJson, branchWhere, conflict, contractVisible, invalid, isoOf, jsonLines, jsonTaxLines, lineDto, localMinuteOfDay, localYmd, notFound, pageOf, paging, taxLineDto, ymd, type Db } from './pricing-common';
 import { PricingSettingsService } from './settings.service';
 
 type PeriodRow = Prisma.AvailabilityBillingPeriodGetPayload<object>;
@@ -133,35 +134,29 @@ export class AvailabilityService {
     });
     const tax = await this.settings.taxConfigFor(tx, ctx.companyId, contract, end);
     const out: PeriodRow[] = [];
-    for (const a of assignments) {
+    const holidays = new Set(calendar?.holidays ?? []);
+    const hoursOf = (a: (typeof assignments)[number]) => (a.operatingHours ?? {}) as { from?: string; to?: string };
+    const windowOf = (a: (typeof assignments)[number]) => {
       const aStart = ymd(a.validFrom);
       const aEnd = a.validTo ? addDaysYmd(ymd(a.validTo), -1) : end; // validTo exclusive
-      const attachedDays = overlapDays(aStart, aEnd, start, end);
-      if (attachedDays <= 0) continue;
-      const winStart = aStart > start ? aStart : start;
-      const winEnd = aEnd < end ? aEnd : end;
-      let downtimeDays = 0;
-      let suspensionDays = 0;
-      for (const d of a.downtimes.filter((x) => !x.billable)) {
-        const n = overlapDays(ymd(d.fromDate), ymd(d.toDate), winStart, winEnd);
-        if (d.kind === 'SUSPENSION') suspensionDays += n;
-        else downtimeDays += n;
-      }
-      // Replacement (§3.2 replacementBilling ORIGINAL): its days count for the original, which keeps them billable.
-      const replacements = assignments.filter((r) => r.replacesAssignmentId === a.id && r.replacementBilling === 'ORIGINAL');
-      const replacementCoveredDays = Math.min(downtimeDays, replacements.reduce((n, r) => n + overlapDays(ymd(r.validFrom), r.validTo ? addDaysYmd(ymd(r.validTo), -1) : end, winStart, winEnd), 0));
-      const billedUnderOriginal = !!a.replacesAssignmentId && a.replacementBilling === 'ORIGINAL';
+      return { winStart: aStart > start ? aStart : start, winEnd: aEnd < end ? aEnd : end, attachedDays: overlapDays(aStart, aEnd, start, end) };
+    };
+    /** GPS km / hours / overtime / holidays / trips of one vehicle over [winStart, winEnd] (company-local days). */
+    const usageOf = async (a: (typeof assignments)[number], winStart: string, winEnd: string) => {
       const summaries = await tx.dailySummary.findMany({ where: { objectId: a.objectId, day: { gte: new Date(`${winStart}T00:00:00Z`), lte: new Date(`${winEnd}T00:00:00Z`) } }, select: { day: true, distanceKm: true, runningSec: true, idleSec: true } });
-      const usedDistanceM = summaries.reduce((n, s) => n + Math.round(s.distanceKm * 1000), 0);
-      const usedDurationS = summaries.reduce((n, s) => n + s.runningSec + s.idleSec, 0);
-      const trips = await tx.plannedTrip.findMany({
-        where: { companyId: ctx.companyId, objectId: a.objectId, status: { in: ['COMPLETED', 'INCOMPLETE', 'STARTED', 'IN_PROGRESS'] }, plannedStart: { gte: new Date(`${winStart}T00:00:00Z`), lt: new Date(`${addDaysYmd(winEnd, 1)}T00:00:00Z`) } },
+      // LOW: trips belong to the company-local day of their start (fetch one day either side, then filter).
+      const raw = await tx.plannedTrip.findMany({
+        where: { companyId: ctx.companyId, objectId: a.objectId, status: { in: ['COMPLETED', 'INCOMPLETE', 'STARTED', 'IN_PROGRESS'] }, plannedStart: { gte: new Date(`${addDaysYmd(winStart, -1)}T00:00:00Z`), lt: new Date(`${addDaysYmd(winEnd, 2)}T00:00:00Z`) } },
         select: { actualStart: true, actualEnd: true, plannedStart: true },
       });
-      const hours = (a.operatingHours ?? {}) as { from?: string; to?: string };
+      const trips = raw.filter((t) => {
+        const day = localYmd(t.plannedStart, company.timezone);
+        return day >= winStart && day <= winEnd;
+      });
+      const hours = hoursOf(a);
       let overtimeS = 0;
       if (hours.from && hours.to) {
-        const toMin = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
+        const toMin = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
         const f = toMin(hours.from);
         const t = toMin(hours.to);
         for (const tr of trips) {
@@ -171,9 +166,50 @@ export class AvailabilityService {
           if (!inside) overtimeS += Math.max(0, Math.round((tr.actualEnd.getTime() - tr.actualStart.getTime()) / 1000));
         }
       }
-      const holidays = new Set(calendar?.holidays ?? []);
-      const holidayDaysWorked = summaries.filter((s) => s.distanceKm > 0 && holidays.has(ymd(s.day))).length;
-      const facts: PeriodFacts = { frequency, periodStart: start, periodEnd: end, attachedDays, downtimeDays, suspensionDays, replacementCoveredDays, holidayDaysWorked, usedDistanceM, usedDurationS, overtimeS, tripCount: trips.length, billedUnderOriginal, branchId: a.branchId };
+      return {
+        distanceM: summaries.reduce((n, x) => n + Math.round(x.distanceKm * 1000), 0),
+        durationS: summaries.reduce((n, x) => n + x.runningSec + x.idleSec, 0),
+        overtimeS,
+        holidayDays: summaries.filter((x) => x.distanceKm > 0 && holidays.has(ymd(x.day))).length,
+        trips: trips.length,
+        summaryDays: new Set(summaries.map((x) => ymd(x.day))),
+      };
+    };
+    for (const a of assignments) {
+      const { winStart, winEnd, attachedDays } = windowOf(a);
+      if (attachedDays <= 0) continue;
+      // QA 8: overlapping downtimes count once (interval union); suspension wins where both apply.
+      const off = a.downtimes.filter((x) => !x.billable);
+      const all = unionDaysWithin(off.map((d) => [ymd(d.fromDate), ymd(d.toDate)] as const), winStart, winEnd);
+      const suspensionDays = unionDaysWithin(off.filter((d) => d.kind === 'SUSPENSION').map((d) => [ymd(d.fromDate), ymd(d.toDate)] as const), winStart, winEnd);
+      const downtimeDays = all - suspensionDays;
+      // Replacement (§3.2 replacementBilling ORIGINAL): its days count for the original, which keeps them billable, and
+      // (QA 1) its km / hours / overtime / holidays are pooled into the original's allowance; it bills nothing itself.
+      const replacements = assignments.filter((r) => r.replacesAssignmentId === a.id && r.replacementBilling === 'ORIGINAL');
+      const replacementCoveredDays = Math.min(downtimeDays, replacements.reduce((n, r) => n + overlapDays(ymd(r.validFrom), r.validTo ? addDaysYmd(ymd(r.validTo), -1) : end, winStart, winEnd), 0));
+      const billedUnderOriginal = !!a.replacesAssignmentId && a.replacementBilling === 'ORIGINAL';
+      const own = await usageOf(a, winStart, winEnd);
+      let usedDistanceM = own.distanceM;
+      let usedDurationS = own.durationS;
+      let overtimeS = own.overtimeS;
+      let holidayDaysWorked = own.holidayDays;
+      let tripCount = own.trips;
+      for (const r of replacements) {
+        const rw = windowOf(r);
+        if (rw.attachedDays <= 0) continue;
+        const u = await usageOf(r, rw.winStart, rw.winEnd);
+        usedDistanceM += u.distanceM;
+        usedDurationS += u.durationS;
+        overtimeS += u.overtimeS;
+        holidayDaysWorked += u.holidayDays;
+        tripCount += u.trips;
+      }
+      // QA 3: operating days of the window without any GPS day summary (never assumed 0 km).
+      const offDays = new Set<string>();
+      for (const d of off) for (let x = ymd(d.fromDate); x <= ymd(d.toDate); x = addDaysYmd(x, 1)) offDays.add(x);
+      let missingDistanceDays = 0;
+      for (let x = winStart; x <= winEnd; x = addDaysYmd(x, 1)) if (!offDays.has(x) && !own.summaryDays.has(x)) missingDistanceDays++;
+      const facts: PeriodFacts = { frequency, periodStart: start, periodEnd: end, attachedDays, downtimeDays, suspensionDays, replacementCoveredDays, holidayDaysWorked, usedDistanceM, missingDistanceDays, usedDurationS, overtimeS, tripCount, billedUnderOriginal, branchId: a.branchId };
       const result = pricePeriod({ currency: contract.currency, roundingMode: contract.roundingMode as RoundingMode, components: engineComponents(version.components), policies, facts, tax });
       const status = result.status === 'PRICED' ? 'OPEN' : 'NEEDS_REVIEW';
       const billableDays = Math.max(0, Math.min(attachedDays, attachedDays - downtimeDays - suspensionDays + replacementCoveredDays));
@@ -189,7 +225,7 @@ export class AvailabilityService {
         suspensionDays,
         usedDistanceM,
         usedSeconds: usedDurationS,
-        tripCount: trips.length,
+        tripCount,
         lines: asJson(result.lines.map(lineDto)),
         subtotalMinor: result.subtotalMinor,
         discountMinor: result.discountMinor,
@@ -224,6 +260,17 @@ export class AvailabilityService {
     const contract = await this.prisma.pricingContract.findFirst({ where: { id: contractId, companyId: ctx.companyId } });
     if (!contract || !contractVisible(ctx, contract)) throw notFound();
     const { start, end } = await this.boundsFor(this.prisma, contract, date);
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId }, select: { timezone: true } });
+    // QA 5: a period is closed only after it has ended (company-local day).
+    if (end >= localYmd(new Date(), company.timezone)) throw conflict('PERIOD_NOT_ENDED', `The period ${start} – ${end} has not ended yet`);
+    const prior = await this.prisma.billingRun.findUnique({ where: { companyId_contractId_kind_periodStart: { companyId: ctx.companyId, contractId, kind: 'AVAILABILITY_CLOSE', periodStart: new Date(`${start}T00:00:00Z`) } } });
+    if (prior?.status === 'DONE' && !(key && prior.idempotencyKey === key)) {
+      const startD = new Date(`${start}T00:00:00Z`);
+      const endD = new Date(`${end}T00:00:00Z`);
+      const assignments = await this.prisma.pricingVehicleAssignment.findMany({ where: { contractId, validFrom: { lte: endD }, OR: [{ validTo: null }, { validTo: { gt: startD } }] }, select: { id: true } });
+      const closed = await this.prisma.availabilityBillingPeriod.count({ where: { contractId, periodStart: startD, assignmentId: { in: assignments.map((x) => x.id) }, status: { in: ['CLOSED', 'INVOICED'] } } });
+      if (closed < assignments.length) await this.runs.reopen(prior.id, 'reopened: vehicles of the period left to close');
+    }
     const claim = await this.runs.claim(ctx, { contractId, kind: 'AVAILABILITY_CLOSE', periodStart: start, periodEnd: end, key, body: { contractId, periodStart: start } });
     if (claim.replay) {
       const periods = await this.prisma.availabilityBillingPeriod.findMany({ where: { contractId, periodStart: new Date(`${start}T00:00:00Z`) } });

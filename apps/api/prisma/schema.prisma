@@ -4038,7 +4038,7 @@ model TransportVendor {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
-  company   Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company     Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   rateCards   TransportRateCard[]
   vehicles    TransportVendorVehicle[]
   drivers     TransportVendorDriver[]
@@ -4181,23 +4181,25 @@ model PricingContract {
 
 /// Effective-dated terms. status: DRAFT | PENDING_APPROVAL | ACTIVE | SUPERSEDED | REJECTED. validTo exclusive.
 model PricingContractVersion {
-  id            String    @id @default(uuid()) @db.Uuid
-  companyId     String    @db.Uuid
-  contractId    String    @db.Uuid
-  versionNo     Int
-  validFrom     DateTime  @db.Date
-  validTo       DateTime? @db.Date
-  status        String    @default("DRAFT")
-  policies      Json      @default("{}")
-  submittedById String?   @db.Uuid
-  submittedAt   DateTime? @db.Timestamptz(3)
-  approvedById  String?   @db.Uuid
-  approvedAt    DateTime? @db.Timestamptz(3)
-  rejectReason  String?
-  supersedesId  String?   @db.Uuid
-  createdById   String?   @db.Uuid
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  contractId     String    @db.Uuid
+  versionNo      Int
+  validFrom      DateTime  @db.Date
+  validTo        DateTime? @db.Date
+  status         String    @default("DRAFT")
+  policies       Json      @default("{}")
+  submittedById  String?   @db.Uuid
+  submittedAt    DateTime? @db.Timestamptz(3)
+  approvedById   String?   @db.Uuid
+  approvedAt     DateTime? @db.Timestamptz(3)
+  rejectReason   String?
+  supersedesId   String?   @db.Uuid
+  createdById    String?   @db.Uuid
+  /// QA 10: last user who changed the components / policies (maker-checker: never the approver).
+  lastEditedById String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
 
   contract   PricingContract    @relation(fields: [contractId], references: [id], onDelete: Restrict)
   components PricingComponent[]
@@ -4243,6 +4245,7 @@ model PricingVehicleRate {
   approvedAt         DateTime? @db.Timestamptz(3)
   version            Int       @default(1)
   createdById        String?   @db.Uuid
+  lastEditedById     String?   @db.Uuid
   createdAt          DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
 

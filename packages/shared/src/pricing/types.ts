@@ -268,6 +268,8 @@ export interface PeriodFacts {
   /** Holiday days worked (HOLIDAY component). */
   holidayDaysWorked?: number;
   usedDistanceM: number;
+  /** Attached, operating days without GPS distance data (excess km then needs review). */
+  missingDistanceDays?: number;
   usedDurationS?: number;
   overtimeS?: number;
   tripCount?: number;
@@ -369,6 +371,7 @@ export interface ContractCandidate {
   branchIds: string[];
   /** Vehicle category the contract is limited to (from its components' scopes), null = any. */
   vehicleCategory?: string | null;
+  /** ACTIVE (priced), or SUSPENDED / NO_VERSION / AGREEMENT_INACTIVE: not priceable on the date but still the customer's contract (blocks the default). */
   status: string;
   validFrom: string;
   validTo: string | null;

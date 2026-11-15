@@ -210,7 +210,8 @@ export class PricingSettingsService {
     return {
       regime: profile.regime as TaxRegime,
       rates: profile.rates.map((r) => ({ taxCode: r.taxCode, label: r.label, ratePpm: r.ratePpm })),
-      defaultTaxCode: profile.defaultTaxCode ?? profile.rates[0]?.taxCode ?? null,
+      // QA 9: no fallback to an arbitrary rate; lines without a code then price with TAX_PROFILE_MISSING (review).
+      defaultTaxCode: profile.defaultTaxCode ?? null,
       supplierStateCode: supplier?.stateCode ?? null,
       buyerStateCode: buyer,
     };

@@ -61,3 +61,31 @@ export function fiscalYearLabel(dateYmd: string, startMonth: number): string {
 export function formatDocumentNumber(prefix: string | null | undefined, fy: string, seq: number): string {
   return `${prefix ? `${prefix}/` : ''}${fy}/${String(seq).padStart(4, '0')}`;
 }
+
+/**
+ * Days of the union of inclusive [from, to] intervals clipped to [winStart, winEnd] (QA 8: overlapping downtimes are
+ * counted once). Dates are 'YYYY-MM-DD'.
+ */
+export function unionDaysWithin(intervals: readonly (readonly [string, string])[], winStart: string, winEnd: string): number {
+  const clipped = intervals
+    .map(([a, b]) => [a > winStart ? a : winStart, b < winEnd ? b : winEnd] as const)
+    .filter(([a, b]) => a <= b)
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
+  let days = 0;
+  let curA: string | null = null;
+  let curB = '';
+  for (const [a, b] of clipped) {
+    if (curA === null) {
+      curA = a;
+      curB = b;
+    } else if (a <= addDaysYmd(curB, 1)) {
+      if (b > curB) curB = b;
+    } else {
+      days += daysBetweenInclusive(curA, curB);
+      curA = a;
+      curB = b;
+    }
+  }
+  if (curA !== null) days += daysBetweenInclusive(curA, curB);
+  return days;
+}
