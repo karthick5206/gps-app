@@ -97,11 +97,12 @@ export class LiveDispatchService {
   // ───────────────────────────── dispatcher: find a vehicle ─────────────────────────────
 
   async decide(ctx: AuthContext, dto: { bookingId: string; apply?: boolean; optionId?: string }, rawKey: string | undefined): Promise<LiveDispatchDecisionDto> {
-    const { pooling } = await this.settingsOf(ctx.companyId);
-    if (!liveDispatchOn(pooling)) throw conflict('LIVE_DISPATCH_DISABLED', pooling.killSwitch ? 'Live dispatch is switched off on this server' : 'Live dispatch is switched off for your company (Transport settings → Pooling)');
+    // Scope first (another tenant's / branch's booking is a 404 whatever the switches), then the switches.
     const booking = await this.prisma.transportBooking.findFirst({ where: { AND: [bookingReadWhere(ctx), { id: dto.bookingId }] }, include: { profile: { select: { branchId: true } } } });
     if (!booking || booking.customerCompanyId !== ctx.companyId) throw notFound('Booking not found');
     assertBookingAccess(ctx, booking, 'write');
+    const { pooling } = await this.settingsOf(ctx.companyId);
+    if (!liveDispatchOn(pooling)) throw conflict('LIVE_DISPATCH_DISABLED', pooling.killSwitch ? 'Live dispatch is switched off on this server' : 'Live dispatch is switched off for your company (Transport settings → Pooling)');
     const key = dto.apply ? idempotencyKey(rawKey) : null;
     const reqKey = key ? `manual:${booking.id}:${key}` : `manual:${booking.id}:${Date.now()}`;
     const started = Date.now();
