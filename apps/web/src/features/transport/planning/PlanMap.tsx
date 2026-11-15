@@ -13,13 +13,16 @@ const SRC = 'etms-plan-routes';
  * Only the points the API sent (consent-gated, 4 decimals for branch scope; see `mapPoints`) and engine road geometry;
  * never a straight line drawn in the browser. The route lists beside it are the accessible equivalent.
  */
-export function PlanMap({ lines, points, depot, focus, className, label }: { lines: RouteLine[]; points: MapPoint[]; depot: LatLng | null; focus?: number | null; className?: string; label: string }) {
+export function PlanMap({ lines, points, depot, focus, className, label, selected, onSelect }: { lines: RouteLine[]; points: MapPoint[]; depot: LatLng | null; focus?: number | null; className?: string; label: string; selected?: string | null; onSelect?: (stopId: string) => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const first = points[0] ?? depot;
   // T2-L5: MapLibre control labels (zoom, compass, attribution, map) in the user's language.
   const { map, unsupported } = useBasemap(ref, { ...(first ? { center: [first.lng, first.lat] as [number, number], zoom: 12 } : {}), locale: mapControlLocale(t) });
   const markers = useRef<maplibregl.Marker[]>([]);
+  // E4 WP-W: a click (or Enter / Space) on a stop marker selects that passenger in the route cards.
+  const select = useRef(onSelect);
+  select.current = onSelect;
   const fitted = useRef(false);
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export function PlanMap({ lines, points, depot, focus, className, label }: { lin
     });
   }, [map, linesKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pointsKey = JSON.stringify(points) + JSON.stringify(depot) + String(focus ?? '');
+  const pointsKey = JSON.stringify(points) + JSON.stringify(depot) + String(focus ?? '') + String(selected ?? '') + String(!!onSelect);
   useEffect(() => {
     if (!map) return;
     markers.current.forEach((m) => m.remove());
@@ -61,12 +64,29 @@ export function PlanMap({ lines, points, depot, focus, className, label }: { lin
     for (const p of points) {
       const el = document.createElement('div');
       const dim = focus !== null && focus !== undefined && focus !== p.route;
-      el.className = cn('flex size-6 items-center justify-center rounded-full border-2 border-[var(--map-marker-stroke)] text-[10px] font-bold text-white shadow-md', dim && 'opacity-40');
+      const isSel = selected === p.id;
+      el.className = cn('flex size-6 items-center justify-center rounded-full border-2 border-[var(--map-marker-stroke)] text-[10px] font-bold text-white shadow-md', dim && !isSel && 'opacity-40', isSel && 'size-8 ring-4 ring-primary', onSelect && 'cursor-pointer');
       el.style.background = p.route >= 0 ? vehicleColor(p.route) : '#6b7280';
       el.textContent = p.position ? String(p.position) : '–';
       const text = p.route >= 0 ? t('Route {{r}}, stop {{n}}: {{name}}', { r: p.route + 1, n: p.position ?? 0, name: t(p.label) }) : t('Unassigned: {{name}}', { name: t(p.label) });
       el.title = text;
       el.setAttribute('aria-label', text);
+      if (onSelect) {
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.setAttribute('aria-pressed', String(isSel));
+        const pick = (e: Event) => {
+          e.stopPropagation();
+          select.current?.(p.id);
+        };
+        el.addEventListener('click', pick);
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            pick(e);
+          }
+        });
+      }
       made.push(new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map));
     }
     markers.current = made;

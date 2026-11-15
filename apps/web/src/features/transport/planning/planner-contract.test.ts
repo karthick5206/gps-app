@@ -60,7 +60,7 @@ function recorder(respond: (c: Call) => unknown) {
       calls.push(c);
       return respond(c) as T;
     },
-    send: async <T>(method: 'POST' | 'PUT' | 'PATCH', path: string, body: unknown, headers?: Record<string, string>) => {
+    send: async <T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body: unknown, headers?: Record<string, string>) => {
       const c = { method, path, body: JSON.parse(JSON.stringify(body)), headers };
       calls.push(c);
       const r = respond(c);
@@ -79,7 +79,9 @@ const INPUT = { planDate: '2026-11-12', direction: 'IN' as const, seeds: [SEED],
 
 test('the DTO reader sees the API fields (guards against a vacuous pass)', () => {
   assert.deepEqual(dto('routing-jobs/routing-jobs.controller.ts', 'SolverWeightsDto').required.sort(), ['distance', 'routeDuration', 'time', 'vehicle']);
-  assert.ok(dto('routing-jobs/routing-jobs.controller.ts', 'OptimizeJobDto').required.includes('weights'));
+  // E4 WP-A: weights became optional (the strategy gives them); strategy and preferences are accepted.
+  const opt = dto('routing-jobs/routing-jobs.controller.ts', 'OptimizeJobDto');
+  assert.ok(opt.optional.includes('weights') && opt.optional.includes('strategy') && opt.optional.includes('preferences'));
   assert.ok(dto('routing-jobs/routing-jobs.controller.ts', 'OptimizeJobDto').required.includes('planId'));
   assert.deepEqual(dto('etms/planning/plan-create.ts', 'CreateRoutePlanDto').required.sort(), ['direction', 'name', 'objectIds', 'planDate', 'sitePoiId']);
 });
@@ -231,4 +233,32 @@ test('T2-D5: a branch dispatcher\'s plan carries the chosen branch (CreateRouteP
   assert.ok(!('branchId' in (company.calls[0].body as object)), 'no branchId for a whole-company plan');
   // The API lists the caller's own branches in the capabilities (RoutingAccess.branches) for the picker.
   assert.ok(src('routing-jobs/routing-capabilities.controller.ts').includes('branches'), 'capabilities expose the caller\'s branches');
+});
+
+test('E4 WP-W: restore / recalculate / bookings / pin / review / alternatives / selected publish match the API DTOs', async () => {
+  const { calls, client } = recorder(() => ({ plan: PLAN, violations: [], degraded: null }));
+  await client.restore(PLAN.id, { expectedVersion: 3, version: 2 });
+  await client.recalculate(PLAN.id, { expectedVersion: 3 });
+  await client.addBooking(PLAN.id, { expectedVersion: 3, bookingId: 'b' });
+  await client.removeBooking(PLAN.id, 'b', 3);
+  await client.pinBooking(PLAN.id, 'b', { expectedVersion: 3, pinned: true });
+  await client.review(PLAN.id, ['a2', 'a1']);
+  await client.createAlternatives(PLAN.id, { strategies: ['BALANCED', 'COMFORT'], expectedVersion: 3 }, 'ak');
+  await client.publish(PLAN.id, { expectedVersion: 3, assignmentIds: ['a1'], reviewHash: 'h' }, 'pk');
+  const [restore, recalc, add, remove, pin, review, alt, pub] = calls;
+  const file = 'etms/planning/plans.dto.ts';
+  assertBody(restore.body, dto(file, 'RestoreDto'), 'restore');
+  assert.equal(restore.path, `/transport/route-plans/${PLAN.id}/restore`);
+  assertBody(recalc.body, dto(file, 'RecalculateDto'), 'recalculate');
+  assertBody(add.body, dto(file, 'AddBookingDto'), 'add booking');
+  assert.equal(remove.method, 'DELETE');
+  assert.equal(remove.path, `/transport/route-plans/${PLAN.id}/bookings/b?expectedVersion=3`);
+  assertBody(pin.body, dto(file, 'BookingPinDto'), 'pin booking');
+  assert.equal(pin.path, `/transport/route-plans/${PLAN.id}/bookings/b/pin`);
+  assert.equal(review.method, 'GET');
+  assert.equal(review.path, `/transport/route-plans/${PLAN.id}/review`);
+  assertBody(alt.body, dto('etms/planning/plan-alternatives.ts', 'AlternativesDto'), 'alternatives');
+  assert.equal(alt.headers?.['Idempotency-Key'], 'ak');
+  readsKey('etms/planning/plan-alternatives.ts', "@Post(':id/alternatives')");
+  assertBody(pub.body, dto(file, 'PublishDto'), 'selected publish');
 });
