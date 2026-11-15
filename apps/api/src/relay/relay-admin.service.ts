@@ -6,12 +6,15 @@ import {
   RELAY_MAX_SCOPE_DEVICES,
   RELAY_PROTOCOLS,
   RelayAuthType,
+  RelayHttpFormat,
   RelayRuleSet,
   RelayRuleSpec,
   RelayTargetDto,
   RelayTargetInput,
   RelayTargetStats,
   RelayTestResult,
+  RelayTrackerCodeResult,
+  RelayTrackerVerifyResult,
 } from '@veetracer/shared';
 import { lookup } from 'node:dns/promises';
 import { isIP, Socket } from 'node:net';
@@ -27,7 +30,8 @@ import { postJson } from '../webhooks/http-post';
 import { generateWebhookSecret, secretPreview } from '../webhooks/signing';
 import { isPrivateAddress } from '../webhooks/url-guard';
 import { checkHttpTarget, checkTcpTarget, RELAY_LIMITS, RelayPolicy, relayPolicy } from './guard';
-import { authorizationHeader, batchHeaders, RelayBatchBody } from './http-forwarder';
+import { authorizationHeader, batchHeaders, RelayBatchBody, TrackerUploadBody } from './http-forwarder';
+import { isTrackerPositionsUrl, trackerApiUrl } from './tracker-format';
 import { parseRuleSet } from './rules';
 import { relayStatsFromHeartbeats } from './stats';
 
@@ -43,6 +47,7 @@ const auditView = (t: RelayTarget) => ({
   port: t.port,
   passDownstream: t.passDownstream,
   url: t.url,
+  format: t.format,
   authType: t.authType,
   hasAuth: !!t.authValue,
   includeAlerts: t.includeAlerts,
@@ -117,6 +122,7 @@ export class RelayAdminService {
       port: r.port,
       passDownstream: r.passDownstream,
       url: r.url,
+      format: r.format as RelayHttpFormat,
       authType: r.authType as RelayAuthType,
       hasAuth: !!r.authValue,
       secretPreview: secretPreview(r.secret),
@@ -162,6 +168,7 @@ export class RelayAdminService {
       port: null,
       passDownstream: false,
       url: null,
+      format: 'BATCH',
       authType: 'NONE',
       authValue: null,
       includeAlerts: false,
@@ -195,6 +202,14 @@ export class RelayAdminService {
         if (authType === 'BASIC' && !authValue.includes(':')) throw new BadRequestException('Basic authentication needs user:password');
         data.authType = authType;
         data.authValue = authValue.slice(0, 2000);
+      }
+      if (input.format === 'VEETRAX_TRACKER') {
+        // One token is one phone on the target: every forwarded point becomes that phone's, so exactly one device.
+        if (!isTrackerPositionsUrl(url)) throw new BadRequestException('For the VeeTrax Tracker format the URL must end in /api/tracker/v1/positions');
+        if (input.scope !== 'DEVICES' || new Set(input.deviceIds ?? []).size !== 1) throw new BadRequestException('The VeeTrax Tracker format forwards one device: choose Selected devices with exactly one device');
+        if (authType !== 'BEARER' || !authValue) throw new BadRequestException('The VeeTrax Tracker format needs the phone token from the target server (Bearer)');
+        data.format = 'VEETRAX_TRACKER';
+        data.includeAlerts = false;
       }
     }
     if (input.scope === 'COMPANY') {
@@ -253,6 +268,7 @@ export class RelayAdminService {
       port: input.port !== undefined ? input.port : before.port,
       passDownstream: input.passDownstream ?? before.passDownstream,
       url: input.url !== undefined ? input.url : before.url,
+      format: input.format ?? (before.format as RelayHttpFormat),
       authType: input.authType ?? (before.authType as RelayAuthType),
       authValue: input.authValue,
       includeAlerts: input.includeAlerts ?? before.includeAlerts,
@@ -307,6 +323,22 @@ export class RelayAdminService {
     }
     const problem = checkHttpTarget(t.url ?? '', this.policy) ?? (await this.resolvesPublic(t.url ?? ''));
     if (problem) return result(false, problem);
+    if (t.format === 'VEETRAX_TRACKER') {
+      // An empty upload: the target checks the phone token and stores nothing (no fake point on the phone's track).
+      const json = JSON.stringify({ positions: [] } satisfies TrackerUploadBody);
+      try {
+        const res = await postJson(t.url!, json, batchHeaders({ id: t.id, secret: t.secret, authorization: authorizationHeader(t.authType, t.authValue) }, json), {
+          timeoutMs: TEST_TIMEOUT_MS,
+          allowPrivate: this.policy.allowPrivate,
+        });
+        const ok = res.status >= 200 && res.status < 300;
+        if (ok) return result(true, `HTTP ${res.status}: the target accepted the phone token`, res.status);
+        const hint = res.status === 401 ? ' (token not valid on the target: get a new token)' : res.status === 403 ? ' (the phone is switched off on the target)' : '';
+        return result(false, `HTTP ${res.status}${hint}${res.body ? `: ${res.body.slice(0, 200)}` : ''}`, res.status);
+      } catch (error) {
+        return result(false, (error as Error).message);
+      }
+    }
     const now = new Date().toISOString();
     const body: RelayBatchBody & { test: true } = {
       test: true,
@@ -328,6 +360,56 @@ export class RelayAdminService {
     } catch (error) {
       return result(false, (error as Error).message);
     }
+  }
+
+  // ── VeeTrax Tracker token from the target ──────────────────────────────────────
+
+  /** Checks a target's positions URL before calling its activation endpoints. */
+  private async trackerTarget(url: string): Promise<void> {
+    const trimmed = url?.trim() ?? '';
+    if (!isTrackerPositionsUrl(trimmed)) throw new BadRequestException('Enter the target URL ending in /api/tracker/v1/positions first');
+    const problem = checkHttpTarget(trimmed, this.policy) ?? (await this.resolvesPublic(trimmed));
+    if (problem) throw new BadRequestException(problem);
+  }
+
+  private async trackerCall(url: string, action: 'activate/request' | 'activate/verify', payload: Record<string, string>): Promise<{ status: number; data: Record<string, unknown> }> {
+    let res: { status: number; body: string };
+    try {
+      res = await postJson(trackerApiUrl(url.trim(), action), JSON.stringify(payload), { 'User-Agent': 'VeeTrax-Relay/1.0' }, { timeoutMs: TEST_TIMEOUT_MS, allowPrivate: this.policy.allowPrivate });
+    } catch (error) {
+      throw new BadRequestException(`Target not reachable: ${(error as Error).message}`);
+    }
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(res.body) as Record<string, unknown>;
+    } catch {
+      // non-JSON answer
+    }
+    return { status: res.status, data };
+  }
+
+  private static targetMessage(data: Record<string, unknown>, fallback: string): string {
+    const m = data.message;
+    return (Array.isArray(m) ? m.join('; ') : typeof m === 'string' ? m : fallback).slice(0, 300);
+  }
+
+  /** Step 1: the target server sends an activation code for this phone number (by SMS / e-mail, or visible to its admins). */
+  async trackerRequestCode(ctx: AuthContext, url: string, mobile: string): Promise<RelayTrackerCodeResult> {
+    await this.trackerTarget(url);
+    const { status, data } = await this.trackerCall(url, 'activate/request', { mobile: mobile.trim() });
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'RelayTarget', entityId: 'tracker-token', details: { step: 'request-code', host: new URL(url).host, status } });
+    if (status < 200 || status >= 300) throw new BadRequestException(`Target answered HTTP ${status}: ${RelayAdminService.targetMessage(data, 'code not sent')}`);
+    const sentTo = Array.isArray(data.sentTo) ? (data.sentTo as unknown[]).filter((s): s is string => typeof s === 'string') : [];
+    return { ok: true, message: sentTo.length ? `Code sent to ${sentTo.join(', ')}` : 'Code requested. An admin of the target server can read it in Devices.' };
+  }
+
+  /** Step 2: exchanges the code for the phone token on the target (the token is put in the form, not stored yet). */
+  async trackerVerify(ctx: AuthContext, url: string, mobile: string, code: string): Promise<RelayTrackerVerifyResult> {
+    await this.trackerTarget(url);
+    const { status, data } = await this.trackerCall(url, 'activate/verify', { mobile: mobile.trim(), code: code.trim(), deviceName: 'VeeTrax data forwarding', platform: 'android' });
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'RelayTarget', entityId: 'tracker-token', details: { step: 'verify', host: new URL(url).host, status } });
+    if (status < 200 || status >= 300 || typeof data.token !== 'string') throw new BadRequestException(`Target answered HTTP ${status}: ${RelayAdminService.targetMessage(data, 'no token')}`);
+    return { token: data.token };
   }
 
   // ── master switch ──────────────────────────────────────────────────────────
@@ -385,6 +467,8 @@ export class RelayAdminService {
         port: r.port,
         passDownstream: r.passDownstream,
         url: r.url,
+        // Only non-default formats are published, so unchanged BATCH targets keep an identical rule set.
+        ...(r.type === 'HTTP_JSON' && r.format === 'VEETRAX_TRACKER' ? { format: 'VEETRAX_TRACKER' as const } : {}),
         authorization: authorizationHeader(r.authType, r.authValue),
         secret: r.secret,
         includeAlerts: r.includeAlerts,

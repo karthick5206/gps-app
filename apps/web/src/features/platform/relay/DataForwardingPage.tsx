@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RelayTargetDto, RelayTestResult } from '@veetracer/shared';
-import { ChevronDownIcon, EyeIcon, PauseCircleIcon, PencilIcon, PlugZapIcon, PlusIcon, ShareIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react';
+import { TRACKER_POSITIONS_PATH, type RelayTargetDto, type RelayTestResult } from '@veetracer/shared';
+import { ChevronDownIcon, EyeIcon, PauseCircleIcon, PencilIcon, PlugZapIcon, PlusIcon, ShareIcon, SmartphoneIcon, Trash2Icon, TriangleAlertIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -38,6 +38,38 @@ function bytes(n: number): string {
 }
 
 const num = (n: number) => n.toLocaleString('en-IN');
+
+/** How to forward a phone (VeeTrax Tracker app) to another VeeTrax server: collapsed by default. */
+function PhoneForwardingHint() {
+  const { t } = useTranslation();
+  const steps = [
+    t('On the other VeeTrax server, add a device with the model “VeeTrax Tracker app” and a mobile number for it (it can be the same number as here).'),
+    t('Here, click Add target (or Edit), choose HTTP JSON and set Format to “VeeTrax Tracker app (another VeeTrax server)”.'),
+    t('URL: the other server’s address followed by {{path}}, for example https://gps.example.com{{path}}', { path: TRACKER_POSITIONS_PATH }),
+    t('Devices: Selected devices, and pick the one phone (or vehicle tracker) to forward. One target forwards one device.'),
+    t('Under “Phone on the target server” enter the mobile number from step 1 and click Send code. Enter the code (sent by the other server, or read by its admin in Devices) and click Get token.'),
+    t('Save, then click Test connection: “the target accepted the phone token” means it is ready. New positions appear on the other server within a few seconds.'),
+  ];
+  return (
+    <Card className="p-0">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
+          <SmartphoneIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="flex-1">{t('How to forward a phone tracker to another VeeTrax server')}</span>
+          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <ol className="list-decimal space-y-1.5 px-4 pb-4 pl-9 text-sm text-muted-foreground">
+          {steps.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ol>
+        <p className="px-4 pb-4 text-xs text-muted-foreground">
+          {t('If Test connection shows HTTP 401, the token is no longer valid there (for example the phone was activated again): get a new token. HTTP 403 means the phone is switched off on the other server.')}
+        </p>
+      </details>
+    </Card>
+  );
+}
 
 function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -151,6 +183,7 @@ export function DataForwardingPage() {
           />
         </Card>
       )}
+      <PhoneForwardingHint />
       {list.isError && <FormError message={errorMessage(list.error)} />}
       {list.isPending ? (
         <Skeleton className="h-36 w-full" />
@@ -170,7 +203,7 @@ export function DataForwardingPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{r.name}</span>
                       {masterOn || !r.enabled ? <Badge variant={STATUS_VARIANT[r.status]}>{t(STATUS_LABEL[r.status])}</Badge> : <Badge variant="warning">{t('Paused')}</Badge>}
-                      <Badge variant="secondary">{r.type === 'RAW_TCP' ? t('Raw TCP') : t('HTTP JSON')}</Badge>
+                      <Badge variant="secondary">{r.type === 'RAW_TCP' ? t('Raw TCP') : r.format === 'VEETRAX_TRACKER' ? t('VeeTrax Tracker') : t('HTTP JSON')}</Badge>
                       <Badge variant="outline">{scopeText(r)}</Badge>
                       {r.passDownstream && <Badge variant="warning">{t('Replies passed to device')}</Badge>}
                       {r.includeAlerts && <Badge variant="outline">{t('Alerts')}</Badge>}

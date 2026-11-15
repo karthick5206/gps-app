@@ -62,6 +62,23 @@ Raw UDP and MQTT are not supported (UDP would need frame-level datagrams; no MQT
   only** skips positions without a fix. **Include alerts** adds alerts (scopes All / Company / Devices; not for a
   Protocol scope, alerts carry no protocol).
 
+### HTTP JSON, format "VeeTrax Tracker app" (to another VeeTrax server)
+
+Forwards one device to another VeeTrax server as if it were that server's own phone (VeeTrax Tracker app). The body is
+exactly the app's upload, `POST https://<other server>/api/tracker/v1/positions` with `{ "positions": [ { "t": …,
+"lat": …, "lng": …, "acc": …, … } ] }` and `Authorization: Bearer <phone token on the other server>`.
+
+- A phone position is forwarded as the phone's original point (nothing lost); any other device's position is mapped
+  (km/h → m/s, accuracy, battery, SOS; an invalid fix is sent with `flt: "inaccurate"`). The other server applies its
+  own filters, trips and alerts. No alerts are forwarded.
+- One target forwards exactly one device (Selected devices, one device): one token is one phone on the other server.
+- The token: on the other server add a device with the model "VeeTrax Tracker app" and a mobile number. In the target
+  dialog, *Phone on the target server* → *Send code* (the other server sends its activation code; its admins can read
+  it in Devices) → *Get token*. Saved with the target, never shown. Activating the same number again on the other
+  server (for example in the real app) ends this token: *Test connection* then shows HTTP 401, get a new token.
+- *Test connection* posts an empty upload: it checks the token and stores nothing.
+- The setup steps are also on the Data forwarding page (*How to forward a phone tracker to another VeeTrax server*).
+
 ## Scope
 
 All devices, one company, selected devices (max 1,000) or one protocol (`gt06`, `teltonika`, `jt808`, `ais140`).

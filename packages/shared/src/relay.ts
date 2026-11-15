@@ -3,6 +3,8 @@
  *  - RAW_TCP: the gateway mirrors each device connection's original bytes to host:port (one upstream connection per
  *    device connection, login frames replayed first).
  *  - HTTP_JSON: the notifier posts signed batches of normalised positions (optionally alerts) to an https URL.
+ *    Format BATCH (default) is VeeTrax's own batch body; VEETRAX_TRACKER posts exactly what the VeeTrax Tracker app
+ *    posts to `/api/tracker/v1/positions`, so another VeeTrax server takes the positions as if from its own phone.
  */
 
 export const RELAY_TARGET_TYPES = ['RAW_TCP', 'HTTP_JSON'] as const;
@@ -11,7 +13,13 @@ export type RelayTargetType = (typeof RELAY_TARGET_TYPES)[number];
 export const RELAY_SCOPES = ['ALL', 'COMPANY', 'DEVICES', 'PROTOCOL'] as const;
 export type RelayScope = (typeof RELAY_SCOPES)[number];
 
-export const RELAY_AUTH_TYPES = ['NONE', 'BEARER', 'BASIC'] as const;
+export const RELAY_HTTP_FORMATS = ['BATCH', 'VEETRAX_TRACKER'] as const;
+export type RelayHttpFormat = (typeof RELAY_HTTP_FORMATS)[number];
+
+/** Path of the VeeTrax Tracker app's upload endpoint (VEETRAX_TRACKER format targets). */
+export const TRACKER_POSITIONS_PATH = '/api/tracker/v1/positions';
+
+export const RELAY_AUTH_TYPES =['NONE', 'BEARER', 'BASIC'] as const;
 export type RelayAuthType = (typeof RELAY_AUTH_TYPES)[number];
 
 /** Gateway protocol ids a PROTOCOL scope can name. */
@@ -55,6 +63,8 @@ export interface RelayRuleSpec {
   port: number | null;
   passDownstream: boolean;
   url: string | null;
+  /** HTTP_JSON body format (absent in rule sets published before formats existed = BATCH). */
+  format?: RelayHttpFormat;
   /** Ready-made Authorization header value, or null. */
   authorization: string | null;
   secret: string;
@@ -86,6 +96,7 @@ export interface RelayTargetDto {
   port: number | null;
   passDownstream: boolean;
   url: string | null;
+  format: RelayHttpFormat;
   authType: RelayAuthType;
   /** True when an auth value is stored (never returned). */
   hasAuth: boolean;
@@ -116,6 +127,7 @@ export interface RelayTargetInput {
   port?: number | null;
   passDownstream?: boolean;
   url?: string | null;
+  format?: RelayHttpFormat;
   authType?: RelayAuthType;
   /** Omit to keep the stored value; empty string clears it. */
   authValue?: string | null;
@@ -126,6 +138,15 @@ export interface RelayTargetInput {
   protocol?: string | null;
   liveOnly?: boolean;
   validOnly?: boolean;
+}
+
+/** Getting a VEETRAX_TRACKER token: the target server sends an activation code, which is exchanged for its token. */
+export interface RelayTrackerCodeResult {
+  ok: boolean;
+  message: string;
+}
+export interface RelayTrackerVerifyResult {
+  token: string;
 }
 
 export interface RelayTestResult {

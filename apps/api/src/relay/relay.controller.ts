@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
-import { RELAY_AUTH_TYPES, RELAY_MAX_SCOPE_DEVICES, RELAY_PROTOCOLS, RELAY_SCOPES, RELAY_TARGET_TYPES, RelayAuthType, RelayScope, RelayTargetType } from '@veetracer/shared';
+import { RELAY_AUTH_TYPES, RELAY_HTTP_FORMATS, RELAY_MAX_SCOPE_DEVICES, RELAY_PROTOCOLS, RELAY_SCOPES, RELAY_TARGET_TYPES, RelayAuthType, RelayHttpFormat, RelayScope, RelayTargetType } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
@@ -15,6 +15,7 @@ class UpdateRelayTargetDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(65535) port?: number | null;
   @IsOptional() @IsBoolean() passDownstream?: boolean;
   @IsOptional() @IsString() @MaxLength(2000) url?: string | null;
+  @IsOptional() @IsIn(RELAY_HTTP_FORMATS) format?: RelayHttpFormat;
   @IsOptional() @IsIn(RELAY_AUTH_TYPES) authType?: RelayAuthType;
   @IsOptional() @IsString() @MaxLength(2000) authValue?: string | null;
   @IsOptional() @IsBoolean() includeAlerts?: boolean;
@@ -30,6 +31,15 @@ class RelayMasterDto {
   @IsBoolean() enabled!: boolean;
 }
 
+class TrackerCodeDto {
+  @IsString() @MaxLength(2000) url!: string;
+  @IsString() @Length(6, 24) mobile!: string;
+}
+
+class TrackerVerifyDto extends TrackerCodeDto {
+  @IsString() @Length(6, 6) code!: string;
+}
+
 class CreateRelayTargetDto {
   @IsString() @Length(1, 80) name!: string;
   @IsIn(RELAY_TARGET_TYPES) type!: RelayTargetType;
@@ -38,6 +48,7 @@ class CreateRelayTargetDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(65535) port?: number | null;
   @IsOptional() @IsBoolean() passDownstream?: boolean;
   @IsOptional() @IsString() @MaxLength(2000) url?: string | null;
+  @IsOptional() @IsIn(RELAY_HTTP_FORMATS) format?: RelayHttpFormat;
   @IsOptional() @IsIn(RELAY_AUTH_TYPES) authType?: RelayAuthType;
   @IsOptional() @IsString() @MaxLength(2000) authValue?: string | null;
   @IsOptional() @IsBoolean() includeAlerts?: boolean;
@@ -63,6 +74,18 @@ export class RelayController {
   @Put('master') @RequirePermission('sa_relay', 'edit')
   setMaster(@Auth() ctx: AuthContext, @Body() body: RelayMasterDto) {
     return this.relay.setMasterEnabled(ctx, body.enabled);
+  }
+
+  /** VeeTrax Tracker format: ask the target server for an activation code for a phone number. */
+  @Post('tracker-token/request') @HttpCode(200) @RequirePermission('sa_relay', 'edit')
+  trackerRequest(@Auth() ctx: AuthContext, @Body() body: TrackerCodeDto) {
+    return this.relay.trackerRequestCode(ctx, body.url, body.mobile);
+  }
+
+  /** VeeTrax Tracker format: exchange the code for the phone token on the target. */
+  @Post('tracker-token/verify') @HttpCode(200) @RequirePermission('sa_relay', 'edit')
+  trackerVerify(@Auth() ctx: AuthContext, @Body() body: TrackerVerifyDto) {
+    return this.relay.trackerVerify(ctx, body.url, body.mobile, body.code);
   }
 
   @Post() @RequirePermission('sa_relay', 'create')

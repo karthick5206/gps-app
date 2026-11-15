@@ -2004,6 +2004,8 @@ model RelayTarget {
   passDownstream Boolean         @default(false)
   /// HTTP_JSON
   url            String?
+  /// BATCH (VeeTrax batch body) | VEETRAX_TRACKER (the Tracker app's upload body, for another VeeTrax server)
+  format         String          @default("BATCH")
   /// NONE | BEARER | BASIC
   authType       String          @default("NONE")
   /// Bearer token, or `user:password` for BASIC.

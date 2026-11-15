@@ -3,6 +3,7 @@ import { isSuccessStatus } from '../webhooks/retry';
 import { signatureHeader } from '../webhooks/signing';
 import { alertMatches, passesFilters, RuleIndex } from './rules';
 import { TargetStats } from './stats';
+import { toTrackerPoint, TrackerUploadPoint } from './tracker-format';
 
 export type HttpPost = (url: string, body: string, headers: Record<string, string>) => Promise<{ status: number; body: string }>;
 
@@ -18,7 +19,31 @@ export interface HttpForwarderOptions {
   retryDelaysMs?: readonly number[];
 }
 
-type Item = { kind: 'position'; data: Omit<NormalizedPosition, 'raw'> } | { kind: 'alert'; data: AlertDto & { companyId: string } };
+type Item =
+  | { kind: 'position'; data: Omit<NormalizedPosition, 'raw'> }
+  | { kind: 'alert'; data: AlertDto & { companyId: string } }
+  /** VEETRAX_TRACKER targets: the point as the Tracker app would upload it. */
+  | { kind: 'point'; data: TrackerUploadPoint };
+
+/** Body of one POST to a VEETRAX_TRACKER target (the Tracker app's upload body). */
+export interface TrackerUploadBody {
+  positions: TrackerUploadPoint[];
+}
+
+/** JSON body of one batch for the rule's format. */
+export function batchBody(rule: Pick<RelayRuleSpec, 'id' | 'name' | 'format'>, batch: readonly Item[], sentAt = new Date().toISOString()): string {
+  if (rule.format === 'VEETRAX_TRACKER') {
+    const body: TrackerUploadBody = { positions: batch.filter((i) => i.kind === 'point').map((i) => i.data as TrackerUploadPoint) };
+    return JSON.stringify(body);
+  }
+  const body: RelayBatchBody = {
+    target: { id: rule.id, name: rule.name },
+    sentAt,
+    positions: batch.filter((i) => i.kind === 'position').map((i) => i.data as Omit<NormalizedPosition, 'raw'>),
+    alerts: batch.filter((i) => i.kind === 'alert').map((i) => i.data as AlertDto & { companyId: string }),
+  };
+  return JSON.stringify(body);
+}
 
 /** Body of one POST (documented in docs/RELAY.md). */
 export interface RelayBatchBody {
@@ -95,13 +120,7 @@ class TargetQueue {
     const batch = this.items.splice(0, this.opts.batchSize);
     this.stats.queued = this.items.length;
     this.inflight = true;
-    const body: RelayBatchBody = {
-      target: { id: this.rule.id, name: this.rule.name },
-      sentAt: new Date().toISOString(),
-      positions: batch.filter((i) => i.kind === 'position').map((i) => i.data as Omit<NormalizedPosition, 'raw'>),
-      alerts: batch.filter((i) => i.kind === 'alert').map((i) => i.data as AlertDto & { companyId: string }),
-    };
-    const json = JSON.stringify(body);
+    const json = batchBody(this.rule, batch);
     const url = this.rule.url!;
     this.opts
       .post(url, json, batchHeaders(this.rule, json))
@@ -185,13 +204,22 @@ export class HttpForwarder {
     if (!this.queues.size) return;
     for (const r of this.index.forDevice(p.protocol, p.uniqueId)) {
       if (!passesFilters(r, p)) continue;
+      const q = this.queues.get(r.id);
+      if (!q) continue;
+      if (r.format === 'VEETRAX_TRACKER') {
+        const point = toTrackerPoint(p);
+        if (point) q.push({ kind: 'point', data: point });
+        continue;
+      }
       const { raw: _raw, ...data } = p;
-      this.queues.get(r.id)?.push({ kind: 'position', data });
+      q.push({ kind: 'position', data });
     }
   }
 
   addAlert(companyId: string, alert: AlertDto): void {
     for (const r of this.index.rules) {
+      // The Tracker upload body has no alerts (the target raises its own from the positions).
+      if (r.format === 'VEETRAX_TRACKER') continue;
       if (alertMatches(r, { companyId, objectId: alert.objectId })) this.queues.get(r.id)?.push({ kind: 'alert', data: { ...alert, companyId } });
     }
   }
