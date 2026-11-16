@@ -7,7 +7,7 @@ import { ActivityIndicator, Alert, Linking, Platform, Pressable, RefreshControl,
 import { Button, Card, EmptyState, ErrorBanner, Pill, SectionTitle, Text } from '@/components/ui';
 import { LicenceBanner } from '@/features/licences/LicenceBanner';
 import { api, errorMessage } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { serverUrl } from '@/lib/config';
 import { downloadAndShare } from '@/lib/share-file';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -78,7 +78,7 @@ export default function LicencesScreen() {
               </Card>
             )}
             {/* App Store 3.1.1: no link to an outside purchase on iOS. */}
-            {Platform.OS !== 'ios' && <Button title={t('Buy or renew on the web')} icon={ExternalLinkIcon} onPress={() => void Linking.openURL(`${SERVER_URL}/admin/billing`)} />}
+            {Platform.OS !== 'ios' && <Button title={t('Buy or renew on the web')} icon={ExternalLinkIcon} onPress={() => void Linking.openURL(`${serverUrl()}/admin/billing`)} />}
 
             <SectionTitle>{t('Expiring or expired')}</SectionTitle>
             {expiring.length ? (

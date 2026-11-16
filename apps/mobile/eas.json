@@ -7,7 +7,6 @@
     "base": {
       "node": "22.22.2",
       "env": {
-        "EXPO_PUBLIC_SERVER_URL": "https://gps.mintplus.co.in",
         "EXPO_USE_PRECOMPILED_MODULES": "0"
       }
     },

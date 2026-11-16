@@ -15,7 +15,7 @@ import { useRealtimeStatus } from '@/features/live/use-live';
 import { pushStatus } from '@/features/notifications/push';
 import { LanguageChips } from '@/components/LanguageChips';
 import { ALL_COMPANIES, PLAY_STORE } from '@veetracer/shared';
-import { SERVER_URL } from '@/lib/config';
+import { serverHost, serverUrl } from '@/lib/config';
 import { useVoiceAlerts, voiceAlerts } from '@/features/notifications/voice';
 import { SPACE, useColors } from '@/lib/theme';
 
@@ -133,7 +133,7 @@ export default function MoreScreen() {
         {/* Opens VeeTrax Tracker (its veetrax-tracker:// scheme), else the download page. Android-only app, so hidden on iOS (App Review 2.3.10). */}
         {Platform.OS !== 'ios' && <MenuItem icon={SmartphoneIcon} label={t('Track this phone')} onPress={() => Linking.openURL('veetrax-tracker://').catch(() => Linking.openURL(PLAY_STORE.tracker).catch(() => undefined))} />}
         {/* Public web page (same content as the PDF emailed on sign-up). */}
-        <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${SERVER_URL}/guide`} />
+        <MenuItem icon={BookOpenIcon} label={t('Getting-started guide')} url={`${serverUrl()}/guide`} />
       </MenuGroup>
 
       <SectionTitle>{t('Account')}</SectionTitle>
@@ -168,7 +168,7 @@ export default function MoreScreen() {
           value={
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ServerIcon size={14} color={c.mutedForeground} />
-              <Text size="sm">{SERVER_URL.replace(/^https?:\/\//, '')}</Text>
+              <Text size="sm">{serverHost()}</Text>
             </View>
           }
         />

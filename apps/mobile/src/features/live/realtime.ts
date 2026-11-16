@@ -1,6 +1,6 @@
 import type { LiveObject } from '@veetracer/shared';
 import { io, type Socket } from 'socket.io-client';
-import { SERVER_URL } from '@/lib/config';
+import { serverUrl } from '@/lib/config';
 import { refreshAccessToken } from '@/lib/api';
 import { session } from '@/lib/session';
 import { liveStore } from './live-store';
@@ -62,7 +62,7 @@ class Realtime {
     this.companyId = companyId;
     this.setStatus('connecting');
 
-    const socket: Socket<ServerToClient> = io(`${SERVER_URL}/live`, {
+    const socket: Socket<ServerToClient> = io(`${serverUrl()}/live`, {
       // Evaluated on every (re)connect, so reconnects always carry the freshest access token.
       auth: (cb) => cb({ token: session.getAccessToken(), ...(companyId ? { companyId } : {}) }),
       transports: ['websocket'],

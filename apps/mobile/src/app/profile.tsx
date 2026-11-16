@@ -9,7 +9,7 @@ import { blankToNull } from '@/components/form';
 import { Button, Card, ErrorBanner, Field, SectionTitle, Text } from '@/components/ui';
 import { meQueryKey, useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { serverUrl } from '@/lib/config';
 import { SPACE } from '@/lib/theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -99,7 +99,7 @@ export default function ProfileScreen() {
 
           <SectionTitle>{t('Delete account')}</SectionTitle>
           <DeleteAccountCard />
-          <Button title={t('Privacy policy')} icon={ShieldCheckIcon} variant="ghost" onPress={() => Linking.openURL(`${SERVER_URL}/privacy`).catch(() => undefined)} />
+          <Button title={t('Privacy policy')} icon={ShieldCheckIcon} variant="ghost" onPress={() => Linking.openURL(`${serverUrl()}/privacy`).catch(() => undefined)} />
         </ScrollView>
       </KeyboardAvoidingView>
     </>

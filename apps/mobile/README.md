@@ -10,7 +10,7 @@ alerts (with acknowledge), dashboard, reports (view and share Excel/PDF/CSV), de
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_SERVER_URL` | `https://gps.mintplus.co.in` | Server the app talks to (`/api` and the `/live` socket) |
+| `EXPO_PUBLIC_SERVER_URL` | _(unset)_ | Pins one server (`/api` and the `/live` socket) and hides the sign-in screen's **Demo account** switch. Unset: live `app.veetrax.com`, or demo `gps.mintplus.co.in` when the switch is on |
 | `EXPO_PUBLIC_MAP_STYLE_LIGHT` / `_DARK` | OpenFreeMap styles | Same basemaps as the web map |
 
 Put overrides in `apps/mobile/.env.local` (not committed).

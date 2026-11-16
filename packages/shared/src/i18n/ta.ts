@@ -648,6 +648,8 @@ export const TA: Record<string, string> = {
   'Create API key': 'API விசையை உருவாக்கு',
   'Create geofence': 'ஜியோஃபென்ஸ் உருவாக்கு',
   'Create key': 'விசையை உருவாக்கு',
+  'Demo account': 'டெமோ கணக்கு',
+  'Turn on only to sign in to a demo account (demo server). Off: your live VeeTrax account.': 'டெமோ கணக்கில் உள்நுழைய மட்டும் இயக்கவும் (டெமோ சர்வர்). அணைத்தால்: உங்கள் நேரடி VeeTrax கணக்கு.',
   'Create personal account': 'தனிப்பட்ட கணக்கை உருவாக்கு',
   'Created': 'உருவாக்கப்பட்டது',
   'Credit note': 'வரவுக் குறிப்பு',

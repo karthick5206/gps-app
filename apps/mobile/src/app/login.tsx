@@ -3,7 +3,7 @@ import type { LoginResponse } from '@veetracer/shared';
 import { KeyRoundIcon, SmartphoneIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chips, ErrorBanner, Field, Text } from '@/components/ui';
 import { BrandMark } from '@/components/BrandMark';
@@ -11,7 +11,7 @@ import { TrackingScene } from '@/components/TrackingScene';
 import { LanguageChips } from '@/components/LanguageChips';
 import { useAuth } from '@/features/auth/auth';
 import { api, errorMessage } from '@/lib/api';
-import { SERVER_URL } from '@/lib/config';
+import { isDemo, serverHost, serverPinned, serverUrl, setServerChoice } from '@/lib/config';
 import { RADIUS, SPACE, useColors, useTheme } from '@/lib/theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -105,6 +105,12 @@ export default function LoginScreen() {
   const c = useColors();
   const { t } = useTranslation();
   const [mode, setMode] = useState<'password' | 'otp'>('password');
+  // Demo account → demo server; off → live server. Switching resets the form (a code belongs to its server).
+  const [demo, setDemo] = useState(isDemo());
+  const toggleDemo = (on: boolean) => {
+    setServerChoice(on ? 'demo' : 'live');
+    setDemo(on);
+  };
   // Sky and Light have a light hero, so the logo uses its ink colours there.
   const theme = useTheme();
   const lightHero = theme === 'sky' || theme === 'light';
@@ -130,9 +136,20 @@ export default function LoginScreen() {
                 { value: 'otp', label: t('Mobile OTP') },
               ]}
             />
-            {mode === 'password' ? <PasswordForm /> : <OtpForm />}
+            {mode === 'password' ? <PasswordForm key={`p${demo}`} /> : <OtpForm key={`o${demo}`} />}
+            {!serverPinned && (
+              <View style={[styles.demoRow, { borderColor: c.border }]}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text weight="600">{t('Demo account')}</Text>
+                  <Text size="sm" tone="muted">
+                    {t('Turn on only to sign in to a demo account (demo server). Off: your live VeeTrax account.')}
+                  </Text>
+                </View>
+                <Switch value={demo} onValueChange={toggleDemo} accessibilityLabel={t('Demo account')} trackColor={{ true: c.primary }} />
+              </View>
+            )}
             {/* Personal accounts sign up on the web (email code), then sign in here. */}
-            <Pressable onPress={() => Linking.openURL(`${SERVER_URL}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
+            <Pressable onPress={() => Linking.openURL(`${serverUrl()}/signup`).catch(() => undefined)} accessibilityRole="link" style={{ alignSelf: 'center', paddingVertical: SPACE.sm }}>
               <Text size="sm">
                 {t('New to VeeTrax?')}{' '}
                 <Text size="sm" weight="600" style={{ color: c.primary }}>
@@ -147,7 +164,7 @@ export default function LoginScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
               <SmartphoneIcon size={14} color={c.mutedForeground} />
               <Text size="xs" tone="muted">
-                {SERVER_URL.replace(/^https?:\/\//, '')}
+                {serverHost()}
               </Text>
             </View>
           </View>
@@ -159,5 +176,6 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   hero: { paddingHorizontal: SPACE.xl, paddingTop: 48, paddingBottom: 36, gap: SPACE.sm },
+  demoRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md, padding: SPACE.md },
   sheet: { flex: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: SPACE.xl, gap: SPACE.lg, paddingBottom: 32 },
 });

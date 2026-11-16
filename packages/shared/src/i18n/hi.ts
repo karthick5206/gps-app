@@ -648,6 +648,8 @@ export const HI: Record<string, string> = {
   'Create API key': 'API कुंजी बनाएँ',
   'Create geofence': 'जियोफेंस बनाएँ',
   'Create key': 'कुंजी बनाएँ',
+  'Demo account': 'डेमो खाता',
+  'Turn on only to sign in to a demo account (demo server). Off: your live VeeTrax account.': 'केवल डेमो खाते में साइन इन करने के लिए चालू करें (डेमो सर्वर)। बंद: आपका लाइव VeeTrax खाता।',
   'Create personal account': 'व्यक्तिगत खाता बनाएँ',
   'Created': 'बनाया गया',
   'Credit note': 'क्रेडिट नोट',

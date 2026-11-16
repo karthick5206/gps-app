@@ -1,5 +1,6 @@
 import type { AuthTokens } from '@veetracer/shared';
 import * as SecureStore from 'expo-secure-store';
+import { loadServerChoice } from './config';
 
 /**
  * Client session: access token in memory only; the refresh token and the company the Super Admin acts in are
@@ -26,6 +27,7 @@ export const session = {
       refreshToken = null;
       companyId = null;
     }
+    await loadServerChoice(!!refreshToken);
   },
 
   getAccessToken: () => accessToken,
