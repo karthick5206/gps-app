@@ -359,6 +359,12 @@ model TrackedObject {
   /// Set while the vehicle is in the workshop: alerts are suppressed and it is listed separately on the criticality board.
   maintenanceSince DateTime?    @db.Timestamptz(3)
   maintenanceNote  String?
+  /// Person / pet / asset photo: square JPEGs re-encoded on upload (EXIF incl. GPS stripped), 256 px and 64 px, under
+  /// var/object-photos/<companyId>/ with an unguessable name; served only through GET /objects/:id/photo.
+  photoPath        String?
+  photoThumbPath   String?
+  /// When the photo last changed (null = no photo); clients use it as the cache version.
+  photoAt          DateTime?    @db.Timestamptz(3)
   customFields     Json         @default("{}")
   isActive         Boolean      @default(true)
   createdAt        DateTime     @default(now())

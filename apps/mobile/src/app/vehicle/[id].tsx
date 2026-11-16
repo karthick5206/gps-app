@@ -9,6 +9,7 @@ import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react
 import { Button, Card, EmptyState, InfoRow, SectionTitle, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
+import { ObjectPhoto } from '@/features/objects/object-photo';
 import { SpeedLimitRow } from '@/features/live/SpeedLimitEditor';
 import { liveStore } from '@/features/live/live-store';
 import { useLiveVersion, useNow } from '@/features/live/use-live';
@@ -82,7 +83,7 @@ export default function VehicleScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
             {/* Vehicle icon on a soft circle in its status colour, as on the map and in the list. */}
             <View style={{ width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: `${statusColor(personActivity(o) ? displayStatus(o) : o.status, scheme)}1f` }}>
-              <VehicleThumb o={o} size={40} />
+              {o.photoVersion ? <ObjectPhoto o={o} size={56} ring={statusColor(displayStatus(o), scheme)} fallback={<VehicleThumb o={o} size={40} />} /> : <VehicleThumb o={o} size={40} />}
             </View>
             <View style={{ flex: 1, gap: 4 }}>
               <Text size="lg" weight="700" numberOfLines={1}>

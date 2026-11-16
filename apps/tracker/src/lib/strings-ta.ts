@@ -202,11 +202,23 @@ export const ta: Strings = {
   deactivatePhone: 'இந்த ஃபோனைச் செயலிழக்கச் செய்',
   signOutConfirmTitle: 'இந்த ஃபோனைச் செயலிழக்கச் செய்யவா?',
   signOutConfirmBody: 'கண்காணிப்பு நிற்கும், மீண்டும் செயல்படுத்த புதிய குறியீடு தேவைப்படும்.',
+  // Profile photo
+  profilePhoto: 'சுயவிவரப் படம்',
+  profilePhotoHint: 'இந்த ஃபோனைக் கண்காணிப்பவர்களுக்கு வரைபடத்தில் காட்டப்படும். படத்திலிருந்து இருப்பிடம் மற்றும் கேமரா விவரங்கள் நீக்கப்படும்.',
+  takePhoto: 'படம் எடு',
+  choosePhoto: 'படத்தைத் தேர்ந்தெடு',
+  removePhoto: 'படத்தை நீக்கு',
+  removePhotoConfirm: 'உங்கள் சுயவிவரப் படத்தை நீக்கவா?',
+  photoCameraDenied: 'படம் எடுக்க, ஃபோன் அமைப்புகளில் VeeTrax Tracker-க்கு கேமரா அனுமதி வழங்கவும்.',
   cancel: 'ரத்து செய்',
   ok: 'சரி',
 
   // Messages from the server, which always answers in English
   server: {
+    'The photo is larger than 5 MB': 'படம் 5 MB-ஐ விடப் பெரியது',
+    'Upload a JPEG, PNG or WebP photo': 'JPEG, PNG அல்லது WebP படத்தைப் பதிவேற்றவும்',
+    'This photo could not be read. Try another one.': 'இந்தப் படத்தைப் படிக்க முடியவில்லை. வேறொன்றை முயற்சிக்கவும்.',
+    'Choose a photo to upload': 'பதிவேற்ற ஒரு படத்தைத் தேர்ந்தெடுக்கவும்',
     'Enter a valid mobile number': 'சரியான மொபைல் எண்ணை உள்ளிடவும்',
     'This number is not registered yet. Enter your e-mail address: the phone will be added to your VeeTrax account (or a new one).': 'இந்த எண் இன்னும் பதிவு செய்யப்படவில்லை. உங்கள் மின்னஞ்சல் முகவரியை உள்ளிடவும்: ஃபோன் உங்கள் VeeTrax கணக்கில் (அல்லது புதிய கணக்கில்) சேர்க்கப்படும்.',
     'The code has expired or was not requested. Ask for a new code.': 'குறியீடு காலாவதியானது அல்லது கோரப்படவில்லை. புதிய குறியீட்டைக் கேளுங்கள்.',

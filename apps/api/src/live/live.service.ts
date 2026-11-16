@@ -120,6 +120,7 @@ export class LiveService {
         vehicleType: true,
         speedLimitKph: true,
         maintenanceSince: true,
+        photoAt: true,
         assignments: { where: { toTime: null }, select: { device: { select: { id: true, uniqueId: true, simNumber: true } } } },
         drivers: { where: { toTime: null }, take: 1, select: { driverId: true, source: true, driver: { select: { name: true } } } },
       },
@@ -151,7 +152,8 @@ export class LiveService {
       if (locked.has(o.id)) return { ...noDataLive(meta), licenceLocked: true };
       const state = live.get(o.id);
       const row = state ? { ...state, ...meta } : noDataLive(meta);
-      return includeShared && shareOf(ctx, o.id) ? asSharedLive(row) : row;
+      // A shared vehicle's photo stays with its owner company (GET /objects/:id/photo serves own objects only).
+      return includeShared && shareOf(ctx, o.id) ? asSharedLive(row) : { ...row, photoVersion: o.photoAt?.getTime() ?? null };
     });
   }
 

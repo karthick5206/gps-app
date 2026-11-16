@@ -60,3 +60,4 @@ export * from './transport-adhoc';
 export * from './routing-switch';
 export * from './pricing';
 export * from './transport-pooling';
+export * from './object-photo';

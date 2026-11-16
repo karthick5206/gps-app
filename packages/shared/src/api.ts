@@ -169,6 +169,8 @@ export interface TrackedObjectDto {
   device: { id: string; uniqueId: string; modelName: string } | null;
   groups: { id: string; name: string }[];
   customFields: Record<string, unknown>;
+  /** Person / pet / asset photo version (ms of the last change); null = no photo. See objectPhotoPath. */
+  photoVersion: number | null;
   createdAt: string; updatedAt: string;
 }
 

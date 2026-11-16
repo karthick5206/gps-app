@@ -14,6 +14,11 @@ import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { SystemMessagesService } from '../templates/system-messages.service';
 import { TrackerSelfService } from './self-service';
+import { ObjectPhotosService } from '../object-photos/object-photos.service';
+import type { ObjectPhotoState } from '../object-photos/object-photos.service';
+import type { UploadedPhoto } from '../object-photos/object-photo-image';
+import type { ObjectPhotoSize } from '@veetracer/shared';
+import type { StreamableFile } from '@nestjs/common';
 import {
   CODE_MAX_ATTEMPTS,
   CODE_MAX_PER_DAY,
@@ -84,6 +89,7 @@ export class MobileTrackerService {
     private readonly audit: AuditService,
     private readonly alerts: OfflineAlertService,
     @Optional() private readonly attendance?: AttendanceService,
+    @Optional() private readonly photos?: ObjectPhotosService,
   ) {}
 
   /** Latest attendance notice per phone: uploads come every few seconds, the answer changes far less often. */
@@ -557,6 +563,33 @@ export class MobileTrackerService {
     const value = (await this.attendance?.phoneNotice(deviceId).catch(() => null)) ?? null;
     this.notices.set(deviceId, { at: now, value });
     return value;
+  }
+
+  // ───────────── profile photo of the phone's own person ─────────────
+
+  private requirePhotos(): ObjectPhotosService {
+    if (!this.photos) throw new NotFoundException('Profile photos are not available');
+    return this.photos;
+  }
+
+  async photoState(authorization: string | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerState(s.deviceId);
+  }
+
+  async photoFile(authorization: string | undefined, size: ObjectPhotoSize): Promise<StreamableFile> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerFile(s.deviceId, size);
+  }
+
+  async photoUpload(authorization: string | undefined, file: UploadedPhoto | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerUpload(s.deviceId, file);
+  }
+
+  async photoRemove(authorization: string | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerRemove(s.deviceId);
   }
 
   // ───────────── attendance on the phone ─────────────

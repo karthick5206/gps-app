@@ -1,10 +1,11 @@
 import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef, type LngLatBounds } from '@maplibre/maplibre-react-native';
-import { displayStatus, type LiveObject } from '@veetracer/shared';
+import { displayStatus, STATUS_META, type LiveObject } from '@veetracer/shared';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, type StyleProp, type ViewStyle } from 'react-native';
 import { useDisplay } from '@/features/display/display';
 import { useMapStyle } from '@/features/map/basemap';
-import { useColors } from '@/lib/theme';
+import { useColors, useScheme, type Scheme } from '@/lib/theme';
+import { hasPhoto, markerImageName, usePhotoMarkerImages } from '@/features/objects/object-photo';
 import { STEP_MS, hasMovingPeople, iconKind, iconName, rotates } from './vehicle-icons';
 import { VEHICLE_ICON_IMAGES } from './vehicle-icon-images';
 
@@ -55,18 +56,24 @@ export function useStepTick(on: boolean): number {
   return on && !reduce ? tick : 0;
 }
 
-function toFeatures(objects: LiveObject[], selectedId: string | null, tick: number): GeoJSON.FeatureCollection {
+function toFeatures(objects: LiveObject[], selectedId: string | null, tick: number, photos: Record<string, unknown>, scheme: Scheme): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const o of objects) {
     if (o.lat === null || o.lng === null) continue;
     const kind = iconKind(o);
+    const status = displayStatus(o);
+    // A person / pet / asset with a photo: round photo inside a white badge with the status ring (as on the web map),
+    // once its marker image is downloaded; the cartoon figure until then.
+    const photo = hasPhoto(o) ? markerImageName(o.objectId, o.photoVersion!) : '';
     features.push({
       type: 'Feature',
       id: o.objectId,
       geometry: { type: 'Point', coordinates: [o.lng, o.lat] },
       properties: {
         id: o.objectId,
-        icon: iconName(kind, displayStatus(o), tick),
+        icon: iconName(kind, status, tick),
+        photo: photo && photos[photo] ? photo : '',
+        ring: STATUS_META[status][scheme],
         rot: rotates(kind) ? o.course : 0,
         label: o.plateNumber || o.name,
         selected: o.objectId === selectedId,
@@ -98,7 +105,10 @@ export const FleetMap = forwardRef<
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
   const tick = useStepTick(useMemo(() => hasMovingPeople(objects), [objects]));
-  const data = useMemo(() => toFeatures(objects, selectedId, tick), [objects, selectedId, tick]);
+  const scheme = useScheme();
+  const photos = usePhotoMarkerImages(objects);
+  const images = useMemo(() => ({ ...VEHICLE_ICON_IMAGES, ...photos }), [photos]);
+  const data = useMemo(() => toFeatures(objects, selectedId, tick, photos, scheme), [objects, selectedId, tick, photos, scheme]);
 
   useImperativeHandle(ref, () => ({
     fitAll(list, animate = true) {
@@ -131,7 +141,7 @@ export const FleetMap = forwardRef<
       onRegionDidChange={onViewChange ? (e) => onViewChange({ center: e.nativeEvent.center, zoom: e.nativeEvent.zoom, bounds: e.nativeEvent.bounds }) : undefined}
     >
       <Camera ref={camera} initialViewState={initial ? { center: [initial.lng!, initial.lat!], zoom: initialZoom ?? 11 } : { center: DEFAULT_CENTER, zoom: 4 }} />
-      <Images images={VEHICLE_ICON_IMAGES} />
+      <Images images={images} />
       <GeoJSONSource
         id="vehicles"
         data={data}
@@ -148,11 +158,23 @@ export const FleetMap = forwardRef<
           filter={['==', ['get', 'selected'], true]}
           paint={{ 'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 12, 12, 18, 16, 24], 'circle-color': c.primary, 'circle-opacity': 0.18, 'circle-stroke-width': 2, 'circle-stroke-color': c.primary }}
         />
+        {/* White badge + status ring under the round photo (badge geometry of the person icon: 32 pt, ring 2 pt). */}
+        <Layer
+          id="vehicles-photo-badge"
+          type="circle"
+          filter={['!=', ['get', 'photo'], '']}
+          paint={{
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 13.25 * 0.6 * iconScale, 10, 13.25 * 0.85 * iconScale, 14, 13.25 * 1.1 * iconScale, 17, 13.25 * 1.4 * iconScale],
+            'circle-color': '#ffffff',
+            'circle-stroke-color': ['get', 'ring'],
+            'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, 2 * 0.6 * iconScale, 10, 2 * 0.85 * iconScale, 14, 2 * 1.1 * iconScale, 17, 2 * 1.4 * iconScale],
+          }}
+        />
         <Layer
           id="vehicles-icons"
           type="symbol"
           layout={{
-            'icon-image': ['get', 'icon'],
+            'icon-image': ['case', ['!=', ['get', 'photo'], ''], ['get', 'photo'], ['get', 'icon']],
             // About 30 % larger than before, times the user's map icon size.
             'icon-size': ['interpolate', ['linear'], ['zoom'], 5, 0.6 * iconScale, 10, 0.85 * iconScale, 14, 1.1 * iconScale, 17, 1.4 * iconScale],
             'icon-rotate': ['get', 'rot'],

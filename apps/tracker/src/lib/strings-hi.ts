@@ -202,11 +202,23 @@ export const hi: Strings = {
   deactivatePhone: 'इस फ़ोन को निष्क्रिय करें',
   signOutConfirmTitle: 'इस फ़ोन को निष्क्रिय करें?',
   signOutConfirmBody: 'ट्रैकिंग रुक जाएगी और दोबारा सक्रिय करने के लिए नया कोड चाहिए होगा।',
+  // Profile photo
+  profilePhoto: 'प्रोफ़ाइल फ़ोटो',
+  profilePhotoHint: 'यह फ़ोटो इस फ़ोन को ट्रैक करने वालों को मैप पर दिखती है। फ़ोटो से स्थान और कैमरे की जानकारी हटा दी जाती है।',
+  takePhoto: 'फ़ोटो लें',
+  choosePhoto: 'फ़ोटो चुनें',
+  removePhoto: 'फ़ोटो हटाएँ',
+  removePhotoConfirm: 'अपनी प्रोफ़ाइल फ़ोटो हटाएँ?',
+  photoCameraDenied: 'फ़ोटो लेने के लिए फ़ोन की सेटिंग में VeeTrax Tracker को कैमरे की अनुमति दें।',
   cancel: 'रद्द करें',
   ok: 'ठीक है',
 
   // Messages from the server, which always answers in English
   server: {
+    'The photo is larger than 5 MB': 'फ़ोटो 5 MB से बड़ी है',
+    'Upload a JPEG, PNG or WebP photo': 'JPEG, PNG या WebP फ़ोटो अपलोड करें',
+    'This photo could not be read. Try another one.': 'यह फ़ोटो पढ़ी नहीं जा सकी। कोई दूसरी फ़ोटो आज़माएँ।',
+    'Choose a photo to upload': 'अपलोड करने के लिए फ़ोटो चुनें',
     'Enter a valid mobile number': 'सही मोबाइल नंबर दर्ज करें',
     'This number is not registered yet. Enter your e-mail address: the phone will be added to your VeeTrax account (or a new one).': 'यह नंबर अभी पंजीकृत नहीं है। अपना ई-मेल पता दर्ज करें: फ़ोन आपके VeeTrax खाते (या नए खाते) में जोड़ा जाएगा।',
     'The code has expired or was not requested. Ask for a new code.': 'कोड की अवधि समाप्त हो गई है या माँगा नहीं गया था। नया कोड माँगें।',

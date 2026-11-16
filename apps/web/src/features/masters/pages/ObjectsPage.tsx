@@ -1,6 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   DEFAULT_SPEED_LIMIT_KPH,
+  hasPhotoType,
   OBJECT_TYPES,
   VEHICLE_TYPES,
   type BranchDto,
@@ -38,6 +39,7 @@ import { named, useEntityOptions } from '../use-options';
 import { EMPTY_TRANSPORT_VALUES, transportProfileBody, VehicleTransportFields, type VehicleTransportValues } from '@/features/transport/VehicleTransportFields';
 import { api, errorMessage } from '@/lib/api';
 import { toast } from 'sonner';
+import { ObjectAvatar, ObjectPhotoEditor } from '@/features/objects/object-photo';
 
 const ENDPOINT = '/objects';
 const OBJECT_TYPE_OPTIONS: Option[] = OBJECT_TYPES.map((t) => ({ value: t, label: humanize(t) }));
@@ -128,6 +130,16 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
 
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title={record ? 'Edit object' : 'Add object'} wide pending={save.isPending} error={save.error} onSubmit={submit}>
+      {hasPhotoType(type) && can('objects', 'edit') && (
+        <div className="rounded-lg border border-dashed p-3">
+          <p className="mb-2 text-sm font-medium">{t('Photo')}</p>
+          {record ? (
+            <ObjectPhotoEditor objectId={record.id} version={record.photoVersion} type={type} name={record.name} />
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('Save first, then add a photo.')}</p>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField form={form} name="name" label="Name" required className="sm:col-span-2" />
         <SelectField form={form} name="type" label="Object type" required options={OBJECT_TYPE_OPTIONS} />
@@ -187,7 +199,21 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
 }
 
 const columns: MasterColumn<TrackedObjectDto>[] = [
-  { id: 'name', header: 'Name', sortable: true, hideable: false, cell: (r) => <span className="font-medium">{r.name}</span> },
+  {
+    id: 'name',
+    header: 'Name',
+    sortable: true,
+    hideable: false,
+    cell: (r) =>
+      hasPhotoType(r.type) ? (
+        <span className="flex items-center gap-2">
+          <ObjectAvatar objectId={r.id} version={r.photoVersion} type={r.type} name={r.name} size={28} />
+          <span className="font-medium">{r.name}</span>
+        </span>
+      ) : (
+        <span className="font-medium">{r.name}</span>
+      ),
+  },
   { id: 'plateNumber', header: 'Plate', sortable: true, cell: (r) => <Dash value={r.plateNumber} /> },
   {
     id: 'type',

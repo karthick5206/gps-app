@@ -97,6 +97,12 @@ export class ApiError extends Error {
 }
 
 /** The request never got an HTTP response (offline, DNS, timeout). */
+export interface PhotoState {
+  objectId: string;
+  /** ms of the last change; null = no photo. */
+  photoVersion: number | null;
+}
+
 export class NetworkError extends Error {
   constructor(message: string) {
     super(message);
@@ -107,7 +113,7 @@ export class NetworkError extends Error {
 const TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 90_000;
 
-async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, token?: string): Promise<T> {
+async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, token?: string): Promise<T> {
   // Lets the server keep this phone's app version current (shown in Devices → Tracker app).
   const headers: Record<string, string> = { Accept: 'application/json', 'X-App-Version': APP_VERSION };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -183,6 +189,17 @@ export const api = {
     form.append('file', { uri: video.uri, type: 'video/mp4', name: 'checkin.mp4' } as unknown as Blob);
     return uploadForm<PhoneAttendance>('/attendance/video', form, token);
   },
+  /** Profile photo of the person this phone tracks (404 when the phone is not linked to a person). */
+  photoState: (token: string) => request<PhotoState>('GET', '/photo/state', undefined, token),
+  sendPhoto: (token: string, photo: { uri: string; mimeType?: string | null }) => {
+    const type = photo.mimeType || 'image/jpeg';
+    const form = new FormData();
+    form.append('file', { uri: photo.uri, type, name: `photo.${type.split('/')[1] ?? 'jpg'}` } as unknown as Blob);
+    return uploadForm<PhotoState>('/photo', form, token);
+  },
+  removePhoto: (token: string) => request<PhotoState>('DELETE', '/photo', undefined, token),
+  /** Image source for <Image>: the photo with the phone's token (no public URL exists). */
+  photoSource: (token: string, version: number) => ({ uri: `${apiBase()}/photo?size=full&v=${version}`, headers: { Authorization: `Bearer ${token}` } }),
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),

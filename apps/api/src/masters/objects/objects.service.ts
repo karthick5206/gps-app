@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { CreateObjectDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
+import { deletePhotoFiles } from '../../object-photos/object-photo-files';
 
 const ENTITY = 'object';
 const INCLUDE = {
@@ -81,13 +82,15 @@ function toDto(o: Row): TrackedObjectDto {
     device: device ? { id: device.id, uniqueId: device.uniqueId, modelName: `${device.model.brand} ${device.model.model}` } : null,
     groups: o.groups.map((g) => ({ id: g.group.id, name: g.group.name })),
     customFields: asRecord(o.customFields),
+    photoVersion: o.photoAt ? o.photoAt.getTime() : null,
     createdAt: iso(o.createdAt),
     updatedAt: iso(o.updatedAt),
   };
 }
 
 function snapshot(o: Row) {
-  const { branch, assignments, groups, ...scalars } = o;
+  // Photo file paths stay out of the audit trail (a photo change is audited as photo: true / false).
+  const { branch, assignments, groups, photoPath: _p, photoThumbPath: _t, ...scalars } = o;
   return { ...scalars, deviceId: assignments[0]?.deviceId ?? null };
 }
 
@@ -187,6 +190,7 @@ export class ObjectsService {
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
     await this.prisma.trackedObject.delete({ where: { id } });
+    await deletePhotoFiles([before]);
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.redis.invalidateCache('object');
   }

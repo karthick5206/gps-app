@@ -206,6 +206,14 @@ const en = {
   deactivatePhone: 'Deactivate this phone',
   signOutConfirmTitle: 'Deactivate this phone?',
   signOutConfirmBody: 'Tracking stops and you will need a new code to activate again.',
+  // Profile photo
+  profilePhoto: 'Profile photo',
+  profilePhotoHint: 'Shown on the map to the people who track this phone. Location and camera details are removed from the photo.',
+  takePhoto: 'Take photo',
+  choosePhoto: 'Choose photo',
+  removePhoto: 'Remove photo',
+  removePhotoConfirm: 'Remove your profile photo?',
+  photoCameraDenied: 'Allow the camera for VeeTrax Tracker in your phone settings to take a photo.',
   cancel: 'Cancel',
   ok: 'OK',
 
