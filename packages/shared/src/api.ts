@@ -1,5 +1,6 @@
 /** REST API shapes shared by the backend and clients. */
 import type { DataScope, MenuKey, Action, PermissionMap } from './permissions';
+import type { HistoryArchiveSettings } from './history-archive';
 import type { ObjectType, VehicleType, StatusThresholds } from './tracking';
 
 /**
@@ -186,6 +187,8 @@ export interface CompanyDto extends CompanySummary {
   branchCount: number; userCount: number; objectCount: number; deviceCount: number;
   /** Days of history (positions, trips, stops, alerts) kept; older data is deleted automatically. */
   retentionDays: number;
+  /** History archiving (Company.settings.historyArchive; off by default). */
+  historyArchive: HistoryArchiveSettings;
   createdAt: string; updatedAt: string;
 }
 

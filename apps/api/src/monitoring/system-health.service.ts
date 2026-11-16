@@ -33,6 +33,7 @@ import { bufferSecondsLeft, CheckInput, evaluateChecks, Issue, NotifyBacklog, st
 import { HEARTBEAT_TTL_SEC } from './heartbeat';
 import { MapServiceMonitor, MapServiceState } from './map-services';
 import { RoutingHealthMonitor } from './routing-health';
+import { HistoryArchiveService } from '../history-archive/history-archive.service';
 import { RoutingSwitchService } from '../routing-switch/routing-switch.service';
 import { platformRoutingSnapshot } from '../routing-switch/routing-switch';
 import { PrismaJobStore } from '../routing-jobs/prisma-job-store';
@@ -106,6 +107,7 @@ export class SystemHealthService {
     private readonly redis: RedisService,
     @Inject(APP_ENV) private readonly env: AppEnv,
     @Optional() @Inject(RoutingSwitchService) private readonly switches: RoutingSwitchService | null = null,
+    @Optional() @Inject(HistoryArchiveService) private readonly archive: HistoryArchiveService | null = null,
   ) {}
 
   get streams(): StreamDef[] {
@@ -136,6 +138,7 @@ export class SystemHealthService {
       this.etmsMatrix(),
       this.etmsDispatch(),
     ]);
+    const historyArchive = this.archive ? await withTimeout(this.archive.health(), TIMEOUT_MS, 'history archive').catch(() => null) : undefined;
     const routing = await this.routingHealth.collect(heartbeats, now, this.thresholds.heartbeatStaleSec).catch(() => undefined);
     const processes = this.processes(heartbeats, now);
     const ports = this.ports(heartbeats);
@@ -160,6 +163,7 @@ export class SystemHealthService {
       routing,
       etmsMatrix,
       etmsDispatch,
+      historyArchive,
     };
     const issues = evaluateChecks(input, this.thresholds);
     applyStatuses(input, issues);
@@ -187,6 +191,7 @@ export class SystemHealthService {
       host: c.input.host,
       maps: mapServiceDtos(c.input.maps ?? [], c.issues),
       ...(c.input.routing ? { routing: c.input.routing } : {}),
+      ...(c.input.historyArchive ? { historyArchive: c.input.historyArchive } : {}),
       throughput: c.throughput,
     };
   }

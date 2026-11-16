@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { RAW_POSITION_REPORTS, ReportArchiveNotice } from '@veetracer/shared';
 import {
   AlertDto,
   DailySummaryDto,
@@ -125,7 +126,42 @@ export class ReportDataService {
     const shared = req.scope?.objectIds.map((id) => ctx.shares?.find((x) => x.objectId === id)).filter((x) => !!x) ?? [];
     const data = shared.length ? await this.buildShared(ctx, req, shared[0], maxRows) : await this.build(ctx, req, maxRows);
     await this.addresses.enrichReport(data.type, data.rows);
+    if ((RAW_POSITION_REPORTS as readonly string[]).includes(req.type)) {
+      const ids = shared.length ? [shared[0].objectId] : [...(await this.scopeObjects(ctx, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] })).keys()];
+      // The notice never breaks a report (an unreadable archive state just leaves it out).
+      const archived = await this.archiveNotice(ids, req.from, req.to).catch(() => null);
+      if (archived) data.archived = archived;
+    }
     return data;
+  }
+
+  /**
+   * History archiving: raw-point reports over days whose points are archived would show wrong (too small) totals, so
+   * they carry a notice naming the days to restore. Null when no such day is in the period.
+   */
+  async archiveNotice(objectIds: string[], from: string, to: string): Promise<ReportArchiveNotice | null> {
+    if (!objectIds.length || !isDayKey(from) || !isDayKey(to)) return null;
+    const rows = await this.prisma.archivedDay.findMany({
+      where: {
+        objectId: { in: objectIds },
+        day: { gte: new Date(`${from}T00:00:00Z`), lte: new Date(`${to}T00:00:00Z`) },
+        OR: [{ status: { in: ['ARCHIVED', 'RESTORING'] } }, { status: { in: ['CLAIMED', 'FAILED'] }, filePath: { not: null } }],
+      },
+      select: { objectId: true, day: true },
+      orderBy: { day: 'asc' },
+    });
+    if (!rows.length) return null;
+    const days = new Set(rows.map((r) => r.day.toISOString().slice(0, 10)));
+    const first = rows[0].day.toISOString().slice(0, 10);
+    const last = rows[rows.length - 1].day.toISOString().slice(0, 10);
+    const objects = new Set(rows.map((r) => r.objectId)).size;
+    return {
+      days: days.size,
+      objects,
+      firstDay: first,
+      lastDay: last,
+      message: `Raw GPS points of ${days.size} day(s) between ${first} and ${last} (${objects} vehicle(s)) are archived, so this report is incomplete for those days. Restore them from History (or ask your administrator), then run the report again.`,
+    };
   }
 
   /**

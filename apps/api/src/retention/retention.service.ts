@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
-import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
+import { historyArchiveOf, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
 import { PrismaService } from '../prisma/prisma.service';
@@ -133,6 +133,9 @@ export class RetentionService {
 
     for (const c of companies) {
       const cutoff = ago(effectiveRetentionDays(c.retentionDays));
+      // History archiving on: raw points are not deleted here but moved to the archive by the archive job (which only
+      // deletes points it has written to a verified file; restored days stay until their keep period ends).
+      const archived = historyArchiveOf(c.settings).enabled;
       const steps: [string, () => Promise<number>][] = [
         [
           'positions',
@@ -172,7 +175,10 @@ export class RetentionService {
         ['routePlansStuck', async () => purgeStuckRoutePlans(this.prisma, c.id, cutoff, await this.routingOn(c.id), ROUTING_BATCH)],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
-      for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;
+      for (const [key, step] of steps) {
+        if (archived && key === 'positions') continue;
+        if (!(await drain(key, step))) complete = false;
+      }
       if (!complete) break;
     }
 

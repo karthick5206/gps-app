@@ -1,6 +1,7 @@
 import {
   DatabaseDto,
   HealthIssue,
+  HistoryArchiveHealthDto,
   HealthStatus,
   HostDto,
   PortDto,
@@ -61,6 +62,8 @@ export interface CheckInput {
    * null: could not be asked. lastOkAt null = no pass recorded yet.
    */
   etmsDispatch?: { lastOkAt: number | null; queued: number; oldestQueuedAt: number | null; failed: number } | null;
+  /** History archive job; undefined: not collected; null: could not be asked. */
+  historyArchive?: HistoryArchiveHealthDto | null;
 }
 
 /** Alert types whose DEAD notification job is CRITICAL (D6 G2, owner decision: SOS / CRASH). */
@@ -350,6 +353,34 @@ function etmsDispatchChecks(input: CheckInput, out: Issue[]): void {
   if (problems.length) out.push({ ...base, severity: 'WARN', message: `Live dispatch: ${problems.join('; ')}. New bookings wait for the dispatcher meanwhile: check the API process, Valkey (dispatch locks) and ETMS_LIVE_DISPATCH.` });
 }
 
+/**
+ * History archiving (check archive.job / archive.disk): with companies switched on, the nightly run has not finished for
+ * 36 h (WARN), days failed (WARN; their points stay in the database), or the archive disk is under 10 % free (WARN) /
+ * 5 % (CRITICAL). Nothing is checked while no company has archiving on and nothing was archived.
+ */
+export function historyArchiveChecks(input: Pick<CheckInput, 'historyArchive' | 'now' | 'startupGrace'>, out: Issue[]): void {
+  const a = input.historyArchive;
+  if (a === undefined || input.startupGrace) return;
+  if (a === null) {
+    out.push({ id: 'archive.job', check: 'history archive', section: 'archive', severity: 'WARN', message: 'The history archive state could not be read (database or Valkey).' });
+    return;
+  }
+  if (!a.companies && !a.archiveBytes && !a.failedDays) return;
+  const problems: string[] = [];
+  if (a.companies && !a.jobEnabled) problems.push(`${a.companies} compan${a.companies === 1 ? 'y has' : 'ies have'} archiving on but HISTORY_ARCHIVE=off: old points are neither archived nor deleted`);
+  else if (a.companies) {
+    const last = a.lastRun ? Date.parse(a.lastRun.finishedAt) : null;
+    if (last === null || input.now - last > 36 * 3600_000) problems.push(last === null ? 'the nightly archive run has not completed yet' : `the last archive run finished ${Math.round((input.now - last) / 3600_000)} h ago`);
+    if (a.lastRun && !a.lastRun.complete && a.lastRun.backlogObjects > 0) problems.push(`${a.lastRun.backlogObjects} vehicle(s) still waiting (time budget reached)`);
+  }
+  if (a.failedDays) problems.push(`${a.failedDays} vehicle-day(s) failed${a.lastError ? ` (${a.lastError})` : ''}; their points are kept in the database and retried nightly`);
+  if (problems.length) out.push({ id: 'archive.job', check: 'history archive', section: 'archive', severity: 'WARN', message: `History archive: ${problems.join('; ')}.` });
+  if (a.diskTotal && a.diskFree !== null) {
+    const pct = (a.diskFree / a.diskTotal) * 100;
+    if (pct < 10) out.push({ id: 'archive.disk', check: 'archive disk', section: 'archive', severity: pct < 5 ? 'CRITICAL' : 'WARN', message: `The history archive disk (${a.dir}) has ${pct.toFixed(1)} % free; archive files use ${Math.round(a.archiveBytes / 1048576)} MB.` });
+  }
+}
+
 /** Data forwarding targets (from gateway / notifier heartbeats) failing for more than 5 minutes. */
 function relayChecks(input: CheckInput, out: Issue[]): void {
   const instances = input.processes.flatMap((p) => p.instances);
@@ -520,6 +551,7 @@ export function evaluateChecks(input: CheckInput, t: HealthThresholds): Issue[] 
   relayChecks(input, out);
   etmsRelayChecks(input, t, out);
   etmsDispatchChecks(input, out);
+  historyArchiveChecks(input, out);
   if (input.etmsMatrix) out.push(...matrixHealthIssues(input.etmsMatrix, input.now));
   mapChecks(input, out);
   routingChecks(input, out);

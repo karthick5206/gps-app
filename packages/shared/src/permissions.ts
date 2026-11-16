@@ -107,7 +107,7 @@ export const MENUS: readonly MenuDef[] = [
   // Tracking: where vehicles are and what is happening now.
   { key: 'dashboard', label: 'Dashboard', group: 'main', path: '/dashboard', actions: ['view'] },
   { key: 'live_map', label: 'Live Map', group: 'main', path: '/live', actions: ['view', 'command'] },
-  { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export'] },
+  { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export', 'command'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },

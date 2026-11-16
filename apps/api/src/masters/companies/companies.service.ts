@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CompanyDto } from '@veetracer/shared';
+import { CompanyDto, historyArchiveOf } from '@veetracer/shared';
 import { AuthContext } from '../../access/auth-context';
 import { ensureSystemRoles } from '../../access/system-roles';
 import { AuditService } from '../../audit/audit.service';
@@ -56,6 +56,7 @@ function toDto(c: Row): CompanyDto {
     objectCount: c._count.objects,
     deviceCount: c._count.devices,
     retentionDays: c.retentionDays,
+    historyArchive: historyArchiveOf(c.settings),
     createdAt: iso(c.createdAt),
     updatedAt: iso(c.updatedAt),
   };
@@ -97,6 +98,7 @@ export class CompaniesService {
       const company = await tx.company.create({
         data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays, ...(dto.features ? { settings: withFeatures({}, dto.features) as Prisma.InputJsonValue } : {}) },
       });
+      if (dto.historyArchive) await setCompanySetting(tx, company.id, 'historyArchive', { enabled: dto.historyArchive.enabled, afterDays: dto.historyArchive.afterDays });
       const roles = await ensureSystemRoles(tx, company.id);
       if (dto.features?.includes('etms')) await ensureEtmsRoleTemplates(tx, company.id);
       if (dto.features?.includes('pricing')) await ensurePricingRoleTemplates(tx, company.id);
@@ -125,7 +127,7 @@ export class CompaniesService {
 
   async update(ctx: AuthContext, id: string, dto: UpdateCompanyDto): Promise<CompanyDto> {
     const before = await this.find(id);
-    const { features, ...fields } = dto;
+    const { features, historyArchive, ...fields } = dto;
     // ETMS module switch (P6): turning the add-on on seeds the transport role templates once; turning it off keeps them
     // (menus are hidden and refused while off, nothing is deleted).
     const etmsOn = !!features?.includes('etms') && !companyFeatures(before).includes('etms');
@@ -135,6 +137,8 @@ export class CompaniesService {
       // F9: the add-on list is written as its own key (atomic jsonb_set), so a concurrent settings save by the company
       // can't undo the switch (e.g. turn ETMS back on after a rollback), and this can't undo theirs.
       if (features) await setCompanySetting(tx, id, 'features', withFeatures({}, features).features);
+      // History archiving switch: its own key, so a company admin's settings save can't undo it.
+      if (historyArchive) await setCompanySetting(tx, id, 'historyArchive', { enabled: historyArchive.enabled, afterDays: historyArchive.afterDays });
       const updated = await tx.company.update({
         where: { id },
         data: { ...fields, name: dto.name?.trim() },
