@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { PurgePreviewDto } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
+import { deleteCompanyPhotoDir, deletePhotoFiles } from '../object-photos/object-photo-files';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -91,6 +92,8 @@ export class PurgeService {
   private async execute(kind: PurgeKind, id: string, target: Target, actor: { companyId: string | null; userId: string | null; ip: string | null }, by: string): Promise<number> {
     const steps = await this.steps(kind, id);
     const extra = await this.extraStatements(kind, id);
+    // Personal files outside the database (person photos): listed now, deleted once the rows are gone.
+    const photos = await this.photoFiles(kind, id);
     const started = Date.now();
     let deletedRows = 0;
     await this.prisma.$transaction(
@@ -104,12 +107,26 @@ export class PurgeService {
       { timeout: TX_TIMEOUT_MS, maxWait: 10_000 },
     );
     await this.clearLive(target);
+    await deletePhotoFiles(photos);
+    if (kind === 'company') await deleteCompanyPhotoDir(id);
     await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ms: Date.now() - started } });
     this.logger.warn(`PURGE ${kind} ${id} (${target.label}) by ${by}: ${deletedRows} rows in ${Date.now() - started} ms`);
     return deletedRows;
   }
 
   // ───────────── helpers ─────────────
+
+  /**
+   * Photo files of the objects a purge removes (registered here because the catalogue walk sees rows, not files): the
+   * object itself, or every object of the company. A device or user purge removes no object.
+   */
+  private async photoFiles(kind: PurgeKind, id: string): Promise<{ photoPath: string | null; photoThumbPath: string | null }[]> {
+    if (kind !== 'object' && kind !== 'company') return [];
+    return this.prisma.trackedObject.findMany({
+      where: { ...(kind === 'object' ? { id } : { companyId: id }), OR: [{ photoPath: { not: null } }, { photoThumbPath: { not: null } }] },
+      select: { photoPath: true, photoThumbPath: true },
+    });
+  }
 
   /**
    * R-36 stop-gap (D-107): refuse to delete a company that has GST invoices, credit notes or payment records, and audit
