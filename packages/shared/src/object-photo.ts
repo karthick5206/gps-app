@@ -13,7 +13,8 @@ export const OBJECT_PHOTO_TYPES: readonly ObjectType[] = ['PERSON', 'PET', 'ASSE
 export const OBJECT_PHOTO_SIZE = 256;
 export const OBJECT_PHOTO_THUMB_SIZE = 64;
 
-export type ObjectPhotoSize = 'full' | 'thumb';
+/** full = 256 px JPEG, thumb = 64 px JPEG, marker = 64 px round PNG (transparent corners) for native map markers. */
+export type ObjectPhotoSize = 'full' | 'thumb' | 'marker';
 
 export const hasPhotoType = (type: ObjectType): boolean => OBJECT_PHOTO_TYPES.includes(type);
 

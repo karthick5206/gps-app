@@ -33,6 +33,13 @@ export function validatePhoto(file: UploadedPhoto | undefined): PhotoMime {
   return type;
 }
 
+/** Round map-marker version of the 64 px thumbnail: the photo inside a circle of radius 25.5, transparent around it. */
+export async function markerPng(thumb: Buffer): Promise<Buffer> {
+  const size = OBJECT_PHOTO_THUMB_SIZE;
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size * 0.4}" fill="#fff"/></svg>`);
+  return sharp(thumb).resize(size, size).ensureAlpha().composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
+}
+
 export interface EncodedPhoto {
   /** 256 × 256 JPEG. */
   full: Buffer;

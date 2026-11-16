@@ -1,14 +1,14 @@
 import { Injectable, NotFoundException, StreamableFile } from '@nestjs/common';
 import type { ObjectPhotoSize, ObjectType } from '@veetracer/shared';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { assertPhotoType, photoScopeWhere, trackerPhotoTarget } from './object-photo-access';
 import { deletePhotoFiles, writePhotoFiles } from './object-photo-files';
-import { encodePhoto, UploadedPhoto, validatePhoto } from './object-photo-image';
+import { encodePhoto, markerPng, UploadedPhoto, validatePhoto } from './object-photo-image';
 
 const ENTITY = 'object';
 const SELECT = { id: true, companyId: true, type: true, photoPath: true, photoThumbPath: true, photoAt: true } as const;
@@ -119,9 +119,13 @@ export class ObjectPhotosService {
   }
 
   private async stream(row: PhotoRow, size: ObjectPhotoSize): Promise<StreamableFile> {
-    const path = size === 'thumb' ? row.photoThumbPath : row.photoPath;
+    const path = size === 'full' ? row.photoPath : row.photoThumbPath;
     const info = path ? await stat(path).catch(() => null) : null;
     if (!path || !info) throw new NotFoundException('No photo');
+    if (size === 'marker') {
+      const png = await markerPng(await readFile(path));
+      return new StreamableFile(png, { type: 'image/png', length: png.length, disposition: 'inline' });
+    }
     return new StreamableFile(createReadStream(path), { type: 'image/jpeg', length: info.size, disposition: 'inline' });
   }
 

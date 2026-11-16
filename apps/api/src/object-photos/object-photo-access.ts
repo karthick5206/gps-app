@@ -23,8 +23,8 @@ export function assertPhotoType(type: ObjectType): void {
 
 export function parsePhotoSize(size: string | undefined): ObjectPhotoSize {
   if (size === undefined || size === '' || size === 'full') return 'full';
-  if (size === 'thumb') return 'thumb';
-  throw new BadRequestException('size must be full or thumb');
+  if (size === 'thumb' || size === 'marker') return size;
+  throw new BadRequestException('size must be full, thumb or marker');
 }
 
 /** The phone's device row as the tracker session sees it: company and the object it is fitted to now. */

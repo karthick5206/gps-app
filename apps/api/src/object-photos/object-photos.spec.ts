@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { AuthContext } from '../access/auth-context';
 import { REQUIRED_PERMISSIONS } from '../access/decorators';
 import { assertPhotoType, parsePhotoSize, photoScopeWhere, trackerPhotoTarget, TrackerDeviceRow } from './object-photo-access';
-import { encodePhoto, validatePhoto } from './object-photo-image';
+import { encodePhoto, markerPng, validatePhoto } from './object-photo-image';
 import { ObjectPhotosController } from './object-photos.controller';
 import { ObjectPhotosService } from './object-photos.service';
 
@@ -70,6 +70,15 @@ describe('encodePhoto', () => {
     expect(data[0]).toBeGreaterThan(240);
   });
 
+  it('marker: 64 px round PNG, transparent outside the circle, opaque in the middle', async () => {
+    const { thumb } = await encodePhoto(await jpegWithGps());
+    const png = await markerPng(thumb);
+    const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    expect([info.width, info.height, info.channels]).toEqual([64, 64, 4]);
+    expect(data[3]).toBe(0); // corner
+    expect(data[(32 * 64 + 32) * 4 + 3]).toBe(255); // centre
+  });
+
   it('turns an unreadable file into a 400', async () => {
     await expect(encodePhoto(Buffer.from([0xff, 0xd8, 0xff, 0x00, 1, 2, 3]))).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -100,6 +109,7 @@ describe('photo access rules', () => {
   it('parses the size', () => {
     expect(parsePhotoSize(undefined)).toBe('full');
     expect(parsePhotoSize('thumb')).toBe('thumb');
+    expect(parsePhotoSize('marker')).toBe('marker');
     expect(() => parsePhotoSize('../x')).toThrow(BadRequestException);
   });
 
