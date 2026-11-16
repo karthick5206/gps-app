@@ -4,6 +4,7 @@ import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min } from 'class-va
 import { HISTORY_RESTORE_KEEP_DAYS_MAX } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { Auth, RequirePermission } from '../access/decorators';
+import { archiveRunDeadline } from './archive-select';
 import { HistoryArchiveService } from './history-archive.service';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -61,6 +62,7 @@ export class HistoryArchiveController {
   async run(@Auth() ctx: AuthContext) {
     if (!ctx.isSuperAdmin) throw new ForbiddenException('Super Admin only');
     if (!this.service.enabled) return { started: false, reason: 'HISTORY_ARCHIVE=off' };
+    if (archiveRunDeadline(Date.now(), 60_000) === null) return { started: false, reason: 'backup window (21:00-22:30 UTC)' };
     void this.service.runOnce();
     return { started: true };
   }

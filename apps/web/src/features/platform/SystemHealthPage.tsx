@@ -619,6 +619,12 @@ function ArchiveCard({ a, issues }: { a: HistoryArchiveHealthDto; issues: Health
       <Row label={t('Failed days')} hint={a.lastError ?? undefined}>
         {a.failedDays ? <StatusBadge status="WARN" label={String(a.failedDays)} /> : <span className="tabular-nums">0</span>}
       </Row>
+      <Row label={t('Vehicles not archivable')} hint={t('Waiting for the summarizer, never summarised, or with failed days; their points stay in the database')}>
+        <span className="tabular-nums">
+          {a.lastRun?.blockedObjects ?? 0}
+          {a.lastRun?.overdueObjects ? ` · ${t('{{n}} overdue', { n: a.lastRun.overdueObjects })}` : ''}
+        </span>
+      </Row>
       <Row label={t('Restores in progress')}>
         <span className="tabular-nums">{a.restoring}</span>
       </Row>

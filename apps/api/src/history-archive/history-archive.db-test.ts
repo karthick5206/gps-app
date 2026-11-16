@@ -11,7 +11,7 @@ import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { dbDescribe } from '../test/scratch-db';
-import { ArchiveEngine } from './archive-engine';
+import { ArchiveEngine, deletePoints } from './archive-engine';
 import { ArchiveWriter, readArchiveFile, resolveArchivePath, verifyArchiveFile } from './archive-file';
 
 const URL_ = process.env.HISTORY_ARCHIVE_DB_TEST_URL ?? process.env.ETMS_DB_TEST_URL ?? '';
@@ -42,6 +42,14 @@ d(`history archive on ${dbName}`, () => {
     b1: crypto.randomUUID(),
   };
   let engine: ArchiveEngine;
+  /** Vehicles created by the review-fix tests (cleaned up too). */
+  const extra: string[] = [];
+  const newVehicle = async (name: string, processedUntil: number | null) => {
+    const id = (await prisma.trackedObject.create({ data: { companyId: companyA, name: `${tag} ${name}` } })).id;
+    extra.push(id);
+    if (processedUntil !== null) await prisma.summaryCursor.create({ data: { objectId: id, processedUntil: new Date(processedUntil) } });
+    return id;
+  };
 
   const points = (objectId: string, deviceId: string, start: number, n: number, stepMs = 60_000): Prisma.PositionCreateManyInput[] =>
     Array.from({ length: n }, (_, i) => ({
@@ -95,12 +103,14 @@ d(`history archive on ${dbName}`, () => {
   });
 
   afterAll(async () => {
-    const ids = Object.values(obj).filter(Boolean);
+    const ids = [...Object.values(obj).filter(Boolean), ...extra];
     await prisma.position.deleteMany({ where: { objectId: { in: ids } } });
     await prisma.archivedDay.deleteMany({ where: { objectId: { in: ids } } });
     await prisma.summaryCursor.deleteMany({ where: { objectId: { in: ids } } });
     await prisma.summaryDirtyDay.deleteMany({ where: { objectId: { in: ids } } });
     await prisma.dailySummary.deleteMany({ where: { objectId: { in: ids } } });
+    await prisma.trip.deleteMany({ where: { objectId: { in: ids } } });
+    await prisma.stop.deleteMany({ where: { objectId: { in: ids } } });
     await prisma.trackedObject.deleteMany({ where: { id: { in: ids } } });
     await prisma.company.deleteMany({ where: { id: { in: [companyA, companyB].filter(Boolean) } } });
     if (partnerId) await prisma.partner.delete({ where: { id: partnerId } });
@@ -211,15 +221,230 @@ d(`history archive on ${dbName}`, () => {
         return { count: 30, checksum: 'f'.repeat(64), bytes: 8 };
       },
     };
+    // Right after a failure the day backs off (reported as blocked, not retried) …
+    const backoff = await engine.run();
+    expect(backoff.failures).toBe(0);
+    expect(backoff.blockedFailed).toBeGreaterThanOrEqual(1);
+    expect(await rowsOf(obj.a1, D2, D2 + DAY)).toHaveLength(30);
+    // … until its back-off period (1 day after the first attempt) is over.
+    const age = () => prisma.$executeRaw`UPDATE "ArchivedDay" SET "updatedAt" = now() - interval '8 days' WHERE "objectId" = ${obj.a1}::uuid AND day = ${dayKey(D2)}::date`;
+    await age();
     expect((await new ArchiveEngine(prisma, { dir, writer: lying }).run()).failures).toBe(1);
     expect(await rowsOf(obj.a1, D2, D2 + DAY)).toHaveLength(30);
     await fsp.rm(path.join(dir, companyA, obj.a1, dayKey(D2).replace(/-/g, '/') + '.jsonl.gz'), { force: true });
 
-    // The next healthy run retries the FAILED day.
+    // The next healthy run after the back-off retries the FAILED day.
+    await age();
     const ok = await engine.run();
     expect(ok.failures).toBe(0);
     expect(ok.archivedDays).toBe(1);
     expect(await rowsOf(obj.a1, D2, D2 + DAY)).toHaveLength(0);
     expect(await prisma.archivedDay.findUniqueOrThrow({ where: { objectId_day: { objectId: obj.a1, day: new Date(D2) } } })).toMatchObject({ status: 'ARCHIVED', pointCount: 30, lastError: null });
+  });
+
+  // ───────────── review fixes ─────────────
+
+  it('a day that turns dirty while it is being archived is not archived (re-check under the shared lock)', async () => {
+    const v = await newVehicle('dirty-mid-run', now - 60_000);
+    const dv = crypto.randomUUID();
+    await prisma.position.createMany({ data: points(v, dv, D, 25) });
+    let fired = false;
+    const racing = new ArchiveEngine(prisma, {
+      dir,
+      beforeCommit: async (objectId) => {
+        if (objectId !== v || fired) return;
+        fired = true;
+        // The summarizer saw a late point for day D meanwhile.
+        await prisma.summaryDirtyDay.create({ data: { objectId: v, day: new Date(D) } });
+      },
+    });
+    const stats = await racing.run();
+    expect(fired).toBe(true);
+    expect(stats.deferred).toBeGreaterThanOrEqual(1);
+    expect(await count(v)).toBe(25);
+    expect(await prisma.archivedDay.count({ where: { objectId: v } })).toBe(0);
+    // The file it wrote was removed again.
+    const files = await fsp.readdir(path.join(dir, companyA, v), { recursive: true }).catch(() => [] as string[]);
+    expect(files.map(String).filter((f) => f.endsWith('.gz'))).toEqual([]);
+    // Once the summarizer is done, the next run archives it.
+    await prisma.summaryDirtyDay.deleteMany({ where: { objectId: v } });
+    await engine.run();
+    expect(await count(v)).toBe(0);
+  });
+
+  it('the summarizer lock: the archive transaction waits for a holder of the vehicle lock', async () => {
+    const v = await newVehicle('locked', now - 60_000);
+    await prisma.position.createMany({ data: points(v, crypto.randomUUID(), D, 5) });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let order: string[] = [];
+    const holder = prisma.$transaction(
+      async (tx) => {
+        const { lockArchiveObjects } = await import('./archive-lock');
+        await lockArchiveObjects(tx, [v]);
+        order.push('summarizer-locked');
+        await held;
+        // Like the summarizer writing results: it marks the vehicle dirty before letting go.
+        await tx.summaryDirtyDay.create({ data: { objectId: v, day: new Date(D) } });
+        order.push('summarizer-done');
+      },
+      { timeout: 60_000 },
+    );
+    const archived = (async () => {
+      await new Promise((r) => setTimeout(r, 100));
+      const r = await engine.run();
+      order.push('archive-done');
+      return r;
+    })();
+    await new Promise((r) => setTimeout(r, 1500));
+    release();
+    await holder;
+    await archived;
+    expect(order).toEqual(['summarizer-locked', 'summarizer-done', 'archive-done']);
+    // It saw the dirty day under the lock: nothing deleted.
+    expect(await count(v)).toBe(5);
+    await prisma.summaryDirtyDay.deleteMany({ where: { objectId: v } });
+    order = [];
+  });
+
+  it('idle vehicle (watermark at its last point) is archived; blocked and overdue vehicles are reported', async () => {
+    const lastPoint = D + 3_600_000 + 9 * 60_000 + 2;
+    const v = await newVehicle('idle', lastPoint);
+    await prisma.position.createMany({ data: points(v, crypto.randomUUID(), D, 10) });
+    expect((await prisma.position.aggregate({ where: { objectId: v }, _max: { fixTime: true } }))._max.fixTime!.getTime()).toBe(lastPoint);
+    const strict = new ArchiveEngine(prisma, { dir, overdueDays: 5 });
+    const stats = await strict.run();
+    expect(await count(v)).toBe(0);
+    expect(await prisma.archivedDay.findFirstOrThrow({ where: { objectId: v } })).toMatchObject({ status: 'ARCHIVED', pointCount: 10 });
+    // a2 (dirty) and a3 (never summarised) hold 40-day-old points: blocked, and overdue past afterDays 30 + 5.
+    expect(stats.blockedDirty).toBeGreaterThanOrEqual(1);
+    expect(stats.blockedNotSummarised).toBeGreaterThanOrEqual(1);
+    expect(stats.overdueObjects).toBeGreaterThanOrEqual(2);
+    expect(await count(obj.a2)).toBe(40);
+    expect(await count(obj.a3)).toBe(40);
+  });
+
+  it('deletes only inside the day bounds (chunk-local) and still exactly the given keys', async () => {
+    const v = await newVehicle('bounds', null);
+    const dv = crypto.randomUUID();
+    await prisma.position.createMany({ data: points(v, dv, D, 6) });
+    const rows = await prisma.$queryRaw<{ deviceId: string; fixTime: Date }[]>`SELECT "deviceId"::text AS "deviceId", "fixTime" FROM "Position" WHERE "objectId" = ${v}::uuid ORDER BY "fixTime"`;
+    const keys = rows.map((r) => ({ deviceId: r.deviceId, fixTime: r.fixTime.getTime() })) as never[];
+    // Bounds that leave out the last point: it is not deleted although its key is in the list.
+    const n = await prisma.$transaction((tx) => deletePoints(tx, v, keys, D, rows[5].fixTime.getTime()));
+    expect(n).toBe(5);
+    expect(await count(v)).toBe(1);
+    expect(await prisma.$transaction((tx) => deletePoints(tx, v, keys, D, D + DAY))).toBe(1);
+    expect(await count(v)).toBe(0);
+  });
+
+  it('a failed rewrite transaction keeps the row on its previous, intact file (restore still works)', async () => {
+    const v = await newVehicle('rewrite-fail', now - 60_000);
+    const dv = crypto.randomUUID();
+    await prisma.position.createMany({ data: points(v, dv, D, 12) });
+    await engine.run();
+    const before = await prisma.archivedDay.findFirstOrThrow({ where: { objectId: v } });
+    // A late point arrives for the archived day; while the rewrite is written it disappears (e.g. removed by an admin).
+    await prisma.position.createMany({ data: points(v, dv, D + 20 * 3_600_000, 1) });
+    const breaking = new ArchiveEngine(prisma, {
+      dir,
+      beforeCommit: async (objectId) => {
+        if (objectId === v) await prisma.position.deleteMany({ where: { objectId: v } });
+      },
+    });
+    const stats = await breaking.run();
+    expect(stats.failures).toBe(1);
+    const after = await prisma.archivedDay.findFirstOrThrow({ where: { objectId: v } });
+    expect(after).toMatchObject({ status: 'ARCHIVED', filePath: before.filePath, checksum: before.checksum, pointCount: 12 });
+    expect(after.lastError).toMatch(/changed meanwhile/);
+    // Only the original file is on disk (the new version was removed).
+    const dayDir = path.dirname(resolveArchivePath(dir, before.filePath!));
+    expect((await fsp.readdir(dayDir)).filter((f) => f.startsWith(dayKey(D).slice(8, 10)))).toEqual([path.basename(before.filePath!)]);
+    await engine.requestRestore(companyA, [v], dayKey(D), dayKey(D), null);
+    expect(await engine.restorePending()).toEqual({ restored: 1, failed: 0 });
+    expect(await count(v)).toBe(12);
+    // A successful rewrite switches to a new versioned file and removes the old one.
+    await prisma.archivedDay.updateMany({ where: { objectId: v }, data: { keepUntil: new Date(now - 1000) } });
+    await prisma.position.createMany({ data: points(v, dv, D + 21 * 3_600_000, 1) });
+    await engine.run();
+    const re = await prisma.archivedDay.findFirstOrThrow({ where: { objectId: v } });
+    expect(re.pointCount).toBe(13);
+    expect(re.filePath).not.toBe(before.filePath);
+    expect(re.filePath).toMatch(/\/\d\d\.[a-z0-9]+\.jsonl\.gz$/);
+    await expect(fsp.stat(resolveArchivePath(dir, before.filePath!))).rejects.toThrow();
+  });
+
+  it('restore reports points that sit under another vehicle instead of marking the day restored', async () => {
+    const v = await newVehicle('restore-conflict', now - 60_000);
+    const other = await newVehicle('restore-other', null);
+    const dv = crypto.randomUUID();
+    const pts = points(v, dv, D, 8);
+    await prisma.position.createMany({ data: pts });
+    await engine.run();
+    expect(await count(v)).toBe(0);
+    // Meanwhile one key (same device and time) was stored under another vehicle.
+    await prisma.position.create({ data: { ...pts[3], objectId: other } as Prisma.PositionUncheckedCreateInput });
+    await engine.requestRestore(companyA, [v], dayKey(D), dayKey(D), null);
+    expect(await engine.restorePending()).toEqual({ restored: 0, failed: 1 });
+    const row = await prisma.archivedDay.findFirstOrThrow({ where: { objectId: v } });
+    expect(row.status).toBe('RESTORING');
+    expect(row.lastError).toMatch(/1 of 8 points exist under another vehicle/);
+    await prisma.archivedDay.updateMany({ where: { objectId: v }, data: { status: 'ARCHIVED' } });
+  });
+
+  it('keeps attributes byte for byte (big integers, decimal forms) through archive and restore', async () => {
+    const v = await newVehicle('attrs', now - 60_000);
+    const dv = crypto.randomUUID();
+    const t = new Date(D + 5 * 3_600_000);
+    await prisma.$executeRaw`
+      INSERT INTO "Position" ("objectId", "deviceId", "fixTime", "serverTime", lat, lng, "speedKph", course, valid, flags, attributes)
+      VALUES (${v}::uuid, ${dv}::uuid, ${t}, ${t}, 12.5, 77.5, 10, 0, true, 0, '{"big": 12345678901234567890123, "dec": 1.500, "neg": -0.0}'::jsonb)`;
+    const text = async () => (await prisma.$queryRaw<{ a: string }[]>`SELECT attributes::text AS a FROM "Position" WHERE "objectId" = ${v}::uuid`)[0]?.a;
+    const original = await text();
+    expect(original).toContain('12345678901234567890123');
+    await engine.run();
+    expect(await count(v)).toBe(0);
+    await engine.requestRestore(companyA, [v], dayKey(D), dayKey(D), null);
+    await engine.restorePending();
+    expect(await text()).toBe(original);
+  });
+
+  it('a purged device leaves the archive files of its vehicles (file rewritten, day removed when empty)', async () => {
+    const v = await newVehicle('device-purge', now - 60_000);
+    const keepDev = crypto.randomUUID();
+    const goneDev = crypto.randomUUID();
+    await prisma.position.createMany({ data: [...points(v, keepDev, D, 4), ...points(v, goneDev, D + 30_000, 3), ...points(v, goneDev, D1, 2)] });
+    await engine.run();
+    expect(await prisma.archivedDay.count({ where: { objectId: v } })).toBe(2);
+    expect(await engine.removeDevicePoints(goneDev, [v])).toBe(5);
+    const rows = await prisma.archivedDay.findMany({ where: { objectId: v } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pointCount).toBe(4);
+    const c = await readArchiveFile(resolveArchivePath(dir, rows[0].filePath!));
+    expect(c.points.every((p) => p.deviceId === keepDev)).toBe(true);
+    expect(c.checksum).toBe(rows[0].checksum);
+  });
+
+  it('summarizer: a rebuild keeps everything before the archive horizon; late-data rows for archived days are dropped', async () => {
+    const v = await newVehicle('summ', null);
+    const dv = crypto.randomUUID();
+    await prisma.position.createMany({ data: [...points(v, dv, D, 20), ...points(v, dv, RECENT, 30)] });
+    await prisma.summaryCursor.create({ data: { objectId: v, processedUntil: new Date(now - 60_000) } });
+    await engine.run();
+    expect(await rowsOf(v, D, D1)).toHaveLength(0);
+    await prisma.dailySummary.create({ data: { objectId: v, companyId: companyA, day: new Date(D), distanceKm: 11.5, tripCount: 2 } });
+    // Force a full rebuild (no cursor) and a late-data row for the archived day.
+    await prisma.summaryCursor.delete({ where: { objectId: v } });
+    await prisma.summaryDirtyDay.create({ data: { objectId: v, day: new Date(D) } });
+    const { Summarizer } = await import('../summarizer/summarizer');
+    const redis = { xinfo: async () => { throw new Error('no stream'); }, get: async () => null, set: async () => 'OK' } as never;
+    const s = new Summarizer(prisma, redis);
+    await s.runOnce(now);
+    expect(await prisma.dailySummary.findUnique({ where: { objectId_day: { objectId: v, day: new Date(D) } } })).toMatchObject({ distanceKm: 11.5, tripCount: 2 });
+    expect(await prisma.summaryDirtyDay.count({ where: { objectId: v } })).toBe(0);
+    expect(await prisma.summaryCursor.findUnique({ where: { objectId: v } })).not.toBeNull();
+    expect(await prisma.dailySummary.count({ where: { objectId: v, day: { gt: new Date(D) } } })).toBeGreaterThan(0);
+    await prisma.trip.deleteMany({ where: { objectId: { in: extra } } });
+    await prisma.stop.deleteMany({ where: { objectId: { in: extra } } });
   });
 });

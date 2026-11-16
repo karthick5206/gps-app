@@ -109,7 +109,15 @@ export class PurgeService {
     );
     await this.clearLive(target);
     const archiveFiles = archive ? await this.archive!.deleteFiles(archive.files, archive.dirs) : 0;
-    await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ...(archiveFiles ? { archiveFiles } : {}), ms: Date.now() - started } });
+    // A purged device's points also leave the archive files of the vehicles it was fitted to (files rewritten).
+    let archivePoints = 0;
+    if (kind === 'device' && this.archive) {
+      archivePoints = await this.archive.engine.removeDevicePoints(id, target.objectIds).catch((e: Error) => {
+        this.logger.error(`PURGE device ${id}: removing its points from archive files failed: ${e.message} (re-run the purge or remove them by hand)`);
+        return 0;
+      });
+    }
+    await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ...(archiveFiles ? { archiveFiles } : {}), ...(archivePoints ? { archivePoints } : {}), ms: Date.now() - started } });
     this.logger.warn(`PURGE ${kind} ${id} (${target.label}) by ${by}: ${deletedRows} rows in ${Date.now() - started} ms`);
     return deletedRows;
   }

@@ -121,6 +121,21 @@ export interface HistoryArchiveRunStats {
   reArchived: number;
   /** Vehicles still holding archivable days when the run stopped. */
   backlogObjects: number;
+  /**
+   * Vehicles whose old points could not be archived this run: waiting for the summarizer (dirty days / not summarised)
+   * or with a FAILED day waiting for its retry. Their points stay in the database.
+   */
+  blockedObjects?: number;
+  blockedDirty?: number;
+  blockedNotSummarised?: number;
+  blockedFailed?: number;
+  /**
+   * Vehicles holding points older than afterDays + HISTORY_ARCHIVE_OVERDUE_DAYS (default 30) that were not archived:
+   * CRITICAL on System Health (points are never deleted without an archive).
+   */
+  overdueObjects?: number;
+  /** Days written but not committed because the summarizer touched the vehicle meanwhile (retried next run). */
+  deferred?: number;
   lastError: string | null;
 }
 

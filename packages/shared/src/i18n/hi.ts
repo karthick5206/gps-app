@@ -5285,4 +5285,8 @@ export const HI: Record<string, string> = {
   'Restores in progress': 'चल रही बहाली',
   'Archive size': 'संग्रह का आकार',
   'Archive disk free': 'संग्रह डिस्क खाली',
+  // History archiving (review)
+  'Vehicles not archivable': 'संग्रह न हो सकने वाले वाहन',
+  '{{n}} overdue': '{{n}} अतिदेय',
+  'Waiting for the summarizer, never summarised, or with failed days; their points stay in the database': 'सारांशकर्ता की प्रतीक्षा में, कभी सारांशित नहीं, या विफल दिनों वाले; उनके पॉइंट डेटाबेस में रहते हैं',
 };

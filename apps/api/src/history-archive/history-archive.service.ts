@@ -10,6 +10,8 @@ import {
 } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { allCompaniesOr, hasPermission, objectScopeWhere } from '../access/access-rules';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
@@ -18,7 +20,11 @@ import { RedisService } from '../redis/redis.service';
 import { daysBetween, isDayKey } from '../summarizer/tz';
 import { archiveDir, resolveArchivePath } from './archive-file';
 import { ArchiveEngine, toArchivedDayDto } from './archive-engine';
-import { enabledCompanies } from './archive-select';
+import { archiveRunDeadline, enabledCompanies } from './archive-select';
+import { ARCHIVE_OVERDUE_DAYS_DEFAULT } from './archive-engine';
+
+/** Lock file present while an archive run writes files (see writeRunningFile). */
+export const RUNNING_FILE = '.running';
 
 export const ARCHIVE_LOCK_KEY = 'vt:history-archive:lock';
 export const ARCHIVE_RESTORE_LOCK_KEY = 'vt:history-archive:restore-lock';
@@ -38,7 +44,8 @@ const num = (v: string | undefined, d: number, min: number, max: number) => {
  * restore worker (every 15 s), restore requests and the System Health snapshot.
  *
  * Env: HISTORY_ARCHIVE (on | off), HISTORY_ARCHIVE_DIR (default /var/lib/veetrax/history-archive),
- * HISTORY_ARCHIVE_HOUR (server-local hour the nightly run starts, default 2), HISTORY_ARCHIVE_BUDGET_MIN (run length,
+ * HISTORY_ARCHIVE_HOUR (UTC hour the nightly run starts, default 2; never between 21:00 and 22:30 UTC, the backup window),
+ * HISTORY_ARCHIVE_OVERDUE_DAYS (points older than afterDays + this, not archived = CRITICAL, default 30), HISTORY_ARCHIVE_BUDGET_MIN (run length,
  * default 120; the rest continues the next night), HISTORY_ARCHIVE_PAUSE_MS (pause between vehicle-days, default 200).
  */
 @Injectable()
@@ -58,18 +65,22 @@ export class HistoryArchiveService {
     private readonly redis: RedisService,
     private readonly audit: AuditService,
   ) {
-    this.engine = new ArchiveEngine(prisma, { dir: archiveDir(), pauseMs: num(process.env.HISTORY_ARCHIVE_PAUSE_MS, 200, 0, 60_000) });
+    this.engine = new ArchiveEngine(prisma, {
+      dir: archiveDir(),
+      pauseMs: num(process.env.HISTORY_ARCHIVE_PAUSE_MS, 200, 0, 60_000),
+      overdueDays: num(process.env.HISTORY_ARCHIVE_OVERDUE_DAYS, ARCHIVE_OVERDUE_DAYS_DEFAULT, 1, 3650),
+    });
   }
 
   // ───────────────────────── schedules ─────────────────────────
 
-  /** Every 10 min: start the nightly run once per day in the configured hour. */
+  /** Every 10 min: start the nightly run once per day in the configured hour (UTC). */
   @Interval(10 * 60_000)
   async nightly(): Promise<void> {
     if (!this.enabled) return;
     const now = new Date();
-    const today = now.toDateString();
-    if (now.getHours() !== this.hour || this.lastRunDay === today) return;
+    const today = now.toISOString().slice(0, 10);
+    if (now.getUTCHours() !== this.hour || this.lastRunDay === today) return;
     this.lastRunDay = today;
     await this.runOnce();
   }
@@ -80,9 +91,16 @@ export class HistoryArchiveService {
     this.running = true;
     let locked = false;
     try {
+      // Never during the nightly file backup (21:00–22:30 UTC), and never running into it.
+      const deadline = archiveRunDeadline(Date.now(), this.budgetMs);
+      if (deadline === null) {
+        this.logger.warn('History archive run not started: inside the backup window (21:00–22:30 UTC)');
+        return null;
+      }
       locked = (await this.redis.client.set(ARCHIVE_LOCK_KEY, this.instance, 'PX', this.budgetMs + 15 * 60_000, 'NX')) === 'OK';
       if (!locked) return null;
-      const stats = await this.engine.run(Date.now() + this.budgetMs);
+      await this.writeRunningFile(deadline);
+      const stats = await this.engine.run(deadline);
       await this.redis.client.set(ARCHIVE_LAST_RUN_KEY, JSON.stringify(stats));
       if (stats.archivedDays || stats.failures) {
         this.logger.log(`Archived ${stats.archivedDays} vehicle-days (${stats.points} points, ${stats.bytes} bytes), ${stats.failures} failed${stats.complete ? '' : ', time budget reached (continues next night)'}`);
@@ -97,8 +115,24 @@ export class HistoryArchiveService {
         .catch(() => undefined);
       return null;
     } finally {
-      if (locked) await this.redis.client.eval(RELEASE_LOCK, 1, ARCHIVE_LOCK_KEY, this.instance).catch(() => undefined);
+      if (locked) {
+        await fsp.rm(path.join(this.engine.dir, RUNNING_FILE), { force: true }).catch(() => undefined);
+        await this.redis.client.eval(RELEASE_LOCK, 1, ARCHIVE_LOCK_KEY, this.instance).catch(() => undefined);
+      }
       this.running = false;
+    }
+  }
+
+  /**
+   * `<HISTORY_ARCHIVE_DIR>/.running` while a run writes files: JSON { pid, host, startedAt, deadline }. A backup that
+   * finds it may wait until it is gone, or treat it as stale once `deadline` + 15 min has passed.
+   */
+  private async writeRunningFile(deadline: number): Promise<void> {
+    try {
+      await fsp.mkdir(this.engine.dir, { recursive: true });
+      await fsp.writeFile(path.join(this.engine.dir, RUNNING_FILE), JSON.stringify({ pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), deadline: new Date(deadline).toISOString() }));
+    } catch (e) {
+      this.logger.warn(`Could not write ${RUNNING_FILE}: ${(e as Error).message}`);
     }
   }
 

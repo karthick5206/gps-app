@@ -5285,4 +5285,8 @@ export const TA: Record<string, string> = {
   'Restores in progress': 'நடைபெறும் மீட்டெடுப்புகள்',
   'Archive size': 'காப்பக அளவு',
   'Archive disk free': 'காப்பக வட்டில் காலி இடம்',
+  // History archiving (review)
+  'Vehicles not archivable': 'காப்பகப்படுத்த முடியாத வாகனங்கள்',
+  '{{n}} overdue': '{{n}} காலம் கடந்தவை',
+  'Waiting for the summarizer, never summarised, or with failed days; their points stay in the database': 'சுருக்கியின் காத்திருப்பில், சுருக்கப்படாதவை அல்லது தோல்வியடைந்த நாட்கள் உள்ளவை; அவற்றின் புள்ளிகள் தரவுத்தளத்தில் இருக்கும்',
 };

@@ -21,7 +21,7 @@ const pt = (i: number, extra: Partial<ArchivePoint> = {}): ArchivePoint => ({
   valid: true,
   ignition: i % 5 ? true : null,
   flags: i % 4,
-  attributes: { odometerM: 1000 + i, io: { din1: i % 2 === 0 }, label: 'nñ ✓' },
+  attributesJson: `{"io": {"din1": ${i % 2 === 0}}, "big": 12345678901234567890, "dec": 1.50, "label": "nñ ✓", "odometerM": ${1000 + i}}`,
   ...extra,
 });
 
@@ -40,6 +40,12 @@ describe('archive file format', () => {
     expect(back.checksum).toBe(checksum);
     expect(back.header).toMatchObject({ format: 'veetrax-history-archive', version: 1, objectId: OID, day: '2026-08-01' });
     expect(checksum).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('keeps the raw attributes text (big integers, decimal forms) byte for byte', () => {
+    const back = decodeArchive(encodeArchive(header, [pt(1)]).text);
+    expect(back.points[0].attributesJson).toContain('12345678901234567890');
+    expect(back.points[0].attributesJson).toContain('1.50');
   });
 
   it('checksum depends on the content', () => {
@@ -90,6 +96,8 @@ describe('archive file format', () => {
 
   it('paths stay inside the archive directory', () => {
     expect(archiveRelPath(CID, OID, '2026-08-01')).toBe(`${CID}/${OID}/2026/08/01.jsonl.gz`);
+    expect(archiveRelPath(CID, OID, '2026-08-01', 'k3x9')).toBe(`${CID}/${OID}/2026/08/01.k3x9.jsonl.gz`);
+    expect(() => archiveRelPath(CID, OID, '2026-08-01', '../x')).toThrow();
     expect(() => resolveArchivePath(dir, '../etc/passwd')).toThrow(/outside/);
     expect(() => archiveRelPath('../x', OID, '2026-08-01')).toThrow();
   });

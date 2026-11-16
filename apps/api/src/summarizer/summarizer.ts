@@ -20,6 +20,14 @@ import {
 } from './segmenter';
 import { addDays, localDayKey, localMidnight } from './tz';
 import { WebhookEventMessage, WebhookEventPublisher } from '../webhooks/events';
+import { lockArchiveObjects } from '../history-archive/archive-lock';
+
+/** A vehicle's archive horizon moved between reading its points and writing the results (the archive job committed). */
+class HorizonMoved extends Error {
+  constructor(readonly ids: Set<string>) {
+    super('archive horizon moved');
+  }
+}
 
 /** Shape of SummaryCursor.state. */
 export interface CursorState {
@@ -48,6 +56,8 @@ interface Ctx {
   deleteFrom?: { ms: number; day: string };
   /** History archiving: trips/stops/summaries before this instant / day are final (their points are archived). */
   protectBefore?: { ms: number; day: string };
+  /** Archive horizon day this context was computed with (null = none). */
+  horizonDay?: string | null;
   positions: number;
   atBefore: number | null;
 }
@@ -320,6 +330,7 @@ export class Summarizer {
         ctx = { meta: m, mode, seg: cs.seg, snaps: cs.snaps, out: emptyOutput(), after: cs.seg.at ?? floor, positions: 0, atBefore: cs.seg.at };
       }
       if (!ctx) ctx = { meta: m, mode: 'rebuild', seg: createState(), snaps: {}, out: emptyOutput(), after: floor, positions: 0, atBefore: null, ...(protect ? { protectBefore: protect } : {}) };
+      ctx.horizonDay = protect?.day ?? null;
       ctxs.push(ctx);
     }
 
@@ -356,7 +367,7 @@ export class Summarizer {
     return this.persist(ctxs);
   }
 
-  private async persist(all: Ctx[]) {
+  private async persist(all: Ctx[]): Promise<{ positions: number; trips: number; stops: number; days: number; written: number }> {
     // Incremental objects without new data or day changes need no writes.
     const ctxs = all.filter(
       (c) => c.mode !== 'incremental' || c.positions > 0 || c.out.days.length > 0 || c.seg.at !== c.atBefore,
@@ -389,8 +400,48 @@ export class Summarizer {
     const cleanIds = ctxs.filter((c) => c.mode !== 'incremental').map((c) => c.meta.id);
     const cursors = ctxs.filter((c) => c.seg.at !== null);
 
+    try {
+      await this.writeResults(ctxs, { trips, stops, days, touchedDays, rebuildIds, protectedRebuilds, dirtyCtx, cleanIds, cursors });
+    } catch (error) {
+      if (!(error instanceof HorizonMoved)) throw error;
+      // Those vehicles are recomputed next run with the new horizon; the others are written now.
+      return this.persist(all.filter((c) => !error.ids.has(c.meta.id)));
+    }
+    await this.emitTrips(ctxs, trips);
+    return { positions: ctxs.reduce((a, c) => a + c.positions, 0), trips: trips.length, stops: stops.length, days: days.length, written: ctxs.length };
+  }
+
+  /** Vehicles whose archive horizon (re-read under the archive lock) is not the one their recomputation used. */
+  private async horizonMoved(tx: Prisma.TransactionClient, ctxs: Ctx[]): Promise<Set<string>> {
+    const watched = ctxs.filter((c) => c.mode !== 'incremental');
+    if (!watched.length) return new Set();
+    const rows = await tx.$queryRaw<{ oid: string; day: string }[]>`
+      SELECT "objectId"::text AS oid, to_char(max(day), 'YYYY-MM-DD') AS day FROM "ArchivedDay"
+      WHERE "filePath" IS NOT NULL AND "objectId" = ANY(${watched.map((c) => c.meta.id)}::uuid[]) GROUP BY 1`;
+    const now = new Map(rows.map((r) => [r.oid, addDays(r.day, 1)]));
+    const moved = new Set<string>();
+    for (const c of watched) {
+      const day = now.get(c.meta.id) ?? null;
+      if (day !== (c.horizonDay ?? null)) {
+        moved.add(c.meta.id);
+        if (day) this.horizon.set(c.meta.id, { day, ms: localMidnight(day, c.meta.tz) });
+      }
+    }
+    return moved;
+  }
+
+  private async writeResults(
+    ctxs: Ctx[],
+    w: { trips: TripRow[]; stops: StopRow[]; days: DayRow[]; touchedDays: Map<string, { oid: string; day: string; tz: string }>; rebuildIds: string[]; protectedRebuilds: Ctx[]; dirtyCtx: Ctx[]; cleanIds: string[]; cursors: Ctx[] },
+  ): Promise<void> {
+    const { trips, stops, days, touchedDays, rebuildIds, protectedRebuilds, dirtyCtx, cleanIds, cursors } = w;
     await this.prisma.$transaction(
       async (tx) => {
+        // History archiving: hold the per-vehicle archive lock and re-check the horizon, so no result is written from
+        // points the archive job removed after they were read (it retries those vehicles next run).
+        await lockArchiveObjects(tx, ctxs.filter((c) => c.mode !== 'incremental').map((c) => c.meta.id));
+        const moved = await this.horizonMoved(tx, ctxs);
+        if (moved.size) throw new HorizonMoved(moved);
         if (rebuildIds.length) {
           await tx.$executeRaw`DELETE FROM "Trip" WHERE "objectId" = ANY(${rebuildIds}::uuid[])`;
           await tx.$executeRaw`DELETE FROM "Stop" WHERE "objectId" = ANY(${rebuildIds}::uuid[])`;
@@ -441,8 +492,6 @@ export class Summarizer {
       },
       { timeout: 120_000, maxWait: 30_000 },
     );
-    await this.emitTrips(ctxs, trips);
-    return { positions: ctxs.reduce((a, c) => a + c.positions, 0), trips: trips.length, stops: stops.length, days: days.length, written: ctxs.length };
   }
 }
 

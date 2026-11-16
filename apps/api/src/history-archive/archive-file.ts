@@ -19,7 +19,7 @@ const gunzipAsync = promisify(gunzip);
 
 export const ARCHIVE_FORMAT = 'veetrax-history-archive';
 export const ARCHIVE_VERSION = 1;
-export const ARCHIVE_COLUMNS = ['deviceId', 'fixTime', 'serverTime', 'lat', 'lng', 'speedKph', 'course', 'altitude', 'satellites', 'valid', 'ignition', 'flags', 'attributes'] as const;
+export const ARCHIVE_COLUMNS = ['deviceId', 'fixTime', 'serverTime', 'lat', 'lng', 'speedKph', 'course', 'altitude', 'satellites', 'valid', 'ignition', 'flags', 'attributesJson'] as const;
 
 /** One Position row (objectId is the file's). */
 export interface ArchivePoint {
@@ -36,7 +36,11 @@ export interface ArchivePoint {
   valid: boolean;
   ignition: boolean | null;
   flags: number;
-  attributes: unknown;
+  /**
+   * The jsonb value exactly as PostgreSQL prints it (`attributes::text`), restored with `::jsonb`, so big integers and
+   * decimal forms survive unchanged.
+   */
+  attributesJson: string;
 }
 
 export interface ArchiveHeader {
@@ -69,11 +73,16 @@ export function archiveDir(env: NodeJS.ProcessEnv = process.env): string {
   return (env.HISTORY_ARCHIVE_DIR ?? '').trim() || '/var/lib/veetrax/history-archive';
 }
 
-/** `<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz` (always forward slashes; stored in ArchivedDay.filePath). */
-export function archiveRelPath(companyId: string, objectId: string, day: string): string {
+/**
+ * `<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz`, or `<dd>.<version>.jsonl.gz` for a rewrite (always forward
+ * slashes; stored in ArchivedDay.filePath). A rewrite gets a new name so the row and its file switch together in the
+ * database transaction; the superseded file is removed after the commit.
+ */
+export function archiveRelPath(companyId: string, objectId: string, day: string, version?: string): string {
+  if (version !== undefined && !/^[a-z0-9]{1,16}$/.test(version)) throw new ArchiveFileError('Invalid archive file version');
   const [y, m, d] = day.split('-');
   if (!/^[0-9a-f-]{36}$/i.test(companyId) || !/^[0-9a-f-]{36}$/i.test(objectId) || !y || !m || !d) throw new ArchiveFileError('Invalid archive path parts');
-  return `${companyId}/${objectId}/${y}/${m}/${d}.jsonl.gz`;
+  return `${companyId}/${objectId}/${y}/${m}/${d}${version ? `.${version}` : ''}.jsonl.gz`;
 }
 
 /** Absolute path of a stored relative path; refuses anything that would leave the archive directory. */
@@ -85,7 +94,7 @@ export function resolveArchivePath(dir: string, rel: string): string {
 }
 
 const pointLine = (p: ArchivePoint) =>
-  JSON.stringify([p.deviceId, p.fixTime, p.serverTime, p.lat, p.lng, p.speedKph, p.course, p.altitude, p.satellites, p.valid, p.ignition, p.flags, p.attributes ?? {}]);
+  JSON.stringify([p.deviceId, p.fixTime, p.serverTime, p.lat, p.lng, p.speedKph, p.course, p.altitude, p.satellites, p.valid, p.ignition, p.flags, p.attributesJson ?? '{}']);
 
 /** The uncompressed file text and the checksum of its point lines. */
 export function encodeArchive(header: ArchiveHeader, points: ArchivePoint[]): { text: string; checksum: string } {
@@ -140,7 +149,7 @@ export function decodeArchive(text: string): ArchiveContent {
       valid: a[9] as boolean,
       ignition: a[10] as boolean | null,
       flags: a[11] as number,
-      attributes: a[12],
+      attributesJson: typeof a[12] === 'string' ? a[12] : JSON.stringify(a[12] ?? {}),
     });
   }
   const checksum = hash.digest('hex');

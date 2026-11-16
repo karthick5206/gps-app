@@ -299,10 +299,17 @@ For a company with the switch on:
   `HISTORY_ARCHIVE_DIR/<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz` (gzip JSON Lines: header line, one line per
   point with every stored value, trailer line with the count and a sha256 checksum).
 - A file is written to a hidden temp name in the same directory (`.<dd>.jsonl.gz.tmp-*`), fsynced, re-read and verified,
-  then atomically renamed; it is re-read once more under its final name; only then, in one database transaction, the
-  `ArchivedDay` row is marked ARCHIVED and exactly the written points are deleted (by primary key, 5,000 per statement).
-  **No point is ever deleted without a verified file.** A failure (disk full, permission, …) leaves every point in
-  the database, marks the day FAILED and retries it the next night.
+  then atomically renamed; it is re-read once more under its final name; only then, in one short database transaction
+  holding the vehicle's archive lock (a PostgreSQL advisory lock the summarizer also takes while it writes results), the
+  job re-checks that the summarizer is done with the day (no dirty days, watermark past the day), switches the
+  `ArchivedDay` row to the file and deletes exactly the written points (primary key + the day's time bounds, 5,000 per
+  statement; every one must still be present). A day that is rewritten (late points, re-archive after a restore,
+  device purge) gets a new versioned name `<dd>.<version>.jsonl.gz`; the row switches to it in the transaction and the
+  superseded file is deleted after the commit. **No point is ever deleted without a verified file.** A failure (disk
+  full, permission, points changed meanwhile, …) leaves every point in the database, removes the file the attempt wrote,
+  marks a new day FAILED and retries it with back-off (1, 2, 4 … at most 7 days between attempts).
+- Idle vehicles (the summarizer's watermark stays at their last point) are archived once every point is summarised and
+  the day is older than afterDays + 1. Raw points keep their `attributes` JSON text exactly (big integers, decimals).
 - Days still marked dirty by the summarizer, or not yet summarised to their end, are skipped. Trips, stops, daily
   summaries and alerts are not touched (they follow `retentionDays` as before), so trip / summary reports stay complete.
   The summarizer never rebuilds anything before a vehicle's newest archived day.
@@ -318,24 +325,32 @@ For a company with the switch on:
 |---|---|---|
 | `HISTORY_ARCHIVE` | `on` | `off` = kill switch: no archiving and no restores (old points of archive companies then simply stay in the database; retention still skips them) |
 | `HISTORY_ARCHIVE_DIR` | `/var/lib/veetrax/history-archive` | Archive directory. **Must be on this server's own disk** (no external / network storage); created by `install-ubuntu.sh` (owner `veetrax`, 0750). Keep the default: the nightly backup snapshots this path |
-| `HISTORY_ARCHIVE_HOUR` | `2` | Server-local hour the nightly run starts |
+| `HISTORY_ARCHIVE_HOUR` | `2` | **UTC** hour the nightly run starts. No run is active between 21:00 and 22:30 UTC (the nightly file backup runs at 21:30 UTC): a run never starts in that window and stops at 21:00 UTC; the Super Admin "run now" is refused there too |
+| `HISTORY_ARCHIVE_OVERDUE_DAYS` | `30` | Safety limit: a vehicle holding points older than afterDays + this that could not be archived raises CRITICAL `archive.overdue` (points are still never deleted without an archive) |
 | `HISTORY_ARCHIVE_BUDGET_MIN` | `120` | Run length; whatever is left continues the next night (System Health shows the vehicles still waiting) |
 | `HISTORY_ARCHIVE_PAUSE_MS` | `200` | Pause between vehicle-days (keeps the job at low priority next to live traffic) |
 
 **Backups.** Archived points are **not** in the PostgreSQL dump any more (they left the database). The nightly backup
 includes the archive files: it snapshots `HISTORY_ARCHIVE_DIR` with hard-linked rsync snapshots (14 kept). Files appear
 under their final name only when complete, so a snapshot never holds a half-written file (temp files `.*.tmp-*` may be
-excluded). **Off-site copy is still pending (decision Q-03)**: until then a lost server disk loses the archive with it.
+excluded). While a run writes files, `HISTORY_ARCHIVE_DIR/.running` exists (JSON `{ pid, host, startedAt, deadline }`,
+removed when the run ends); a backup may wait for it to disappear, or treat it as stale after `deadline` + 15 min. **Off-site copy is still pending (decision Q-03)**: until then a lost server disk loses the archive with it.
 Archive files are not financial records.
 
 **Monitoring.** System Health → *History archive*: job on/off, companies switched on, last run (days archived, vehicles
 still waiting), failed days with the last error, restores in progress, archive size and free space on the archive disk.
-Issues: `archive.job` (WARN: no completed run for 36 h while companies are switched on, failed days, `HISTORY_ARCHIVE=off`
-with companies switched on) and `archive.disk` (WARN < 10 % free, CRITICAL < 5 %). Super Admin endpoints:
+Issues: `archive.job` (WARN: no completed run for 36 h while companies are switched on, failed days, vehicles that could
+not be archived — waiting for the summarizer, never summarised, or failed — with counts, `HISTORY_ARCHIVE=off` with
+companies switched on), `archive.overdue` (CRITICAL, see `HISTORY_ARCHIVE_OVERDUE_DAYS`) and `archive.disk` (WARN < 10 %
+free, CRITICAL < 5 %). Super Admin endpoints:
 `GET /api/admin/history-archive/health`, `POST /api/admin/history-archive/run` (start a pass now; single runner).
 
 **Purge / erasure.** Permanently deleting a company or a vehicle (Super Admin purge, or "delete my account") removes its
-`ArchivedDay` rows in the purge transaction and its archive files / directories right after it commits.
+`ArchivedDay` rows in the purge transaction and its archive files / directories right after it commits. Purging a
+*device* removes its points from the archive files of the vehicles it was fitted to (each affected day file rewritten,
+a day left empty loses its file and row); if that step fails it is logged (`PURGE device … archive files failed`).
+An archive run that overlaps a purge fails closed: its transaction sees the points or the row gone, deletes nothing and
+removes the file it wrote.
 
 **TimescaleDB.** Points are deleted with plain `DELETE … WHERE ("deviceId","fixTime") = …` per vehicle-day, which works on
 a plain table and on a hypertable; if Position chunks are ever compressed, TimescaleDB ≥ 2.11 is needed for DML on

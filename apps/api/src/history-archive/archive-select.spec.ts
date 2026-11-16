@@ -1,4 +1,6 @@
-import { archiveCutoffDay, dayDecision, DayInput, enabledCompanies, STALE_CLAIM_MS, vehicleWide } from './archive-select';
+import { archiveCutoffDay, archiveRunDeadline, dayDecision, DayInput, enabledCompanies, failedBackoffMs, STALE_CLAIM_MS, vehicleWide } from './archive-select';
+
+const DAY = 86_400_000;
 
 const NOW = Date.parse('2026-11-15T06:00:00.000Z'); // 11:30 in India
 const TZ = 'Asia/Kolkata';
@@ -25,7 +27,7 @@ describe('archive day selection', () => {
     expect(archiveCutoffDay(Date.parse('2026-11-15T20:00:00Z'), 90, TZ)).toBe('2026-08-18');
   });
 
-  const base: DayInput = { day: '2026-08-01', cutoffDay: '2026-08-17', dayEndMs: Date.parse('2026-08-01T18:30:00Z'), processedUntilMs: NOW - 60_000, hasDirty: false, existing: null, now: NOW };
+  const base: DayInput = { day: '2026-08-01', cutoffDay: '2026-08-17', dayEndMs: Date.parse('2026-08-01T18:30:00Z'), processedUntilMs: NOW - 60_000, lastPointMs: NOW - 120_000, hasDirty: false, existing: null, now: NOW };
 
   it('archives an old, summarised, clean day', () => {
     expect(dayDecision(base)).toBe('archive');
@@ -45,6 +47,25 @@ describe('archive day selection', () => {
     expect(vehicleWide('restored-held')).toBe(false);
   });
 
+  it('idle vehicle (watermark stays at its last point): archived once every point is processed and the day is older than afterDays + 1', () => {
+    const last = Date.parse('2026-08-01T10:00:00Z');
+    const idle = { ...base, processedUntilMs: last, lastPointMs: last };
+    expect(dayDecision(idle)).toBe('archive');
+    expect(dayDecision({ ...idle, lastPointMs: last + 1 })).toBe('not-summarised');
+    expect(dayDecision({ ...idle, day: '2026-08-16' })).toBe('not-summarised');
+    expect(dayDecision({ ...idle, processedUntilMs: null })).toBe('not-summarised');
+  });
+
+  it('FAILED days back off (1, 2, 4 … 7 days)', () => {
+    expect(failedBackoffMs(1)).toBe(DAY);
+    expect(failedBackoffMs(3)).toBe(4 * DAY);
+    expect(failedBackoffMs(20)).toBe(7 * DAY);
+    const failed = (attempts: number, agoMs: number): DayInput => ({ ...base, existing: { status: 'FAILED', keepUntilMs: null, claimedAtMs: null, attempts, updatedAtMs: NOW - agoMs } });
+    expect(dayDecision(failed(1, DAY - 1000))).toBe('failed-backoff');
+    expect(dayDecision(failed(1, DAY + 1000))).toBe('archive');
+    expect(dayDecision(failed(3, 3 * DAY))).toBe('failed-backoff');
+  });
+
   it('restores, keep periods and claims', () => {
     const ex = (status: 'CLAIMED' | 'ARCHIVED' | 'RESTORING' | 'RESTORED' | 'FAILED', keepUntilMs: number | null = null, claimedAtMs: number | null = null): DayInput => ({ ...base, existing: { status, keepUntilMs, claimedAtMs } });
     expect(dayDecision(ex('RESTORING'))).toBe('restoring');
@@ -54,5 +75,18 @@ describe('archive day selection', () => {
     expect(dayDecision(ex('CLAIMED', null, NOW - STALE_CLAIM_MS - 1))).toBe('archive');
     expect(dayDecision(ex('FAILED'))).toBe('archive');
     expect(dayDecision(ex('ARCHIVED'))).toBe('archive'); // late points folded into the file
+  });
+});
+
+describe('archive run window (backup at 21:30 UTC)', () => {
+  const H = 3_600_000;
+  it('stops at 21:00 UTC and does not start between 21:00 and 22:30 UTC', () => {
+    const at = (iso: string) => Date.parse(iso);
+    expect(archiveRunDeadline(at('2026-11-15T02:00:00Z'), 2 * H)).toBe(at('2026-11-15T04:00:00Z'));
+    expect(archiveRunDeadline(at('2026-11-15T20:00:00Z'), 2 * H)).toBe(at('2026-11-15T21:00:00Z'));
+    expect(archiveRunDeadline(at('2026-11-15T21:00:00Z'), 2 * H)).toBeNull();
+    expect(archiveRunDeadline(at('2026-11-15T22:29:00Z'), 2 * H)).toBeNull();
+    expect(archiveRunDeadline(at('2026-11-15T22:30:00Z'), 2 * H)).toBe(at('2026-11-16T00:30:00Z'));
+    expect(archiveRunDeadline(at('2026-11-15T23:00:00Z'), 23 * H)).toBe(at('2026-11-16T21:00:00Z'));
   });
 });

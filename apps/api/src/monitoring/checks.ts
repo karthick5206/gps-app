@@ -373,8 +373,16 @@ export function historyArchiveChecks(input: Pick<CheckInput, 'historyArchive' | 
     if (last === null || input.now - last > 36 * 3600_000) problems.push(last === null ? 'the nightly archive run has not completed yet' : `the last archive run finished ${Math.round((input.now - last) / 3600_000)} h ago`);
     if (a.lastRun && !a.lastRun.complete && a.lastRun.backlogObjects > 0) problems.push(`${a.lastRun.backlogObjects} vehicle(s) still waiting (time budget reached)`);
   }
-  if (a.failedDays) problems.push(`${a.failedDays} vehicle-day(s) failed${a.lastError ? ` (${a.lastError})` : ''}; their points are kept in the database and retried nightly`);
+  if (a.failedDays) problems.push(`${a.failedDays} vehicle-day(s) failed${a.lastError ? ` (${a.lastError})` : ''}; their points are kept in the database and retried with back-off`);
+  const r = a.lastRun;
+  if (r?.blockedObjects) {
+    const why = [r.blockedDirty ? `${r.blockedDirty} waiting for the summarizer (dirty days)` : '', r.blockedNotSummarised ? `${r.blockedNotSummarised} not summarised` : '', r.blockedFailed ? `${r.blockedFailed} with failed days` : ''].filter(Boolean).join(', ');
+    problems.push(`${r.blockedObjects} vehicle(s) could not be archived (${why}); their points stay in the database`);
+  }
   if (problems.length) out.push({ id: 'archive.job', check: 'history archive', section: 'archive', severity: 'WARN', message: `History archive: ${problems.join('; ')}.` });
+  if (r?.overdueObjects) {
+    out.push({ id: 'archive.overdue', check: 'history archive overdue', section: 'archive', severity: 'CRITICAL', message: `History archive: ${r.overdueObjects} vehicle(s) hold points far past their archive age (afterDays + HISTORY_ARCHIVE_OVERDUE_DAYS) that could not be archived. Nothing is deleted without an archive: check the summarizer (dirty / unsummarised days), failed days and the archive disk.` });
+  }
   if (a.diskTotal && a.diskFree !== null) {
     const pct = (a.diskFree / a.diskTotal) * 100;
     if (pct < 10) out.push({ id: 'archive.disk', check: 'archive disk', section: 'archive', severity: pct < 5 ? 'CRITICAL' : 'WARN', message: `The history archive disk (${a.dir}) has ${pct.toFixed(1)} % free; archive files use ${Math.round(a.archiveBytes / 1048576)} MB.` });
