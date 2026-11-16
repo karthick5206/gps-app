@@ -1,13 +1,18 @@
 /**
- * Expo config plugin for the native VeeTrax tracking engine (Android only).
- * Adds to the APP AndroidManifest:
+ * Expo config plugin for the native VeeTrax tracking engine.
+ *
+ * iOS (Info.plist): background modes `location` (updates while the app is in the background) and `fetch` (the
+ * watchdog BGAppRefreshTask), and the watchdog's task id in BGTaskSchedulerPermittedIdentifiers. The location
+ * permission texts come from the expo-location plugin in app.json.
+ *
+ * Android: adds to the APP AndroidManifest:
  *  - permissions: location (fine, coarse, background), foreground service (+ location type), notifications,
  *    boot completed, wake lock, battery-optimisation request, internet;
  *  - <service> TrackerService (exported=false, foregroundServiceType=location);
  *  - <receiver> BootReceiver for BOOT_COMPLETED, MY_PACKAGE_REPLACED and fast-boot variants.
  * Gradle dependencies are in the module's own android/build.gradle (autolinked), so nothing to add here.
  */
-const { AndroidConfig, withAndroidManifest } = require('expo/config-plugins');
+const { AndroidConfig, withAndroidManifest, withInfoPlist } = require('expo/config-plugins');
 
 const PKG = 'com.sasvata.veetrax.trackerengine';
 
@@ -36,7 +41,24 @@ function upsert(list, name, item) {
  */
 const OPTIONAL_FEATURES = ['android.hardware.camera', 'android.hardware.camera.autofocus', 'android.hardware.camera.any', 'android.hardware.camera.front'];
 
+/** Must match Engine.watchdogTaskId in ios/Engine.swift. */
+const IOS_WATCHDOG_TASK = 'com.sasvata.veetrax.tracker.watchdog';
+
+function addAll(list, items) {
+  const out = Array.isArray(list) ? [...list] : [];
+  for (const item of items) if (!out.includes(item)) out.push(item);
+  return out;
+}
+
+const withVeetraxTrackerIos = (config) =>
+  withInfoPlist(config, (cfg) => {
+    cfg.modResults.UIBackgroundModes = addAll(cfg.modResults.UIBackgroundModes, ['location', 'fetch']);
+    cfg.modResults.BGTaskSchedulerPermittedIdentifiers = addAll(cfg.modResults.BGTaskSchedulerPermittedIdentifiers, [IOS_WATCHDOG_TASK]);
+    return cfg;
+  });
+
 const withVeetraxTracker = (config) => {
+  config = withVeetraxTrackerIos(config);
   config = AndroidConfig.Permissions.withPermissions(config, PERMISSIONS);
   return withAndroidManifest(config, (cfg) => {
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(cfg.modResults);

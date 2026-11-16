@@ -28,6 +28,7 @@ import { formatKm } from './history-format';
 import { boundsBetween, buildRuns, buildTrackIndex, gapSegments, sampleAt } from './playback-core';
 import { PlaybackEngine } from './playback-engine';
 import { detectPreset, rangeFromParams, type TimeRange } from './time-range';
+import { ArchivedBanner, ArchivedOverlayBody, useArchiveRestore } from './ArchiveRestore';
 import { useCompareHistories, useGapEstimates, useHistory, useMediaQuery, usePointQuality, usePointQualitySettings, useVehicleOptions } from './use-history';
 import { useTheme } from '@/features/theme/use-theme';
 import { HistoryPhotoNotePins } from '@/features/photo-notes/PhotoNotePins';
@@ -312,6 +313,7 @@ export function HistoryPage() {
   const live = range.from.getTime() < Date.now() && range.to.getTime() > Date.now();
   const query = useHistory(objectId, range.from, range.to, live);
   const data = query.data;
+  const archived = useArchiveRestore(objectId, data?.archive);
 
   // Other vehicles drawn over the selected one, each in its own colour.
   const compareParam = params.get('compare');
@@ -612,6 +614,7 @@ export function HistoryPage() {
           <span>{t('This period has more points than can be drawn, so the track was simplified (stops and alert points are kept). Choose a shorter period for full detail.')}</span>
         </div>
       )}
+      {objectId && data && archived.days > 0 && hasTrack && <ArchivedBanner a={archived} />}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
@@ -696,7 +699,12 @@ export function HistoryPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{errorMessage(query.error)}</p>
               </Overlay>
             )}
-            {objectId && data && !hasTrack && !query.isFetching && !comparing && (
+            {objectId && data && !hasTrack && !query.isFetching && !comparing && archived.days > 0 && (
+              <Overlay>
+                <ArchivedOverlayBody a={archived} />
+              </Overlay>
+            )}
+            {objectId && data && !hasTrack && !query.isFetching && !comparing && archived.days === 0 && (
               <Overlay>
                 <p className="font-medium">{t('No positions in this period')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('Try another day or a longer range.')}</p>

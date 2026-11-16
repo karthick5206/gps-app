@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { PurgePreviewDto } from '@veetracer/shared';
 import { AuthContext } from '../access/auth-context';
 import { AuditService } from '../audit/audit.service';
 import { deleteCompanyPhotoDir, deletePhotoFiles } from '../object-photos/object-photo-files';
+import { HistoryArchiveService } from '../history-archive/history-archive.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
@@ -33,6 +34,7 @@ export class PurgeService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly audit: AuditService,
+    @Optional() private readonly archive?: HistoryArchiveService,
   ) {}
 
   async preview(ctx: AuthContext, kind: PurgeKind, id: string): Promise<PurgePreviewDto> {
@@ -94,6 +96,8 @@ export class PurgeService {
     const extra = await this.extraStatements(kind, id);
     // Personal files outside the database (person photos): listed now, deleted once the rows are gone.
     const photos = await this.photoFiles(kind, id);
+    // History archive files (not financial): listed before the rows go, removed once the purge committed.
+    const archive = await this.archiveTargets(kind, id, target);
     const started = Date.now();
     let deletedRows = 0;
     await this.prisma.$transaction(
@@ -109,12 +113,29 @@ export class PurgeService {
     await this.clearLive(target);
     await deletePhotoFiles(photos);
     if (kind === 'company') await deleteCompanyPhotoDir(id);
-    await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ms: Date.now() - started } });
+    const archiveFiles = archive ? await this.archive!.deleteFiles(archive.files, archive.dirs) : 0;
+    // A purged device's points also leave the archive files of the vehicles it was fitted to (files rewritten).
+    let archivePoints = 0;
+    if (kind === 'device' && this.archive) {
+      archivePoints = await this.archive.engine.removeDevicePoints(id, target.objectIds).catch((e: Error) => {
+        this.logger.error(`PURGE device ${id}: removing its points from archive files failed: ${e.message} (re-run the purge or remove them by hand)`);
+        return 0;
+      });
+    }
+    await this.audit.recordSystem(actor, { action: 'DELETE', entity: kind, entityId: id, details: { permanent: true, label: target.label, by, deletedRows, ...(archiveFiles ? { archiveFiles } : {}), ...(archivePoints ? { archivePoints } : {}), ms: Date.now() - started } });
     this.logger.warn(`PURGE ${kind} ${id} (${target.label}) by ${by}: ${deletedRows} rows in ${Date.now() - started} ms`);
     return deletedRows;
   }
 
   // ───────────── helpers ─────────────
+
+  /** Archive files and directories of a purged company / vehicle (ArchivedDay rows go with the plan: logical keys). */
+  private async archiveTargets(kind: PurgeKind, id: string, target: Target): Promise<{ files: string[]; dirs: string[] } | null> {
+    if (!this.archive || (kind !== 'company' && kind !== 'object')) return null;
+    if (kind === 'company') return { files: await this.archive.filesOf({ companyId: id }), dirs: [id] };
+    const files = await this.archive.filesOf({ objectIds: [id] });
+    return { files, dirs: target.companyIds.map((c) => `${c}/${id}`) };
+  }
 
   /**
    * Photo files of the objects a purge removes (registered here because the catalogue walk sees rows, not files): the

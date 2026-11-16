@@ -1,8 +1,18 @@
 # iPhone (iOS) — new changes in v1.18 for the VeeTrax and VeeTrax Tracker apps
 
-For the Mac developer who already builds both apps for iOS. Only the **new changes since v1.17.1** are listed. Pull
-`main` after the v1.18.0 release (branch `release/1.18` until then), run `npm ci` at the root, then for each app:
-`npx expo prebuild -p ios --clean` and build in Xcode as before.
+For the Mac developer who already builds both apps for iOS. Only the **new changes since v1.17.1** are listed. Your iOS
+Tracker work from `main` is already merged into this branch.
+
+```bash
+git fetch origin && git checkout release/1.18 && git pull     # until v1.18.0 is released, then use main
+npm ci && npm run build -w packages/shared
+cd apps/tracker && npx expo prebuild -p ios --clean          # then build in Xcode as before
+cd ../mobile    && npx expo prebuild -p ios --clean
+```
+
+**Server timing:** the photo endpoints go live on app.veetrax.com with the v1.18.0 release. Builds made before that show
+the photo screens only once the company switches the features on (they are off by default), so they are safe to build
+now; test the photo features after the release.
 
 ## What's new
 
@@ -17,9 +27,10 @@ For the Mac developer who already builds both apps for iOS. Only the **new chang
 1. **New dependency (Tracker):** `expo-file-system ~58.0.9` (already part of Expo; run `npx expo prebuild -p ios --clean`
    so CocoaPods picks it up).
 2. **Permission texts changed — new native build needed** (`app.json` → `ios.infoPlist` and plugin options):
-   - Tracker: camera ("Take your check-in selfie or video if your employer asks for one, your profile photo, or a photo
-     of a bill or place to save with its location."), photo library ("Choose a photo for your profile or a photo note."),
-     location when in use (updated text). The photo-library permission is now **enabled** (it was off before).
+   - Tracker: camera ("VeeTrax Tracker uses the camera for your check-in selfie or video, if your employer asks for one,
+     your profile photo, and photos of bills or places saved with their location."), microphone text unchanged (videos
+     have no sound), photo library ("Choose a photo for your profile or a photo note."), location when in use (updated
+     text). The photo-library permission is now **enabled** (it was off before).
    - VeeTrax: camera, photo library and `NSLocationWhenInUseUsageDescription` (new).
 3. **HEIC → JPEG:** the pickers use quality 0.8 and the "compatible" asset mode, so iPhone camera shots and HEIC library
    photos upload as JPEG; anything still HEIC is refused with a message. Please verify on a real iPhone with: a camera

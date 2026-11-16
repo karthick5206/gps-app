@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, MapServiceDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, RoutingHealthDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
-import { ActivityIcon, AlertTriangleIcon, CheckCircle2Icon, CircleDotIcon, DatabaseIcon, HardDriveIcon, MailIcon, MapIcon, OctagonAlertIcon, RefreshCwIcon, SendIcon, ServerIcon, ZapIcon } from 'lucide-react';
+import type { HistoryArchiveHealthDto, PointQualitySettingsDto, DatabaseDto, HealthEvent, HealthIssue, HostDto, MapServiceDto, PortDto, ProcessInstanceDto, ProcessRoleDto, QueueDto, RoutingHealthDto, SystemHealthDto, ThroughputPoint, ValkeyDto } from '@veetracer/shared';
+import { ActivityIcon, AlertTriangleIcon, ArchiveIcon, CheckCircle2Icon, CircleDotIcon, DatabaseIcon, HardDriveIcon, MailIcon, MapIcon, OctagonAlertIcon, RefreshCwIcon, SendIcon, ServerIcon, ZapIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -594,6 +594,50 @@ function RoutingCard({ r }: { r: RoutingHealthDto }) {
   );
 }
 
+/** History archiving: nightly job, failures, restores in progress, archive size and the archive disk. */
+function ArchiveCard({ a, issues }: { a: HistoryArchiveHealthDto; issues: HealthIssue[] }) {
+  const { t } = useTranslation();
+  const mine = issues.filter((i) => i.section === 'archive');
+  const status: Status = mine.some((i) => i.severity === 'CRITICAL') ? 'CRITICAL' : mine.length ? 'WARN' : 'OK';
+  const freePct = a.diskTotal && a.diskFree !== null ? Math.round((a.diskFree / a.diskTotal) * 1000) / 10 : null;
+  return (
+    <Section title="History archive" icon={ArchiveIcon} status={a.companies || a.archiveBytes ? status : undefined}>
+      <Row label={t('Archive job')}>{a.jobEnabled ? <StatusBadge status="OK" label={t('On')} /> : <span className="text-muted-foreground">{t('Switched off (HISTORY_ARCHIVE=off)')}</span>}</Row>
+      <Row label={t('Companies with archiving on')}>
+        <span className="tabular-nums">{a.companies}</span>
+      </Row>
+      <Row label={t('Last run')} hint={a.lastRun ? formatDateTime(a.lastRun.finishedAt) : undefined}>
+        {a.lastRun ? (
+          <span className="tabular-nums">
+            {relativeTime(a.lastRun.finishedAt)} · {t('{{n}} days archived', { n: a.lastRun.archivedDays })}
+            {a.lastRun.complete ? '' : ` · ${t('{{n}} vehicles waiting', { n: a.lastRun.backlogObjects })}`}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{t('Not run yet')}</span>
+        )}
+      </Row>
+      <Row label={t('Failed days')} hint={a.lastError ?? undefined}>
+        {a.failedDays ? <StatusBadge status="WARN" label={String(a.failedDays)} /> : <span className="tabular-nums">0</span>}
+      </Row>
+      <Row label={t('Vehicles not archivable')} hint={t('Waiting for the summarizer, never summarised, or with failed days; their points stay in the database')}>
+        <span className="tabular-nums">
+          {a.lastRun?.blockedObjects ?? 0}
+          {a.lastRun?.overdueObjects ? ` · ${t('{{n}} overdue', { n: a.lastRun.overdueObjects })}` : ''}
+        </span>
+      </Row>
+      <Row label={t('Restores in progress')}>
+        <span className="tabular-nums">{a.restoring}</span>
+      </Row>
+      <Row label={t('Archive size')} hint={a.dir}>
+        <span className="tabular-nums">{formatBytes(a.archiveBytes)}</span>
+      </Row>
+      <Row label={t('Archive disk free')}>
+        <span className="tabular-nums">{a.diskFree === null ? '—' : `${formatBytes(a.diskFree)} / ${formatBytes(a.diskTotal)} (${freePct} %)`}</span>
+      </Row>
+    </Section>
+  );
+}
+
 // ── settings ─────────────────────────────────────────────────────────────────
 
 function SettingsPanel() {
@@ -742,6 +786,7 @@ export function SystemHealthPage() {
             <HostCard h={data.host} />
             <MapServicesCard maps={data.maps ?? []} />
             {data.routing && <RoutingCard r={data.routing} />}
+            {data.historyArchive && <ArchiveCard a={data.historyArchive} issues={data.issues} />}
           </div>
           {can('sa_system_health', 'edit') && <SettingsPanel />}
           {can('sa_system_health', 'edit') && <FeaturesPanel />}

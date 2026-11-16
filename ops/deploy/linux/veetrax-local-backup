@@ -19,6 +19,16 @@ valkey-cli --rdb "$OUT/valkey-$STAMP.rdb" >/dev/null 2>&1 || true
 tar czf "$OUT/config-$STAMP.tar.gz" /opt/veetrax/app/apps/api/.env /opt/veetrax/app/apps/web/.env /etc/caddy/Caddyfile /root/.veetrax-db-pass 2>/dev/null
 pg_restore -l "$OUT/db-$STAMP.dump" >/dev/null   # the dump must be readable
 
+# While the history archive job writes files it keeps HISTORY_ARCHIVE_DIR/.running ({pid, host, startedAt, deadline});
+# wait for it (at most 3 h), and treat it as stale once deadline + 15 min has passed.
+RUNNING="$ARCHIVE_DIR/.running"
+for _ in $(seq 1 180); do
+  [[ -f "$RUNNING" ]] || break
+  deadline=$(sed -n 's/.*"deadline" *: *"\([^"]*\)".*/\1/p' "$RUNNING" 2>/dev/null)
+  if [[ -n "$deadline" ]] && (( $(date +%s) > $(date -d "$deadline" +%s 2>/dev/null || echo 0) + 900 )); then break; fi
+  sleep 60
+done
+
 # Files: hard-linked snapshot against the newest previous one.
 FILES="$OUT/files"; mkdir -p "$FILES"
 PREV="$(ls -1d "$FILES"/2* 2>/dev/null | sort | tail -1 || true)"
@@ -26,12 +36,12 @@ SNAP="$FILES/$STAMP"; mkdir -p "$SNAP"
 snap() { # snap <source dir> <name inside the snapshot>
   [[ -d "$1" ]] || return 0
   local link=(); [[ -n "$PREV" && -d "$PREV/$2" ]] && link=(--link-dest="$PREV/$2")
-  rsync -a --delete "${link[@]}" --exclude='logs/' --exclude='spool/' --exclude='.*.tmp-*' "$1/" "$SNAP/$2/"
+  rsync -a --delete "${link[@]}" --exclude='logs/' --exclude='spool/' --exclude='.*.tmp-*' --exclude='.running' "$1/" "$SNAP/$2/"
 }
 snap "$APP_VAR" var
 snap "$ARCHIVE_DIR" history-archive
 # Verify: same number of regular files in source and snapshot (excluded folders left out of the count).
-count() { [[ -d "$1" ]] && find "$1" -type f -not -path '*/logs/*' -not -path '*/spool/*' -not -name '.*.tmp-*' | wc -l || echo 0; }
+count() { [[ -d "$1" ]] && find "$1" -type f -not -path '*/logs/*' -not -path '*/spool/*' -not -name '.*.tmp-*' -not -name '.running' | wc -l || echo 0; }
 SRC_N=$(( $(count "$APP_VAR") + $(count "$ARCHIVE_DIR") )); SNAP_N=$(count "$SNAP")
 if [[ "$SRC_N" -ne "$SNAP_N" ]]; then echo "FILES BACKUP MISMATCH: source $SRC_N, snapshot $SNAP_N" >&2; exit 1; fi
 ls -1d "$FILES"/2* | sort | head -n -"$KEEP_FILE_SNAPSHOTS" | xargs -r rm -rf

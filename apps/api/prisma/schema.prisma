@@ -4852,3 +4852,48 @@ model GeoPhotoNotePhoto {
 
   @@index([noteId, position])
 }
+
+/// History archiving: lifecycle of an archived day.
+enum ArchivedDayStatus {
+  CLAIMED
+  ARCHIVED
+  RESTORING
+  RESTORED
+  FAILED
+}
+
+/// History archiving: one vehicle-day of raw points moved to a compressed file on the server's disk
+/// (HISTORY_ARCHIVE_DIR/<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz). Doubles as the archive job's claim row.
+/// Logical keys without foreign keys (like the other history tables): the purge plan removes the rows by
+/// companyId / objectId and the purge service removes the files.
+model ArchivedDay {
+  id                 String            @id @default(uuid()) @db.Uuid
+  companyId          String            @db.Uuid
+  objectId           String            @db.Uuid
+  /// Day in the company time zone.
+  day                DateTime          @db.Date
+  status             ArchivedDayStatus @default(CLAIMED)
+  /// Path relative to HISTORY_ARCHIVE_DIR.
+  filePath           String?
+  pointCount         Int               @default(0)
+  /// sha256 (hex) of the point lines, as written in the file trailer.
+  checksum           String?
+  bytes              Int               @default(0)
+  archivedAt         DateTime?         @db.Timestamptz(3)
+  restoreRequestedAt DateTime?         @db.Timestamptz(3)
+  restoreRequestedBy String?           @db.Uuid
+  /// Days the restored points stay in the database before they are archived again.
+  restoreKeepDays    Int?
+  restoredAt         DateTime?         @db.Timestamptz(3)
+  keepUntil          DateTime?         @db.Timestamptz(3)
+  claimToken         String?
+  claimedAt          DateTime?         @db.Timestamptz(3)
+  attempts           Int               @default(0)
+  lastError          String?
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([objectId, day])
+  @@index([companyId, day])
+  @@index([status, keepUntil])
+}
