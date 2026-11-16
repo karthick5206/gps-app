@@ -286,3 +286,60 @@ no-appendfsync-on-rewrite no
 - No `maxmemory` is set (separate decision; Valkey keeps `maxmemory-policy noeviction`).
 - Local test (fake `valkey-cli`, temp config, no root): `bash ops/deploy/linux/test/install-valkey-aof-test.sh`.
 - Rollback for a fresh install: `valkey-cli CONFIG SET appendonly no` and set `appendonly no` in the file (no restart).
+
+## History archiving (raw GPS points → compressed files on this server)
+
+Owner decision 2026-11-15. **Per company, off by default** (Super Admin → Platform → Companies → *Archive old GPS
+history*, or `PATCH /api/admin/companies/:id` with `historyArchive: { enabled, afterDays }`, 30–3650 days, default 90).
+Companies without the switch keep exactly the old behaviour (retention deletes raw points after `retentionDays`).
+
+For a company with the switch on:
+- **Retention no longer deletes its raw points.** Each night the archive job (api process) moves points older than
+  `afterDays` into one file per vehicle per company-local day:
+  `HISTORY_ARCHIVE_DIR/<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz` (gzip JSON Lines: header line, one line per
+  point with every stored value, trailer line with the count and a sha256 checksum).
+- A file is written to a hidden temp name in the same directory (`.<dd>.jsonl.gz.tmp-*`), fsynced, re-read and verified,
+  then atomically renamed; it is re-read once more under its final name; only then, in one database transaction, the
+  `ArchivedDay` row is marked ARCHIVED and exactly the written points are deleted (by primary key, 5,000 per statement).
+  **No point is ever deleted without a verified file.** A failure (disk full, permission, …) leaves every point in
+  the database, marks the day FAILED and retries it the next night.
+- Days still marked dirty by the summarizer, or not yet summarised to their end, are skipped. Trips, stops, daily
+  summaries and alerts are not touched (they follow `retentionDays` as before), so trip / summary reports stay complete.
+  The summarizer never rebuilds anything before a vehicle's newest archived day.
+- Raw-point reports (Positions, Overspeed, Ignition, Fuel, Geofence distance) over archived days show an
+  "archived — incomplete" notice instead of silently wrong totals.
+- **Restore:** History shows "Archived — Restore" on an archived day; users with History → *command* (the built-in
+  Admin role has it after the migration) or the Super Admin restore a vehicle's days (`POST /api/history-archive/restore`
+  `{ objectId?, from, to, keepDays? }`; without `objectId` = the whole company / the vehicles the user sees). The
+  restore worker (every 15 s) re-imports the points (insert-if-missing, so repeats are harmless), checks every point is
+  back and marks the day RESTORED. Restored days go back into the archive after `keepDays` (default 7, max 90).
+
+| Env (apps/api/.env) | Default | Meaning |
+|---|---|---|
+| `HISTORY_ARCHIVE` | `on` | `off` = kill switch: no archiving and no restores (old points of archive companies then simply stay in the database; retention still skips them) |
+| `HISTORY_ARCHIVE_DIR` | `/var/lib/veetrax/history-archive` | Archive directory. **Must be on this server's own disk** (no external / network storage); created by `install-ubuntu.sh` (owner `veetrax`, 0750). Keep the default: the nightly backup snapshots this path |
+| `HISTORY_ARCHIVE_HOUR` | `2` | Server-local hour the nightly run starts |
+| `HISTORY_ARCHIVE_BUDGET_MIN` | `120` | Run length; whatever is left continues the next night (System Health shows the vehicles still waiting) |
+| `HISTORY_ARCHIVE_PAUSE_MS` | `200` | Pause between vehicle-days (keeps the job at low priority next to live traffic) |
+
+**Backups.** Archived points are **not** in the PostgreSQL dump any more (they left the database). The nightly backup
+includes the archive files: it snapshots `HISTORY_ARCHIVE_DIR` with hard-linked rsync snapshots (14 kept). Files appear
+under their final name only when complete, so a snapshot never holds a half-written file (temp files `.*.tmp-*` may be
+excluded). **Off-site copy is still pending (decision Q-03)**: until then a lost server disk loses the archive with it.
+Archive files are not financial records.
+
+**Monitoring.** System Health → *History archive*: job on/off, companies switched on, last run (days archived, vehicles
+still waiting), failed days with the last error, restores in progress, archive size and free space on the archive disk.
+Issues: `archive.job` (WARN: no completed run for 36 h while companies are switched on, failed days, `HISTORY_ARCHIVE=off`
+with companies switched on) and `archive.disk` (WARN < 10 % free, CRITICAL < 5 %). Super Admin endpoints:
+`GET /api/admin/history-archive/health`, `POST /api/admin/history-archive/run` (start a pass now; single runner).
+
+**Purge / erasure.** Permanently deleting a company or a vehicle (Super Admin purge, or "delete my account") removes its
+`ArchivedDay` rows in the purge transaction and its archive files / directories right after it commits.
+
+**TimescaleDB.** Points are deleted with plain `DELETE … WHERE ("deviceId","fixTime") = …` per vehicle-day, which works on
+a plain table and on a hypertable; if Position chunks are ever compressed, TimescaleDB ≥ 2.11 is needed for DML on
+compressed chunks (no compression policy exists in the migrations today).
+
+**Turning it off** for a company stops new archiving; already archived days stay restorable, and from then on that
+company's raw points follow `retentionDays` again (restored days included).
