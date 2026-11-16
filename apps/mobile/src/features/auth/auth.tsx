@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can as canDo, type Action, type LoginResponse, type Me, type MenuKey } from '@veetracer/shared';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Alert, AppState } from 'react-native';
 import { api, refreshAccessTokenOutcome, setSessionExpiredHandler } from '@/lib/api';
 import type { OfflineIdentity } from '@/features/transport/sos-context';
@@ -123,6 +123,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60_000,
   });
 
+  // Back in the foreground: read /auth/me again (company switches such as the photo features may have changed).
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void queryClient.invalidateQueries({ queryKey: ['me'] });
+    });
+    return () => sub.remove();
+  }, [status, queryClient]);
+
   // A stale company selection falls back to the platform company; other failures sign out.
   useEffect(() => {
     if (!meQuery.isError) return;
@@ -165,6 +174,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     display.set({ textSize: textSizePref, mapIconSize: iconSizePref });
   }, [textSizePref, iconSizePref]);
+  // Person photos switched on / off: reload the live snapshot (it carries the photo versions).
+  const personPhotos = me?.company.photoFeatures?.personPhotos;
+  const lastPersonPhotos = useRef(personPhotos);
+  useEffect(() => {
+    if (lastPersonPhotos.current === personPhotos) return;
+    const first = lastPersonPhotos.current === undefined;
+    lastPersonPhotos.current = personPhotos;
+    if (!first && liveStore.snapshotLoaded) liveStore.loadSnapshot().catch(() => undefined);
+  }, [personPhotos]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(

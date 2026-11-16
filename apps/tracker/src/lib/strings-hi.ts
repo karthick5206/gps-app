@@ -256,8 +256,24 @@ export const hi: Strings = {
   cancel: 'रद्द करें',
   ok: 'ठीक है',
 
+  // Photo feature switches (Features screen)
+  featuresTitle: 'सुविधाएँ',
+  featuresIntro: 'इस खाते की फ़ोटो सुविधाएँ। किसी सुविधा को बंद करने से वह सिर्फ़ छिपती है: पहले से सहेजी गई फ़ोटो और नोट्स रखे जाते हैं और दोबारा चालू करने पर वापस दिखते हैं।',
+  featurePersonPhotos: 'व्यक्ति की फ़ोटो',
+  featurePersonPhotosHint: 'इस फ़ोन से ट्रैक होने वाले व्यक्ति की प्रोफ़ाइल फ़ोटो, जो मैप पर दिखती है।',
+  featurePhotoNotes: 'फ़ोटो नोट',
+  featurePhotoNotesHint: 'नोट और जगह के साथ फ़ोटो ("यहाँ फ़ोटो जोड़ें")।',
+  featuresAskAdmin: 'इन्हें बदलने के लिए अपने व्यवस्थापक से कहें।',
+  featuresOwnerOnly: 'इन्हें केवल खाते का मालिक बदल सकता है।',
+  featuresLoadFailed: 'सुविधाएँ लोड नहीं हो सकीं। कनेक्शन जाँचें और फिर कोशिश करें।',
+  photoNotesOff: 'इस खाते के लिए फ़ोटो नोट बंद हैं।',
+
   // Messages from the server, which always answers in English
   server: {
+    'Person photos are switched off for this account.': 'इस खाते के लिए व्यक्ति की फ़ोटो बंद हैं।',
+    'Photo notes are switched off for this account.': 'इस खाते के लिए फ़ोटो नोट बंद हैं।',
+    'Only the account owner can change this.': 'इसे केवल खाते का मालिक बदल सकता है।',
+    'Ask your administrator to change this.': 'इसे बदलने के लिए अपने व्यवस्थापक से कहें।',
     'The photo is larger than 5 MB': 'फ़ोटो 5 MB से बड़ी है',
     'Upload a JPEG, PNG or WebP photo': 'JPEG, PNG या WebP फ़ोटो अपलोड करें',
     'This photo could not be read. Try another one.': 'यह फ़ोटो पढ़ी नहीं जा सकी। कोई दूसरी फ़ोटो आज़माएँ।',

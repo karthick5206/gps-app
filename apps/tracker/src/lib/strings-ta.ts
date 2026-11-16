@@ -256,8 +256,24 @@ export const ta: Strings = {
   cancel: 'ரத்து செய்',
   ok: 'சரி',
 
+  // Photo feature switches (Features screen)
+  featuresTitle: 'அம்சங்கள்',
+  featuresIntro: 'இந்தக் கணக்கின் பட அம்சங்கள். ஒன்றை அணைத்தால் அது மறைக்கப்படும் மட்டுமே: ஏற்கனவே சேமித்த படங்களும் குறிப்புகளும் வைக்கப்பட்டு, மீண்டும் இயக்கும்போது திரும்பத் தெரியும்.',
+  featurePersonPhotos: 'நபர் படங்கள்',
+  featurePersonPhotosHint: 'இந்த ஃபோன் கண்காணிக்கும் நபரின் சுயவிவரப் படம், வரைபடத்தில் காட்டப்படும்.',
+  featurePhotoNotes: 'புகைப்படக் குறிப்புகள்',
+  featurePhotoNotesHint: 'குறிப்பும் இடமும் கொண்ட படங்கள் ("இங்கே படம் சேர்").',
+  featuresAskAdmin: 'இவற்றை மாற்ற உங்கள் நிர்வாகியிடம் கேளுங்கள்.',
+  featuresOwnerOnly: 'இவற்றைக் கணக்கு உரிமையாளர் மட்டுமே மாற்ற முடியும்.',
+  featuresLoadFailed: 'அம்சங்களை ஏற்ற முடியவில்லை. இணைப்பைச் சரிபார்த்து மீண்டும் முயற்சிக்கவும்.',
+  photoNotesOff: 'இந்தக் கணக்கிற்குப் புகைப்படக் குறிப்புகள் அணைக்கப்பட்டுள்ளன.',
+
   // Messages from the server, which always answers in English
   server: {
+    'Person photos are switched off for this account.': 'இந்தக் கணக்கிற்கு நபர் படங்கள் அணைக்கப்பட்டுள்ளன.',
+    'Photo notes are switched off for this account.': 'இந்தக் கணக்கிற்குப் புகைப்படக் குறிப்புகள் அணைக்கப்பட்டுள்ளன.',
+    'Only the account owner can change this.': 'இதைக் கணக்கு உரிமையாளர் மட்டுமே மாற்ற முடியும்.',
+    'Ask your administrator to change this.': 'இதை மாற்ற உங்கள் நிர்வாகியிடம் கேளுங்கள்.',
     'The photo is larger than 5 MB': 'படம் 5 MB-ஐ விடப் பெரியது',
     'Upload a JPEG, PNG or WebP photo': 'JPEG, PNG அல்லது WebP படத்தைப் பதிவேற்றவும்',
     'This photo could not be read. Try another one.': 'இந்தப் படத்தைப் படிக்க முடியவில்லை. வேறொன்றை முயற்சிக்கவும்.',

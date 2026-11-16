@@ -10,10 +10,10 @@ import { SosButton } from '@/components/SosButton';
 import { BlinkDot, StatusPulse, type LiveState } from '@/components/StatusPulse';
 import { TrackerMark } from '@/components/TrackerLogo';
 import { Body, Button, Card, HeaderBand, HeaderIconButton, toneColors } from '@/components/ui';
-import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
+import { beginTracking, isInactive, permissionsReady, recheckInactive, refreshSession, syncStopReason } from '@/lib/control';
 import { ago } from '@/lib/format';
 import { startPhotoNotes, usePhotoNoteQueue } from '@/lib/photo-notes';
-import { store, useStoreVersion } from '@/lib/state';
+import { photoFeatures, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import { resumeIfWanted, stopTracking, useTrackerStatus } from '@/lib/tracking';
@@ -37,12 +37,17 @@ export default function HomeScreen() {
   const statusRef = useRef(status);
   const photoQueue = usePhotoNoteQueue();
   const photoWaiting = photoQueue.pending + photoQueue.failed;
-  // Home focus: load the photo-note queue (once) and send what is waiting.
+  const features = photoFeatures();
+  // Home focus: read /me again (photo switches may have changed); load the photo-note queue (once) and send what is
+  // waiting, only while photo notes are on for the account (otherwise the server refuses them with FEATURE_OFF).
   useFocusEffect(
     useCallback(() => {
-      startPhotoNotes().catch(() => undefined);
+      refreshSession().catch(() => undefined);
     }, []),
   );
+  useEffect(() => {
+    if (features.photoNotes) startPhotoNotes().catch(() => undefined);
+  }, [features.photoNotes]);
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -57,6 +62,7 @@ export default function HomeScreen() {
     const slow = setInterval(() => recheckInactive(statusRef.current).catch(() => undefined), RECHECK_EVERY_MS);
     const sub = AppState.addEventListener('change', (s) => {
       if (s !== 'active') return;
+      refreshSession().catch(() => undefined);
       resumeIfWanted().then(refreshStatus).catch(() => undefined);
       recheckInactive(statusRef.current).catch(() => undefined);
     });
@@ -141,12 +147,15 @@ export default function HomeScreen() {
 
         <SosButton onDone={refreshStatus} />
 
-        {/* Location photo notes: bills, receipts, visits (works offline; queued notes are counted here). */}
+        {/* Location photo notes: bills, receipts, visits (works offline; queued notes are counted here). Hidden while the
+            account's photo notes switch is off. */}
+        {features.photoNotes ? (
         <Card>
           <Body style={{ fontWeight: '700' }}>{S.photoNotesTitle}</Body>
           <Body muted>{photoWaiting > 0 ? S.photoNotePendingCount(photoWaiting) : S.photoNoteHomeBody}</Body>
           <Button title={S.addPhotoHere} variant="outline" icon={<Camera color={c.primary} size={18} />} onPress={() => router.push('/photo-note')} />
         </Card>
+        ) : null}
 
         {/* Language after activation: right on the home screen, each in its own script so anyone can find theirs. */}
         <View style={styles.language}>

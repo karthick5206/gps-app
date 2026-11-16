@@ -16,3 +16,8 @@ test('ordinary GPS menus are unchanged', () => {
   assert.equal(routeAccess('live_map', 'view', { live_map: ['view'] }, []), 'allow');
   assert.equal(routeAccess('live_map', 'view', {}, []), 'forbidden');
 });
+
+test('photo notes (company switch): the server strips the grant while off, so the page is forbidden; on, it is allowed', () => {
+  assert.equal(routeAccess('photo_notes', 'view', {}, []), 'forbidden');
+  assert.equal(routeAccess('photo_notes', 'view', { photo_notes: ['view'] }, []), 'allow');
+});

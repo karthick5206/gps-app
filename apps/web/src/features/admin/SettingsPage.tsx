@@ -18,6 +18,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import { ComboboxField, TextField } from '@/features/masters/form-fields';
 import { numericText, requiredText } from '@/features/masters/form-schema';
 import { api, errorMessage } from '@/lib/api';
+import { PhotoFeaturesCard } from './PhotoFeaturesCard';
 import { timezoneOptions } from './timezones';
 
 const SETTINGS_KEY = ['settings'] as const;
@@ -136,6 +137,10 @@ export function SettingsPage() {
           </form>
         )
       )}
+      {/* Company self-service switches (photo features): saved at once, outside the profile form. */}
+      <div className="grid gap-6 xl:grid-cols-2">
+        <PhotoFeaturesCard />
+      </div>
     </div>
   );
 }

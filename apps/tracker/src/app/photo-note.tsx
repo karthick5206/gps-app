@@ -10,7 +10,7 @@ import { handleAuthError } from '@/lib/control';
 import { rupees, shortDateTime } from '@/lib/format';
 import { randomUuid, type QueuedNote } from '@/lib/photo-note-queue';
 import { currentFix, discardPhotos, isUnsupportedPhoto, normaliseMime, PICKER_JPEG, onPhotoNoteDelivered, persistPhotos, photoNoteQueue, queuedPhotoUri, queuePhotoNote, retryPhotoNote, startPhotoNotes, usePhotoNoteQueue, type FixResult } from '@/lib/photo-notes';
-import { getToken } from '@/lib/state';
+import { getToken, photoFeatures, useStoreVersion } from '@/lib/state';
 import { S, serverText } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 
@@ -21,7 +21,23 @@ type Picked = { uri: string; mimeType: string };
  * phone's position. Queued on the phone first (lib/photo-notes.ts), so it works offline; below, this person's recent
  * notes (waiting ones first).
  */
-export default function PhotoNoteScreen() {
+/** Photo notes switched off for the account (an old link / menu): say so instead of the form. */
+export default function PhotoNoteGate() {
+  useStoreVersion();
+  const c = useColors();
+  if (!photoFeatures().photoNotes) {
+    return (
+      <View style={{ flex: 1, padding: 16, backgroundColor: c.background }}>
+        <Card>
+          <Body>{S.photoNotesOff}</Body>
+        </Card>
+      </View>
+    );
+  }
+  return <PhotoNoteScreen />;
+}
+
+function PhotoNoteScreen() {
   const c = useColors();
   const queue = usePhotoNoteQueue();
   const [photos, setPhotos] = useState<Picked[]>([]);

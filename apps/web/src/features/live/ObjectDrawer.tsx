@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuth, usePhotoFeatures } from '@/features/auth/auth-context';
 import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
@@ -235,6 +235,7 @@ export function ObjectDrawer({
   const { t } = useTranslation();
   const hasCoords = object.lat !== null;
   const { can } = useAuth();
+  const { personPhotos } = usePhotoFeatures();
   const [maintenance, setMaintenance] = useState<{ id: string; value: boolean } | null>(null);
   const inMaintenance = maintenance?.id === object.objectId ? maintenance.value : !!object.inMaintenance;
   const owned = !object.shared;
@@ -292,7 +293,7 @@ export function ObjectDrawer({
           </Button>
         )}
         {owned && !object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
-        {owned && can('objects', 'edit') && hasPhotoType(object.type) && (
+        {owned && personPhotos && can('objects', 'edit') && hasPhotoType(object.type) && (
           <div className="w-full">
             <ObjectPhotoEditor objectId={object.objectId} version={object.photoVersion} type={object.type} name={object.name} size={56} compact />
           </div>

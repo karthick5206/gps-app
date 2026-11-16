@@ -137,6 +137,7 @@ function RootStack() {
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
           <Stack.Screen name="expenses" options={{ title: t('Fuel & expenses') }} />
           <Stack.Screen name="photo-notes" options={{ title: t('Photo notes') }} />
+          <Stack.Screen name="features" options={{ title: t('Features') }} />
           <Stack.Screen name="attendance" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-day" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-person" options={{ title: t('Staff attendance') }} />

@@ -49,6 +49,8 @@ function schemaFor(isCreate: boolean) {
       etms: z.boolean(),
       etmsProvider: z.boolean(),
       pricing: z.boolean(),
+      personPhotos: z.boolean(),
+      photoNotes: z.boolean(),
       archiveEnabled: z.boolean(),
       archiveAfterDays: z
         .string()
@@ -95,6 +97,8 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
       etms: record?.features.includes('etms') ?? false,
       etmsProvider: record?.features.includes('etmsProvider') ?? false,
       pricing: record?.features.includes('pricing') ?? false,
+      personPhotos: record?.photoFeatures?.personPhotos ?? false,
+      photoNotes: record?.photoFeatures?.photoNotes ?? false,
       archiveEnabled: record?.historyArchive?.enabled ?? false,
       archiveAfterDays: String(record?.historyArchive?.afterDays ?? HISTORY_ARCHIVE_DEFAULT_DAYS),
       admin: { name: '', email: '', mobile: '', password: '' },
@@ -105,13 +109,14 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
   const submit = form.handleSubmit((v) =>
     save.mutate(
       record
-        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status, retentionDays: Number(v.retentionDays), features: featureList(v), historyArchive: { enabled: v.archiveEnabled, afterDays: Number(v.archiveAfterDays) } }
+        ? { name: v.name, accountType: v.accountType, timezone: v.timezone, status: v.status, retentionDays: Number(v.retentionDays), features: featureList(v), photoFeatures: { personPhotos: v.personPhotos, photoNotes: v.photoNotes }, historyArchive: { enabled: v.archiveEnabled, afterDays: Number(v.archiveAfterDays) } }
         : {
             name: v.name,
             accountType: v.accountType,
             timezone: v.timezone,
             retentionDays: Number(v.retentionDays),
             features: featureList(v),
+            photoFeatures: { personPhotos: v.personPhotos, photoNotes: v.photoNotes },
             historyArchive: { enabled: v.archiveEnabled, afterDays: Number(v.archiveAfterDays) },
             admin: { name: v.admin.name, email: nullIfBlank(v.admin.email), mobile: nullIfBlank(v.admin.mobile), password: v.admin.password },
           },
@@ -142,6 +147,9 @@ function CompanyForm({ record, open, onOpenChange }: MasterFormProps<CompanyDto>
         <SwitchField form={form} name="etmsProvider" label="Transport provider" hint="The company may run transport for other companies under service agreements (customer picker, fleet allocations). Needs Employee transport." className="sm:col-span-2" />
         <SwitchField form={form} name="pricing" label="Customer pricing & billing" hint="Adds the Pricing menus (company contracts, trip charges, availability billing, customer invoices, adjustments, reports). Switching it on also creates the Billing admin and Billing clerk roles once. Switching it off hides the menus; data is kept." className="sm:col-span-2" />
         <SwitchField form={form} name="insightsPlus" label="Advanced attendance insights" hint="Adds comparisons with the previous period and the team, pattern charts, the 12-month trend, periods up to 6 months and PNG / PDF download to Staff attendance → Employee." className="sm:col-span-2" />
+        {/* Photo features (Company.settings.photos): default off; the company admin can switch them too (Settings → Features). */}
+        <SwitchField form={form} name="personPhotos" label="Person photos" hint="Off by default for every company. The company admin can also switch these in Settings → Features." className="sm:col-span-2" />
+        <SwitchField form={form} name="photoNotes" label="Photo notes" hint="Photos with a note and their place (&quot;Add photo here&quot;): the Photos & notes page and the photo-note layers on the live map and in history." className="sm:col-span-2" />
         {record && <SelectField form={form} name="status" label="Status" required options={STATUS_OPTIONS} hint="Suspended companies can't sign in and their data is not processed." />}
       </div>
       {!record && (
@@ -168,12 +176,14 @@ const columns: MasterColumn<CompanyDto>[] = [
     id: 'features',
     header: 'Add-ons',
     cell: (r) =>
-      r.features.length ? (
+      r.features.length || r.photoFeatures?.personPhotos || r.photoFeatures?.photoNotes ? (
         <span className="inline-flex flex-wrap gap-1">
           {r.features.includes('etms') && <Badge variant="secondary">{i18n.t('Employee transport')}</Badge>}
           {r.features.includes('etmsProvider') && <Badge variant="secondary">{i18n.t('Transport provider')}</Badge>}
           {r.features.includes('pricing') && <Badge variant="secondary">{i18n.t('Pricing & billing')}</Badge>}
           {r.features.includes('attendanceInsightsPlus') && <Badge variant="secondary">{i18n.t('Advanced insights')}</Badge>}
+          {r.photoFeatures?.personPhotos && <Badge variant="outline">{i18n.t('Person photos on')}</Badge>}
+          {r.photoFeatures?.photoNotes && <Badge variant="outline">{i18n.t('Photo notes on')}</Badge>}
         </span>
       ) : (
         <span className="text-muted-foreground">—</span>
