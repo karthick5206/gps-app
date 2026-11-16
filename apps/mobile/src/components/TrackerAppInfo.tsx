@@ -1,6 +1,6 @@
 import { DownloadIcon, SmartphoneIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { Linking, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { Button, Card, Text } from '@/components/ui';
 import { PLAY_STORE } from '@veetracer/shared';
 import { SPACE, useColors } from '@/lib/theme';
@@ -16,6 +16,8 @@ const POINTS = [
 export function TrackerAppInfo() {
   const c = useColors();
   const { t } = useTranslation();
+  // VeeTrax Tracker is Android-only; App Review (2.3.10) rejects iOS apps that point to Google Play.
+  if (Platform.OS === 'ios') return null;
   return (
     <Card style={{ gap: SPACE.sm }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>

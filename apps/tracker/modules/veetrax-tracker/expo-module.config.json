@@ -1,6 +1,10 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "apple"],
   "android": {
     "modules": ["com.sasvata.veetrax.trackerengine.VeetraxTrackerModule"]
+  },
+  "apple": {
+    "modules": ["VeetraxTrackerModule"],
+    "appDelegateSubscribers": ["VeetraxTrackerAppDelegate"]
   }
 }
