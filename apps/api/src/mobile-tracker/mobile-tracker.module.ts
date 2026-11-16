@@ -12,5 +12,6 @@ import { FamilyService } from './family.service';
   imports: [AttendanceModule, ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }])],
   controllers: [MobileTrackerController, MobileTrackerAdminController, FamilyController],
   providers: [MobileTrackerService, TrackerSelfService, FamilyService, MailerService],
+  exports: [MobileTrackerService],
 })
 export class MobileTrackerModule {}
