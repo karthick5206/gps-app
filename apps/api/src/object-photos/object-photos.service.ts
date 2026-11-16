@@ -9,9 +9,12 @@ import { RedisService } from '../redis/redis.service';
 import { assertPhotoType, photoScopeWhere, trackerPhotoTarget } from './object-photo-access';
 import { deletePhotoFiles, writePhotoFiles } from './object-photo-files';
 import { encodePhoto, markerPng, UploadedPhoto, validatePhoto } from './object-photo-image';
+import { photoFeaturesOf } from '@veetracer/shared';
+import { featureOff, visiblePhotoVersion } from '../photo-features/photo-features';
 
 const ENTITY = 'object';
-const SELECT = { id: true, companyId: true, type: true, photoPath: true, photoThumbPath: true, photoAt: true } as const;
+// The owner company's settings: its personPhotos switch decides (also for the Super Admin acting in all companies).
+const SELECT = { id: true, companyId: true, type: true, photoPath: true, photoThumbPath: true, photoAt: true, company: { select: { settings: true } } } as const;
 
 interface PhotoRow {
   id: string;
@@ -20,6 +23,7 @@ interface PhotoRow {
   photoPath: string | null;
   photoThumbPath: string | null;
   photoAt: Date | null;
+  company: { settings: unknown };
 }
 
 export interface ObjectPhotoState {
@@ -30,7 +34,11 @@ export interface ObjectPhotoState {
 
 type Actor = { kind: 'user'; ctx: AuthContext } | { kind: 'phone'; companyId: string; deviceId: string };
 
-/** Person / pet / asset photos (see object-photo-access.ts for who may do what). */
+/**
+ * Person / pet / asset photos (see object-photo-access.ts for who may do what). While the owner company's personPhotos
+ * switch is off: upload / remove answer 403 FEATURE_OFF, the image is not served (404) and the state has no version;
+ * the stored photo is kept and comes back when the switch is on again.
+ */
 @Injectable()
 export class ObjectPhotosService {
   constructor(
@@ -42,11 +50,11 @@ export class ObjectPhotosService {
   // ───────────── web / mobile users ─────────────
 
   async upload(ctx: AuthContext, objectId: string, file: UploadedPhoto | undefined): Promise<ObjectPhotoState> {
-    return this.save(await this.find(ctx, objectId), file, { kind: 'user', ctx });
+    return this.save(enabled(await this.find(ctx, objectId)), file, { kind: 'user', ctx });
   }
 
   async remove(ctx: AuthContext, objectId: string): Promise<ObjectPhotoState> {
-    return this.clear(await this.find(ctx, objectId), { kind: 'user', ctx });
+    return this.clear(enabled(await this.find(ctx, objectId)), { kind: 'user', ctx });
   }
 
   async file(ctx: AuthContext, objectId: string, size: ObjectPhotoSize): Promise<StreamableFile> {
@@ -57,16 +65,16 @@ export class ObjectPhotosService {
 
   async trackerState(deviceId: string): Promise<ObjectPhotoState> {
     const row = await this.trackerRow(deviceId);
-    return { objectId: row.id, photoVersion: row.photoAt?.getTime() ?? null };
+    return { objectId: row.id, photoVersion: visiblePhotoVersion(row.photoAt, row.company.settings) };
   }
 
   async trackerUpload(deviceId: string, file: UploadedPhoto | undefined): Promise<ObjectPhotoState> {
-    const row = await this.trackerRow(deviceId);
+    const row = enabled(await this.trackerRow(deviceId));
     return this.save(row, file, { kind: 'phone', companyId: row.companyId, deviceId });
   }
 
   async trackerRemove(deviceId: string): Promise<ObjectPhotoState> {
-    const row = await this.trackerRow(deviceId);
+    const row = enabled(await this.trackerRow(deviceId));
     return this.clear(row, { kind: 'phone', companyId: row.companyId, deviceId });
   }
 
@@ -119,7 +127,8 @@ export class ObjectPhotosService {
   }
 
   private async stream(row: PhotoRow, size: ObjectPhotoSize): Promise<StreamableFile> {
-    const path = size === 'full' ? row.photoPath : row.photoThumbPath;
+    // Switch off: as if there were no photo (the apps draw the figure / initial).
+    const path = !photoFeaturesOf(row.company.settings).personPhotos ? null : size === 'full' ? row.photoPath : row.photoThumbPath;
     const info = path ? await stat(path).catch(() => null) : null;
     if (!path || !info) throw new NotFoundException('No photo');
     if (size === 'marker') {
@@ -137,4 +146,10 @@ export class ObjectPhotosService {
     // Lists and the live map re-read objects (the snapshot carries photoVersion).
     await this.redis.invalidateCache('object').catch(() => undefined);
   }
+}
+
+/** Uploads and removals need the owner company's personPhotos switch (403 FEATURE_OFF while off). */
+function enabled(row: PhotoRow): PhotoRow {
+  if (!photoFeaturesOf(row.company.settings).personPhotos) throw featureOff('personPhotos');
+  return row;
 }

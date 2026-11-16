@@ -12,6 +12,7 @@ import { APP_ROOT } from '../config/env';
 import { ExpensesService } from '../expenses/expenses.service';
 import { GeocodingService } from '../geocoding/geocoding.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertPhotoFeature } from '../photo-features/photo-features';
 import { encodePhoto, type EncodedPhoto } from './photo-notes.images';
 import { canChange, moneyFields, parseBbox, parseMeta, photoNoteScope, PhotoNoteInputError, validatePhotos, type IncomingPhoto, type PhotoNoteMeta, type RawMeta } from './photo-notes.logic';
 
@@ -86,6 +87,8 @@ export class PhotoNotesService {
       return bad(e);
     }
     const companyId = up.kind === 'user' ? up.ctx.companyId : up.companyId;
+    // The company's photoNotes switch (the guard already checked it for signed-in users; the Tracker app has no guard).
+    await this.assertEnabled(companyId);
     // Idempotent replay first: the offline queue re-sends the same clientId (maybe after the photos were cleaned up).
     if (meta.clientId) {
       const prior = await this.byClientId(up, companyId, meta.clientId);
@@ -320,6 +323,12 @@ export class PhotoNotesService {
     return this.toDto(next, ctx);
   }
 
+  /** 403 FEATURE_OFF while the company's photoNotes switch is off (notes are kept, only hidden). */
+  async assertEnabled(companyId: string): Promise<void> {
+    const c = await this.prisma.company.findUnique({ where: { id: companyId }, select: { settings: true } });
+    assertPhotoFeature(c?.settings, 'photoNotes');
+  }
+
   // ───────────── Tracker app (the phone's person) ─────────────
 
   private trackerWhere(companyId: string, objectId: string): Prisma.GeoPhotoNoteWhereInput {
@@ -327,12 +336,14 @@ export class PhotoNotesService {
   }
 
   async trackerList(companyId: string, objectId: string, limit?: number): Promise<{ items: PhotoNoteDto[] }> {
+    await this.assertEnabled(companyId);
     const take = Math.min(100, Math.max(1, Math.floor(Number(limit) || 30)));
     const rows = await this.prisma.geoPhotoNote.findMany({ where: this.trackerWhere(companyId, objectId), include: INCLUDE, orderBy: { takenAt: 'desc' }, take });
     return { items: rows.map((r) => this.toDto(r, null, true)) };
   }
 
   private async trackerFind(companyId: string, objectId: string, id: string): Promise<Row> {
+    await this.assertEnabled(companyId);
     const row = await this.prisma.geoPhotoNote.findFirst({ where: { ...this.trackerWhere(companyId, objectId), id }, include: INCLUDE });
     if (!row) throw new NotFoundException('Photo note not found');
     return row;

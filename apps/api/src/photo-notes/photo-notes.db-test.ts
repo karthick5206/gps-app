@@ -14,6 +14,8 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { dbDescribe } from '../test/scratch-db';
 import { PHOTO_NOTES_DIR, PhotoNotesService } from './photo-notes.service';
 
+/** v1.18 photo switches on (default off; photo-features.db-test.ts covers off). */
+const ON = { photos: { personPhotos: true, photoNotes: true } };
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 
@@ -37,7 +39,7 @@ d(`photo notes on ${dbName}`, () => {
     const partner = await prisma.partner.create({ data: { name: `${tag} partner`, slug: `${tag.toLowerCase()}-p` } });
     partnerId = partner.id;
     const mk = async (n: string) => {
-      const c = await prisma.company.create({ data: { partnerId, name: `${tag} ${n}` } });
+      const c = await prisma.company.create({ data: { partnerId, name: `${tag} ${n}`, settings: ON } });
       companyIds.push(c.id);
       return c.id;
     };

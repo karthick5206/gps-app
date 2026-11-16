@@ -124,7 +124,7 @@ export function assertCanManageUserAccess(
 /** Name of the built-in company administrator role (SYSTEM_ROLES). */
 export const ADMIN_ROLE = 'Admin';
 
-type CeilingCtx = Pick<AuthContext, 'isSuperAdmin' | 'isCompanyAdmin' | 'dataScope' | 'permissions'>;
+type CeilingCtx = Pick<AuthContext, 'isSuperAdmin' | 'isCompanyAdmin' | 'dataScope' | 'permissions' | 'ceilingPermissions'>;
 
 /**
  * Callers the ceiling does not apply to: the Super Admin and holders of the company's built-in Admin role. Admins hold
@@ -137,7 +137,8 @@ export function aboveCeiling(ctx: Pick<AuthContext, 'isSuperAdmin' | 'isCompanyA
 
 /**
  * What `role` grants beyond the caller's own rights: company-wide data scope the caller lacks, and menu actions the
- * caller does not hold (compared with the caller's effective permissions, so a module that is off grants nothing).
+ * caller does not hold (compared with the caller's effective permissions, so a module that is off grants nothing;
+ * menus behind a company switch that is off, e.g. photo notes, still count: ceilingPermissions keeps them).
  * Empty = within the ceiling. Labels only (no ids), for the 403 message.
  */
 export function ceilingExcess(ctx: CeilingCtx, role: RoleGrant): string[] {
@@ -145,7 +146,7 @@ export function ceilingExcess(ctx: CeilingCtx, role: RoleGrant): string[] {
   const out: string[] = [];
   if (role.dataScope === 'COMPANY' && ctx.dataScope !== 'COMPANY') out.push('whole-company data scope');
   for (const perm of role.permissions) {
-    const mine = new Set<string>(ctx.permissions[perm.menu as MenuKey] ?? []);
+    const mine = new Set<string>((ctx.ceilingPermissions ?? ctx.permissions)[perm.menu as MenuKey] ?? []);
     const extra = perm.actions.filter((a) => !mine.has(a));
     if (extra.length) out.push(`${MENU_BY_KEY.get(perm.menu)?.label ?? perm.menu}: ${extra.join(', ')}`);
   }

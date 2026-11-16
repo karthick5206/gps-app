@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -32,6 +33,12 @@ export class CompanyAdminDto {
   @Matches(PASSWORD_PATTERN, { message: PASSWORD_MESSAGE }) password!: string;
 }
 
+/** Self-service photo switches (Company.settings.photos); only the keys sent change. */
+export class PhotoFeaturesDto {
+  @IsOptional() @IsBoolean() personPhotos?: boolean;
+  @IsOptional() @IsBoolean() photoNotes?: boolean;
+}
+
 export class CreateCompanyDto {
   @IsString() @Length(1, 120) name!: string;
   @IsIn(ACCOUNT_TYPES) accountType!: AccountTypeValue;
@@ -39,6 +46,8 @@ export class CreateCompanyDto {
   @IsOptional() @IsInt() @Min(RETENTION_MIN_DAYS) @Max(RETENTION_MAX_DAYS) retentionDays?: number;
   /** Add-ons switched on (Company.settings.features). */
   @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
+  /** Person photos / photo notes (default off). */
+  @IsOptional() @ValidateNested() @Type(() => PhotoFeaturesDto) photoFeatures?: PhotoFeaturesDto;
   @ValidateNested() @Type(() => CompanyAdminDto) admin!: CompanyAdminDto;
 }
 
@@ -50,4 +59,6 @@ export class UpdateCompanyDto {
   @IsOptional() @IsIn(['ACTIVE', 'SUSPENDED']) status?: 'ACTIVE' | 'SUSPENDED';
   /** Add-ons switched on; replaces the whole list (Company.settings.features). */
   @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
+  /** Person photos / photo notes switches (Company.settings.photos); only the keys sent change. */
+  @IsOptional() @ValidateNested() @Type(() => PhotoFeaturesDto) photoFeatures?: PhotoFeaturesDto;
 }

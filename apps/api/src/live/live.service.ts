@@ -9,6 +9,7 @@ import { effectiveSpeedLimit, noDataLive, ObjectMeta } from '../tracking/live-ob
 import { openSegments, type SegState } from '../summarizer/segmenter';
 import { localDayKey, localMidnight } from '../summarizer/tz';
 import { LiveStateService } from './live-state.service';
+import { visiblePhotoVersion } from '../photo-features/photo-features';
 
 const DAY_STATS_CACHE_MS = 60_000;
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -121,6 +122,8 @@ export class LiveService {
         speedLimitKph: true,
         maintenanceSince: true,
         photoAt: true,
+        // The owner company's personPhotos switch: while off no photo version is sent (the map draws the figure).
+        company: { select: { settings: true } },
         assignments: { where: { toTime: null }, select: { device: { select: { id: true, uniqueId: true, simNumber: true } } } },
         drivers: { where: { toTime: null }, take: 1, select: { driverId: true, source: true, driver: { select: { name: true } } } },
       },
@@ -153,7 +156,7 @@ export class LiveService {
       const state = live.get(o.id);
       const row = state ? { ...state, ...meta } : noDataLive(meta);
       // A shared vehicle's photo stays with its owner company (GET /objects/:id/photo serves own objects only).
-      return includeShared && shareOf(ctx, o.id) ? asSharedLive(row) : { ...row, photoVersion: o.photoAt?.getTime() ?? null };
+      return includeShared && shareOf(ctx, o.id) ? asSharedLive(row) : { ...row, photoVersion: visiblePhotoVersion(o.photoAt, o.company.settings) };
     });
   }
 

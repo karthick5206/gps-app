@@ -1,6 +1,7 @@
 /** REST API shapes shared by the backend and clients. */
 import type { DataScope, MenuKey, Action, PermissionMap } from './permissions';
 import type { ObjectType, VehicleType, StatusThresholds } from './tracking';
+import type { PhotoFeatures } from './photo-features';
 
 /**
  * Colour themes (profile; the web and mobile apps share them): four light palettes and one dark.
@@ -83,6 +84,8 @@ export interface CompanySummary {
   thresholds: StatusThresholds;
   /** Add-ons switched on for this company (all of them for the platform company). */
   features: CompanyFeature[];
+  /** Self-service photo feature switches (Company.settings.photos, default off; see photo-features.ts). */
+  photoFeatures: PhotoFeatures;
 }
 
 export interface Me {

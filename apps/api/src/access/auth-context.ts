@@ -1,4 +1,4 @@
-import { CompanyFeature, DataScope, PermissionMap, TransportDataProfile, TransportGrant } from '@veetracer/shared';
+import { CompanyFeature, CompanySwitch, DataScope, PermissionMap, TransportDataProfile, TransportGrant } from '@veetracer/shared';
 import { Request } from 'express';
 
 /** A vehicle of another company that this company may view (see VehicleShare). */
@@ -56,6 +56,17 @@ export interface AuthContext {
   shares?: SharedVehicle[];
   /** Add-ons of the acting company (Company.settings.features); module menus are stripped from `permissions` without them. */
   features?: CompanyFeature[];
+  /**
+   * Self-service switches that are ON in the acting company (Company.settings.photos; photo-features.ts). Menus with
+   * requires.companySetting are stripped from `permissions` without them; the photo services check the switch of the
+   * company that owns the data themselves.
+   */
+  switches?: CompanySwitch[];
+  /**
+   * Role-grant ceiling (R-12): `permissions` before the company switches strip their menus. A switch that is off must
+   * not stop a Manager from handing out the built-in roles (which include e.g. photo_notes). Absent = `permissions`.
+   */
+  ceilingPermissions?: PermissionMap;
   /**
    * v1.16: the acting company's own automatic route planning switch (Company.settings.etms.autoRouting). Routing is
    * active only with the platform switch and the env as well (PlanningFeatureGuard, routing-switch.ts).
