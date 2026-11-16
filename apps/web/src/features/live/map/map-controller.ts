@@ -1,4 +1,4 @@
-import { displayStatus, type LiveObject } from '@veetracer/shared';
+import { displayStatus, hasPhotoType, type LiveObject } from '@veetracer/shared';
 import maplibregl, { type GeoJSONSource, type GeoJSONSourceDiff, type Map as MlMap } from 'maplibre-gl';
 import type { ResolvedTheme } from '@/features/theme/theme-store';
 import { interpolatePose, type Pose } from '@/lib/geo';
@@ -20,7 +20,9 @@ import {
   styleUrl,
 } from './map-style';
 import { basemapStore } from './basemap-store';
-import { createPersonFigure, createVehicleIcon, iconId, iconKind, parseIconId, rotates } from './vehicle-icons';
+import { createPersonFigure, createPhotoMarker, createVehicleIcon, iconId, iconKind, parseIconId, parsePhotoIconId, rotates } from './vehicle-icons';
+import { photoBitmap } from '@/features/objects/object-photo';
+import { PhotoHoverCard } from './photo-hover';
 import { HALO_STATUSES, haloState, markerBadge } from './marker-motion';
 
 const GLIDE_MS = 1000;
@@ -81,12 +83,20 @@ function properties(o: LiveObject, bearing: number) {
     /** Icon rotation: vehicles point along their heading; round badges stay upright. */
     rot: rotating ? bearing : 0,
     moving: o.status === 'RUNNING' || o.status === 'OVERSPEED',
+    /** `<objectId>:<photoVersion>` when the person / pet / asset has a photo (drawn as a photo badge), else ''. */
+    photo: o.photoVersion && hasPhotoType(o.type) ? `${o.objectId}:${o.photoVersion}` : '',
   };
 }
 
 /** `veh:<kind>:<status>:<theme>` image per feature (images are drawn on demand, see vehicle-icons). */
 function iconImageExpression(theme: ResolvedTheme): maplibregl.ExpressionSpecification {
-  return ['concat', 'veh:', ['get', 'kind'], ':', ['get', 'status'], ':', theme];
+  // With a photo: `ava:<objectId>:<version>:<status>:<theme>` (drawn from the thumbnail, see onPhotoImageMissing).
+  return [
+    'case',
+    ['!=', ['get', 'photo'], ''],
+    ['concat', 'ava:', ['get', 'photo'], ':', ['get', 'status'], ':', theme],
+    ['concat', 'veh:', ['get', 'kind'], ':', ['get', 'status'], ':', theme],
+  ];
 }
 
 /**
@@ -125,6 +135,9 @@ export class MapController {
   /** Marker labels (plate / person name): on = every marker at every zoom, off = none. */
   private labels = true;
   private fittedOnce = false;
+  /** Photo marker images already drawn (style swaps drop runtime images; re-added from here without a fetch). */
+  private photoImages = new Map<string, ImageData>();
+  private hover: PhotoHoverCard | null = null;
   private unsubscribe: () => void;
   private styleKey: string;
 
@@ -153,6 +166,7 @@ export class MapController {
         return;
       }
       // Vehicle-type icons are drawn the first time a type/status/theme combination is shown.
+      if (this.onPhotoImageMissing(e.id)) return;
       const icon = parseIconId(e.id);
       if (icon) this.map.addImage(e.id, createVehicleIcon(icon.kind, icon.status, icon.theme, cssToken('--map-marker-stroke') || '#ffffff'), { pixelRatio: 2 });
     });
@@ -206,6 +220,7 @@ export class MapController {
 
   destroy() {
     this.unsubscribe();
+    this.hover?.remove();
     cancelAnimationFrame(this.raf);
     cancelAnimationFrame(this.pulseRaf);
     this.map.remove();
@@ -340,6 +355,10 @@ export class MapController {
       const zoom = await source.getClusterExpansionZoom(clusterId);
       map.easeTo({ center: (f.geometry as GeoJSON.Point).coordinates as [number, number], zoom });
     });
+    // Desktop hover on a person with a photo: a card with the larger photo, status, speed, last update and address.
+    this.hover = new PhotoHoverCard(map, (id) => liveStore.get(id));
+    map.on('mousemove', LAYERS.circle, (e) => this.hover?.show(e.features?.[0]));
+    map.on('mouseleave', LAYERS.circle, () => this.hover?.hide());
     for (const layer of [LAYERS.circle, LAYERS.clusters]) {
       map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
       map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
@@ -383,6 +402,29 @@ export class MapController {
       const walk = iconId('PERSON', status, this.theme);
       if (tick % 2 === 0 && this.map.hasImage(walk)) this.map.updateImage(walk, createPersonFigure(status, this.theme, outline, tick % 4 ? 'walkB' : 'walkA'));
     }
+  }
+
+  /**
+   * A photo marker the map asks for: a standing cartoon person is shown at once, then replaced by the photo badge when
+   * the thumbnail arrives (fetched with the user's token, cached per object and photo version). True if it was ours.
+   */
+  private onPhotoImageMissing(id: string): boolean {
+    const icon = parsePhotoIconId(id);
+    if (!icon) return false;
+    const ready = this.photoImages.get(id);
+    if (ready) {
+      this.map.addImage(id, ready, { pixelRatio: 2 });
+      return true;
+    }
+    this.map.addImage(id, createPersonFigure(icon.status, icon.theme, '', 'stand'), { pixelRatio: 2 });
+    void photoBitmap(icon.objectId, icon.version).then((img) => {
+      if (!img) return; // no photo after all (removed meanwhile): the cartoon stays until the next snapshot
+      const data = createPhotoMarker(img, icon.status, icon.theme);
+      this.photoImages.set(id, data);
+      if (this.photoImages.size > 2000) this.photoImages.delete(this.photoImages.keys().next().value!);
+      if (this.map.hasImage(id)) this.map.updateImage(id, data);
+    });
+    return true;
   }
 
   /** Whether halos may move: not with reduced motion, a hidden tab, or a very large visible fleet. */

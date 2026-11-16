@@ -354,3 +354,57 @@ export function createVehicleIcon(kind: IconKind, status: MovementStatus, theme:
   if (!rotates(kind)) badgeGlyph(ctx, kind);
   return ctx.getImageData(0, 0, SIZE, SIZE);
 }
+
+// ───────────── photo markers (people / pets / assets with a photo) ─────────────
+
+const PHOTO_PREFIX = 'ava:';
+
+/**
+ * Image id of a photo marker: `ava:<objectId>:<photoVersion>:<status>:<theme>`. The feature carries `<objectId>:<version>`
+ * (property `photo`), the layer expression adds status and theme, so a status change only switches images.
+ */
+export function photoIconId(photo: string, status: MovementStatus, theme: ResolvedTheme): string {
+  return `${PHOTO_PREFIX}${photo}:${status}:${theme}`;
+}
+
+export function parsePhotoIconId(id: string): { objectId: string; version: number; status: MovementStatus; theme: ResolvedTheme } | null {
+  if (!id.startsWith(PHOTO_PREFIX)) return null;
+  const [objectId, v, status, theme] = id.slice(PHOTO_PREFIX.length).split(':');
+  const version = Number(v);
+  if (!objectId || !Number.isFinite(version) || version <= 0 || !(MOVEMENT_STATUSES as readonly string[]).includes(status) || (theme !== 'light' && theme !== 'dark')) return null;
+  return { objectId, version, status: status as MovementStatus, theme };
+}
+
+/**
+ * The photo marker: the same 64 px badge geometry as the cartoon person (white badge with a soft shadow, status-coloured
+ * ring of width 4 at radius 28.5) with the photo clipped to a circle inside the ring. No walking animation.
+ */
+export function createPhotoMarker(photo: CanvasImageSource, status: MovementStatus, theme: ResolvedTheme): ImageData {
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D unavailable');
+  const c = SIZE / 2;
+  ctx.save();
+  Object.assign(ctx, { shadowColor: 'rgba(0,0,0,0.35)', shadowBlur: 4, shadowOffsetY: 1 });
+  ctx.beginPath();
+  ctx.arc(c, c, 28.5, 0, Math.PI * 2);
+  ctx.fillStyle = PERSON_COLORS.badge;
+  ctx.fill();
+  ctx.restore();
+  // Photo inside the ring (inner edge of the ring at 26.5; 1 px of white between them).
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(c, c, 25.5, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(photo, c - 25.5, c - 25.5, 51, 51);
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(c, c, 28.5, 0, Math.PI * 2);
+  ctx.strokeStyle = STATUS_META[status][theme];
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  return ctx.getImageData(0, 0, SIZE, SIZE);
+}

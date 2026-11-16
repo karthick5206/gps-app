@@ -11,6 +11,7 @@ import { TRANSPORT_ADHOC_NOTIFY_HI, TRANSPORT_ADHOC_NOTIFY_TA } from './transpor
 import { ROUTING_SWITCH_HI, ROUTING_SWITCH_TA } from './routing-switch';
 import { PRICING_WEB_HI, PRICING_WEB_TA } from './pricing-web';
 import { POOLING_HI, POOLING_TA } from './pooling';
+import { OBJECT_PHOTO_HI, OBJECT_PHOTO_TA } from './object-photo';
 
 /**
  * UI translations shared by web and mobile. Keys are the English source strings (i18next with keySeparator /
@@ -20,8 +21,8 @@ export const TRANSLATIONS: Record<Exclude<LanguageCode, 'en'>, Record<string, st
   // The main tables win over the mobile transport table (transport-mobile.ts), the SOS table (transport-sos.ts), the
   // self-service table (transport-self.ts), the provider table (transport-provider.ts) and the r114 mobile SOS table
   // (transport-mobile-sos.ts) for any key they share.
-  hi: { ...POOLING_HI, ...PRICING_WEB_HI, ...ROUTING_SWITCH_HI, ...TRANSPORT_WEB_ADDRESS_HI, ...TRANSPORT_ADHOC_NOTIFY_HI, ...TRANSPORT_MOBILE_SOS_HI, ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
-  ta: { ...POOLING_TA, ...PRICING_WEB_TA, ...ROUTING_SWITCH_TA, ...TRANSPORT_WEB_ADDRESS_TA, ...TRANSPORT_ADHOC_NOTIFY_TA, ...TRANSPORT_MOBILE_SOS_TA, ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
+  hi: { ...OBJECT_PHOTO_HI, ...POOLING_HI, ...PRICING_WEB_HI, ...ROUTING_SWITCH_HI, ...TRANSPORT_WEB_ADDRESS_HI, ...TRANSPORT_ADHOC_NOTIFY_HI, ...TRANSPORT_MOBILE_SOS_HI, ...TRANSPORT_SOS_HI, ...TRANSPORT_MOBILE_HI, ...TRANSPORT_SELF_HI, ...TRANSPORT_PROVIDER_HI, ...HI },
+  ta: { ...OBJECT_PHOTO_TA, ...POOLING_TA, ...PRICING_WEB_TA, ...ROUTING_SWITCH_TA, ...TRANSPORT_WEB_ADDRESS_TA, ...TRANSPORT_ADHOC_NOTIFY_TA, ...TRANSPORT_MOBILE_SOS_TA, ...TRANSPORT_SOS_TA, ...TRANSPORT_MOBILE_TA, ...TRANSPORT_SELF_TA, ...TRANSPORT_PROVIDER_TA, ...TA },
 };
 
 /** i18next options both apps use. */

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
+import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, hasPhotoType, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
 import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, Share2Icon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
 import { chargeText, ignitionText, TodayCard, useDayStats } from './day-stats';
+import { ObjectAvatar, ObjectPhotoEditor } from '@/features/objects/object-photo';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -247,6 +248,9 @@ export function ObjectDrawer({
       className={cn('flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-xl animate-slide-in-right', className)}
     >
       <div className="flex items-start gap-3 border-b p-4">
+        {owned && hasPhotoType(object.type) && !can('objects', 'edit') && object.photoVersion ? (
+          <ObjectAvatar objectId={object.objectId} version={object.photoVersion} type={object.type} name={object.name} size={56} photoSize="full" />
+        ) : null}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{object.name}</h2>
           <p className="truncate text-xs text-muted-foreground">
@@ -288,6 +292,11 @@ export function ObjectDrawer({
           </Button>
         )}
         {owned && !object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
+        {owned && can('objects', 'edit') && hasPhotoType(object.type) && (
+          <div className="w-full">
+            <ObjectPhotoEditor objectId={object.objectId} version={object.photoVersion} type={object.type} name={object.name} size={56} compact />
+          </div>
+        )}
         {owned && can('objects', 'edit') && <MaintenanceControl objectId={object.objectId} inMaintenance={inMaintenance} onChange={(value) => setMaintenance({ id: object.objectId, value })} />}
       </div>
       <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
