@@ -1,4 +1,5 @@
 import type { RelayTargetStats } from './relay';
+import type { HistoryArchiveHealthDto } from './history-archive';
 import type { RoutingEnvMode, RoutingReadinessDto } from './routing-switch';
 
 /**
@@ -345,7 +346,7 @@ export interface HealthIssue {
   id: string;
   /** Short label of the check. */
   check: string;
-  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline' | 'maps' | 'routing';
+  section: 'processes' | 'ports' | 'queues' | 'database' | 'valkey' | 'host' | 'pipeline' | 'maps' | 'routing' | 'archive';
   severity: IssueSeverity;
   message: string;
   since: string;
@@ -375,6 +376,8 @@ export interface SystemHealthDto {
   maps: MapServiceDto[];
   /** ETMS E4 routing worker + optimiser (status DISABLED while ETMS_ROUTING is off). Absent on older APIs. */
   routing?: RoutingHealthDto;
+  /** Nightly history archive job (absent on older APIs). */
+  historyArchive?: HistoryArchiveHealthDto;
   throughput: ThroughputPoint[];
 }
 

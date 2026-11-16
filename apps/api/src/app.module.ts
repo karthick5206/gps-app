@@ -49,6 +49,7 @@ import { DeveloperModule } from './developer/developer.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
+import { HistoryArchiveModule } from './history-archive/history-archive.module';
 import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
 import { RelayModule } from './relay/relay.controller';
@@ -100,6 +101,7 @@ import { PricingModule } from './pricing/pricing.module';
     ReportSchedulesModule,
     DashboardModule,
     RetentionModule,
+    HistoryArchiveModule,
     CommandsModule,
     VideoModule,
     DriverEventsModule,

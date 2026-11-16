@@ -1,6 +1,7 @@
 /** History, trips, geofences and reports shapes. */
 import type { AlertDto, TimeWindow } from './alerts';
 import type { LatLng } from './geo';
+import type { HistoryArchiveInfo, ReportArchiveNotice } from './history-archive';
 
 /** Compact track point for playback: [epochMs, lat, lng, speedKph, course, ignition (1/0/-1 unknown), status code]. */
 export type TrackPoint = [number, number, number, number, number, number, number];
@@ -57,6 +58,8 @@ export interface HistoryResponse {
   truncated: boolean; // true when the range exceeded the point cap and was simplified
   /** Fuel level over time [epochMs, litres] when the vehicle has a fuel sensor (downsampled). */
   fuel?: [number, number][];
+  /** Days of the requested period whose points are archived (absent when none). */
+  archive?: HistoryArchiveInfo;
 }
 
 export interface DailySummaryDto {
@@ -364,6 +367,8 @@ export interface ReportResponse<T = unknown> {
   groupBy?: TripPerformanceGroupBy;
   rows: T[];
   totals?: Record<string, number>;
+  /** Raw-point reports over archived days: the rows / totals are incomplete (absent otherwise). */
+  archived?: ReportArchiveNotice;
 }
 
 export interface ReportScheduleDto {

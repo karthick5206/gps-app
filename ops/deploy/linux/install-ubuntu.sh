@@ -277,6 +277,8 @@ sudo -u postgres psql -d veetracer -c 'CREATE EXTENSION IF NOT EXISTS timescaled
 echo "== service user and folder"
 id veetrax >/dev/null 2>&1 || useradd -r -m -d /opt/veetrax -s /bin/bash veetrax
 install -d -o veetrax -g veetrax "$APP_DIR" /opt/veetrax/maps /var/lib/veetrax
+# History archive files (HISTORY_ARCHIVE_DIR default): on this server's own disk, readable by veetrax only.
+install -d -o veetrax -g veetrax -m 0750 /var/lib/veetrax/history-archive
 # release.sh restarts the services as 'veetrax'
 # and (health-gate.sh, on a failed gate) reads the journal tail of exactly these units. Every line is a full command
 # with fixed arguments and no wildcard: a sudoers '*' also matches spaces and further arguments, so

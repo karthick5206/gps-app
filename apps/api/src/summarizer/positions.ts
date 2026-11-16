@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { MAX_PLAUSIBLE_SPEED_KPH, ObjectType, POSITION_FLAGS, VehicleType } from '@veetracer/shared';
+import { historyArchiveOf, HistoryArchiveSettings, MAX_PLAUSIBLE_SPEED_KPH, ObjectType, POSITION_FLAGS, VehicleType } from '@veetracer/shared';
 import { effectiveSpeedLimit } from '../tracking/live-object';
 import { companyThresholds } from '../tracking/thresholds';
 import { SegConfig, SegPoint } from './segmenter';
@@ -85,6 +85,8 @@ export interface ObjectMeta {
   branchId: string | null;
   tz: string;
   retentionDays: number;
+  /** Company history archiving switch (Company.settings.historyArchive). */
+  archive?: HistoryArchiveSettings;
   cfg: SegConfig;
   /** Viewed through a share: nothing from before this time (ms). */
   notBefore?: number;
@@ -133,6 +135,7 @@ export function toMeta(o: {
     branchId: o.branchId,
     tz: o.company.timezone,
     retentionDays: o.company.retentionDays,
+    archive: historyArchiveOf(o.company.settings),
     cfg: {
       tz: o.company.timezone,
       runningSpeedKph: thresholds.runningSpeedKph,
