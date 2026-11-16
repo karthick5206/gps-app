@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# VeeTrax local nightly backup (interim until encrypted off-site backup is approved, decision Q-03).
+# Installed as /usr/local/sbin/veetrax-local-backup, run by /etc/cron.d/veetrax-backup (21:30 UTC) as root.
+#   - pg_dump (custom format), Valkey snapshot, config tarball — kept 14 days in /var/backups/veetrax (root only)
+#   - FILES: every uploaded file (person photos, location photo notes, documents, attendance selfies, expense / bill
+#     photos, driver media, invoice PDFs, …) under the API's var/ directory, plus the history archive. Snapshots with
+#     rsync --link-dest: each night is a complete copy, but files unchanged since the previous night are hard links
+#     (no extra space). The 14 newest snapshots are kept. Logs and the gateway's transient spool are not files to keep.
+# Restore files: rsync -a /var/backups/veetrax/files/<STAMP>/var/ /opt/veetrax/app/apps/api/var/
+#                rsync -a /var/backups/veetrax/files/<STAMP>/history-archive/ /var/lib/veetrax/history-archive/
+set -euo pipefail
+OUT=/var/backups/veetrax; STAMP=$(date -u +%Y%m%dT%H%M%SZ); umask 077
+KEEP_FILE_SNAPSHOTS="${KEEP_FILE_SNAPSHOTS:-14}"
+APP_VAR="${APP_VAR:-/opt/veetrax/app/apps/api/var}"
+ARCHIVE_DIR="${HISTORY_ARCHIVE_DIR:-/var/lib/veetrax/history-archive}"
+
+sudo -u postgres pg_dump -Fc -d veetracer > "$OUT/db-$STAMP.dump"
+valkey-cli --rdb "$OUT/valkey-$STAMP.rdb" >/dev/null 2>&1 || true
+tar czf "$OUT/config-$STAMP.tar.gz" /opt/veetrax/app/apps/api/.env /opt/veetrax/app/apps/web/.env /etc/caddy/Caddyfile /root/.veetrax-db-pass 2>/dev/null
+pg_restore -l "$OUT/db-$STAMP.dump" >/dev/null   # the dump must be readable
+
+# Files: hard-linked snapshot against the newest previous one.
+FILES="$OUT/files"; mkdir -p "$FILES"
+PREV="$(ls -1d "$FILES"/2* 2>/dev/null | sort | tail -1 || true)"
+SNAP="$FILES/$STAMP"; mkdir -p "$SNAP"
+snap() { # snap <source dir> <name inside the snapshot>
+  [[ -d "$1" ]] || return 0
+  local link=(); [[ -n "$PREV" && -d "$PREV/$2" ]] && link=(--link-dest="$PREV/$2")
+  rsync -a --delete "${link[@]}" --exclude='logs/' --exclude='spool/' "$1/" "$SNAP/$2/"
+}
+snap "$APP_VAR" var
+snap "$ARCHIVE_DIR" history-archive
+# Verify: same number of regular files in source and snapshot (excluded folders left out of the count).
+count() { [[ -d "$1" ]] && find "$1" -type f -not -path '*/logs/*' -not -path '*/spool/*' | wc -l || echo 0; }
+SRC_N=$(( $(count "$APP_VAR") + $(count "$ARCHIVE_DIR") )); SNAP_N=$(count "$SNAP")
+if [[ "$SRC_N" -ne "$SNAP_N" ]]; then echo "FILES BACKUP MISMATCH: source $SRC_N, snapshot $SNAP_N" >&2; exit 1; fi
+ls -1d "$FILES"/2* | sort | head -n -"$KEEP_FILE_SNAPSHOTS" | xargs -r rm -rf
+
+find "$OUT" -maxdepth 1 -type f -mtime +14 -delete
+printf '{"ok":true,"at":"%s","bytes":%s,"files":%s,"filesBytes":%s}\n' "$STAMP" "$(stat -c %s "$OUT/db-$STAMP.dump")" "$SNAP_N" "$(du -sb "$SNAP" | cut -f1)" > "$OUT/last-status.json"
