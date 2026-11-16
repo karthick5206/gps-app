@@ -1,3 +1,4 @@
+import * as ImagePicker from 'expo-image-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
 import { useSyncExternalStore } from 'react';
@@ -55,6 +56,17 @@ export function onPhotoNoteDelivered(fn: (() => void) | null): void {
 
 function extFor(mime: string): string {
   return mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg';
+}
+
+/**
+ * iPhones shoot HEIC, which the server can't read: the picker is asked for JPEG (quality 0.8 re-encodes camera shots,
+ * "compatible" representation converts library photos). Anything still HEIC / HEIF is refused here.
+ */
+export const PICKER_JPEG = { quality: 0.8, preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible } as const;
+
+export function isUnsupportedPhoto(a: { uri: string; mimeType?: string | null; fileName?: string | null }): boolean {
+  const name = `${a.mimeType ?? ''} ${a.fileName ?? ''} ${a.uri}`.toLowerCase();
+  return /heic|heif/.test(name);
 }
 
 export function normaliseMime(mime: string | null | undefined): string {

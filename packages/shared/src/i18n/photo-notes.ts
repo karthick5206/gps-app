@@ -78,6 +78,7 @@ export const PHOTO_NOTES_HI: Record<string, string> = {
   "Uploading…": "अपलोड हो रहा है…",
   "Waiting for a connection to upload": "अपलोड के लिए कनेक्शन का इंतज़ार",
   "Waiting to upload": "अपलोड की प्रतीक्षा में",
+  "This photo format is not supported. Take the photo again or choose a JPEG photo.": "यह फ़ोटो फ़ॉर्मेट समर्थित नहीं है। फ़ोटो फिर से लें या JPEG फ़ोटो चुनें।",
 };
 
 export const PHOTO_NOTES_TA: Record<string, string> = {
@@ -156,4 +157,5 @@ export const PHOTO_NOTES_TA: Record<string, string> = {
   "Uploading…": "பதிவேற்றப்படுகிறது…",
   "Waiting for a connection to upload": "பதிவேற்ற இணைப்புக்காகக் காத்திருக்கிறது",
   "Waiting to upload": "பதிவேற்றக் காத்திருக்கிறது",
+  "This photo format is not supported. Take the photo again or choose a JPEG photo.": "இந்த புகைப்பட வடிவம் ஆதரிக்கப்படவில்லை. மீண்டும் புகைப்படம் எடுக்கவும் அல்லது JPEG புகைப்படத்தைத் தேர்ந்தெடுக்கவும்.",
 };

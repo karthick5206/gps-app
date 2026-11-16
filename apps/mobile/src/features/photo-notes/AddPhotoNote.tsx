@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Chips, Field, Text } from '@/components/ui';
 import { SPACE, useColors } from '@/lib/theme';
 import { randomUuid } from './photo-note-queue';
-import { currentFix, discardPhotos, normaliseMime, persistPhotos, queuePhotoNote, type FixResult } from './photo-note-store';
+import { currentFix, discardPhotos, isUnsupportedPhoto, normaliseMime, PICKER_JPEG, persistPhotos, queuePhotoNote, type FixResult } from './photo-note-store';
 
 type Picked = { uri: string; mimeType: string };
 
@@ -57,11 +57,13 @@ export function AddPhotoNote({ onClose, onQueued }: { onClose: () => void; onQue
       if (!perm.granted) return Alert.alert(t('Camera'), t('Allow the camera to take the photo.'));
     }
     const opts: ImagePicker.ImagePickerOptions = camera
-      ? { mediaTypes: ['images'], quality: 0.7 }
-      : { mediaTypes: ['images'], quality: 0.7, allowsMultipleSelection: true, selectionLimit: room };
+      ? { mediaTypes: ['images'], ...PICKER_JPEG }
+      : { mediaTypes: ['images'], ...PICKER_JPEG, allowsMultipleSelection: true, selectionLimit: room };
     const r = camera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
     if (r.canceled || !r.assets.length) return;
-    const added = r.assets.slice(0, room).map((a) => ({ uri: a.uri, mimeType: normaliseMime(a.mimeType) }));
+    const usable = r.assets.filter((a) => !isUnsupportedPhoto(a));
+    if (usable.length < r.assets.length) Alert.alert(t('Photos'), t('This photo format is not supported. Take the photo again or choose a JPEG photo.'));
+    const added = usable.slice(0, room).map((a) => ({ uri: a.uri, mimeType: normaliseMime(a.mimeType) }));
     if (!takenAt) setTakenAt(new Date().toISOString());
     setPhotos((p) => [...p, ...added].slice(0, PHOTO_NOTE_MAX_PHOTOS));
   };

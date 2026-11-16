@@ -220,6 +220,7 @@ const en = {
   photoNoteLocationUnavailable: 'Could not find your location. Move to an open area and try again.',
   photoNoteRefreshLocation: 'Refresh',
   photoNoteCameraDenied: 'Allow the camera to take the photo.',
+  photoNoteUnsupported: 'This photo format is not supported. Take the photo again.',
   photoNoteNeedPhoto: 'Take at least one photo.',
   photoNoteSaved: 'Photo note saved. It is uploaded now, or as soon as there is a connection.',
   photoNoteStoreFailed: 'The photo note could not be stored on this phone. Check the free space and try again.',

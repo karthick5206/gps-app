@@ -216,6 +216,7 @@ export const hi: Strings = {
   photoNoteLocationUnavailable: 'आपका स्थान नहीं मिला। खुली जगह पर जाकर फिर से कोशिश करें।',
   photoNoteRefreshLocation: 'फिर से लें',
   photoNoteCameraDenied: 'फ़ोटो लेने के लिए कैमरे की अनुमति दें।',
+  photoNoteUnsupported: 'यह फ़ोटो फ़ॉर्मेट समर्थित नहीं है। फ़ोटो फिर से लें।',
   photoNoteNeedPhoto: 'कम से कम एक फ़ोटो लें।',
   photoNoteSaved: 'फ़ोटो नोट सहेजा गया। यह अभी अपलोड होगा, या कनेक्शन मिलते ही।',
   photoNoteStoreFailed: 'फ़ोटो नोट इस फ़ोन में सहेजा नहीं जा सका। खाली जगह जाँचें और फिर से कोशिश करें।',

@@ -9,7 +9,7 @@ import { api, ApiError, PHOTO_NOTE_CATEGORIES, PHOTO_NOTE_MAX_PHOTOS, PHOTO_NOTE
 import { handleAuthError } from '@/lib/control';
 import { rupees, shortDateTime } from '@/lib/format';
 import { randomUuid, type QueuedNote } from '@/lib/photo-note-queue';
-import { currentFix, discardPhotos, normaliseMime, onPhotoNoteDelivered, persistPhotos, photoNoteQueue, queuedPhotoUri, queuePhotoNote, retryPhotoNote, startPhotoNotes, usePhotoNoteQueue, type FixResult } from '@/lib/photo-notes';
+import { currentFix, discardPhotos, isUnsupportedPhoto, normaliseMime, PICKER_JPEG, onPhotoNoteDelivered, persistPhotos, photoNoteQueue, queuedPhotoUri, queuePhotoNote, retryPhotoNote, startPhotoNotes, usePhotoNoteQueue, type FixResult } from '@/lib/photo-notes';
 import { getToken } from '@/lib/state';
 import { S, serverText } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -87,9 +87,10 @@ export default function PhotoNoteScreen() {
     if (room <= 0) return Alert.alert(S.photoNotesTitle, S.photoNoteMaxPhotos(PHOTO_NOTE_MAX_PHOTOS));
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Alert.alert(S.photoNotesTitle, S.photoNoteCameraDenied);
-    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
+    const shot = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], ...PICKER_JPEG });
     const a = shot.canceled ? null : shot.assets[0];
     if (!a) return;
+    if (isUnsupportedPhoto(a)) return Alert.alert(S.photoNotesTitle, S.photoNoteUnsupported);
     if (!takenAt) setTakenAt(new Date().toISOString());
     setPhotos((p) => [...p, { uri: a.uri, mimeType: normaliseMime(a.mimeType) }].slice(0, PHOTO_NOTE_MAX_PHOTOS));
   };
