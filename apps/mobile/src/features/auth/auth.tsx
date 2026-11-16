@@ -8,6 +8,7 @@ import { forgetOfflineIdentity, loadOfflineIdentity } from '@/features/transport
 import { serverChoice } from '@/lib/config';
 import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
+import { clearPhotoCache } from '@/features/objects/object-photo';
 import { unregisterPush } from '@/features/notifications/push';
 import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
 import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
@@ -99,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshToken) api.post('/auth/logout', { refreshToken }, { anonymous: true }).catch(() => undefined);
     session.clear();
     liveStore.reset();
+    clearPhotoCache();
     queryClient.clear();
     setStatus('anonymous');
   }, [queryClient]);

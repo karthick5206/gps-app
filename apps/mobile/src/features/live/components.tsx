@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Chips, Pill, Text } from '@/components/ui';
 import { vehicleImage } from '@/features/map/vehicle-icons';
+import { ObjectPhoto } from '@/features/objects/object-photo';
 import { relativeTime, timeInStatus } from '@/lib/format';
 import { SPACE, statusColor, useScheme } from '@/lib/theme';
 
@@ -21,8 +22,10 @@ export function StatusPill({ o, now }: { o: LiveObject; now?: number }) {
   return <Pill label={timeInStatus(t(meta.label), o.statusSince, now) ?? t(meta.label)} color={statusColor(o.status, scheme)} />;
 }
 
+/** The map icon, or the person's photo (round) when they have one. */
 export function VehicleThumb({ o, size = 36 }: { o: LiveObject; size?: number }) {
-  return <Image source={vehicleImage(o)} style={{ width: size, height: size }} contentFit="contain" />;
+  const icon = <Image source={vehicleImage(o)} style={{ width: size, height: size }} contentFit="contain" />;
+  return <ObjectPhoto o={o} size={size} fallback={icon} />;
 }
 
 /** Name, plate, status, speed and last update — used in the list and on the map card. */
