@@ -21,7 +21,9 @@ const BUNDLES: Record<Exclude<LanguageCode, 'en'>, BundleImporter> = {
       import('@veetracer/shared-i18n/pricing-web'),
       import('@veetracer/shared-i18n/object-photo'),
       import('@veetracer/shared-i18n/photo-notes'),
-    ]).then(([m, p, pr, ph, pn]) => ({
+      import('@veetracer/shared-i18n/photo-features'),
+    ]).then(([m, p, pr, ph, pn, pf]) => ({
+      ...pf.PHOTO_FEATURES_HI,
       ...pn.PHOTO_NOTES_HI,
       ...ph.OBJECT_PHOTO_HI,
       ...pr.PRICING_WEB_HI,
@@ -35,7 +37,9 @@ const BUNDLES: Record<Exclude<LanguageCode, 'en'>, BundleImporter> = {
       import('@veetracer/shared-i18n/pricing-web'),
       import('@veetracer/shared-i18n/object-photo'),
       import('@veetracer/shared-i18n/photo-notes'),
-    ]).then(([m, p, pr, ph, pn]) => ({
+      import('@veetracer/shared-i18n/photo-features'),
+    ]).then(([m, p, pr, ph, pn, pf]) => ({
+      ...pf.PHOTO_FEATURES_TA,
       ...pn.PHOTO_NOTES_TA,
       ...ph.OBJECT_PHOTO_TA,
       ...pr.PRICING_WEB_TA,

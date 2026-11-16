@@ -26,7 +26,7 @@ import { z } from 'zod';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import type { Option } from '@/components/ui/multi-select';
 import { ComplianceSheet, type ComplianceTarget } from '@/features/documents/CompliancePanel';
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuth, usePhotoFeatures } from '@/features/auth/auth-context';
 import { ActiveBadge, Dash, DateCell, Muted, NameList } from '../cells';
 import { humanize } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
@@ -67,6 +67,8 @@ const deviceOption = (d: DeviceDto): Option => ({ value: d.id, label: d.uniqueId
 function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjectDto>) {
   const { t } = useTranslation();
   const { can, me } = useAuth();
+  // Person photos switched off for the company (Settings → Features): no upload here.
+  const { personPhotos } = usePhotoFeatures();
   // v1.16.7: optional transport details (seats, wheelchair, category, AC) for companies with Employee transport.
   const etms = !!me?.company.features.includes('etms') && can('objects', 'edit');
   const [transport, setTransport] = useState<VehicleTransportValues>(EMPTY_TRANSPORT_VALUES);
@@ -130,7 +132,7 @@ function ObjectForm({ record, open, onOpenChange }: MasterFormProps<TrackedObjec
 
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title={record ? 'Edit object' : 'Add object'} wide pending={save.isPending} error={save.error} onSubmit={submit}>
-      {hasPhotoType(type) && can('objects', 'edit') && (
+      {personPhotos && hasPhotoType(type) && can('objects', 'edit') && (
         <div className="rounded-lg border border-dashed p-3">
           <p className="mb-2 text-sm font-medium">{t('Photo')}</p>
           {record ? (

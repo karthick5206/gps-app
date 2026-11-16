@@ -3,7 +3,7 @@ import { WEB_URL } from '@/components/HomeMenu';
 import { Row, Section } from '@/components/ui';
 import { ProfilePhoto } from '@/components/ProfilePhoto';
 import { APP_VERSION } from '@/lib/device';
-import { store, useStoreVersion } from '@/lib/state';
+import { photoFeatures, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 
@@ -19,7 +19,8 @@ export default function ProfileScreen() {
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
       {session ? (
         <View style={styles.who}>
-          <ProfilePhoto initial={(session.objectName || '#').trim().charAt(0).toUpperCase()} />
+          {/* Profile photo only while the account's person photos switch is on; otherwise just the initial. */}
+          <ProfilePhoto initial={(session.objectName || '#').trim().charAt(0).toUpperCase()} enabled={photoFeatures().personPhotos} />
           <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
             {session.objectName || `+${session.uniqueId}`}
           </Text>

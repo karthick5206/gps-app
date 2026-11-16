@@ -7,6 +7,8 @@ import { AuditService } from '../../audit/audit.service';
 import { BulkActionDto, runBulk } from '../../common/bulk';
 import { companyFeatures, withFeatures } from '../../common/company-features';
 import { setCompanySetting } from '../../common/company-settings';
+import { mergePhotoFeatures, PHOTO_FEATURES_SETTING, writePhotoFeatures } from '../../photo-features/photo-features';
+import { PHOTO_FEATURES_OFF } from '@veetracer/shared';
 import { ensureEtmsRoleTemplates } from '../../etms/etms-role-templates';
 import { ensurePricingRoleTemplates } from '../../pricing/pricing-role-templates';
 import { toCompanySummary } from '../../common/company-summary';
@@ -96,7 +98,7 @@ export class CompaniesService {
       const partner = await tx.partner.findUnique({ where: { slug: DEFAULT_PARTNER_SLUG } });
       if (!partner) throw new BadRequestException('Default partner missing — run the seed');
       const company = await tx.company.create({
-        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays, ...(dto.features ? { settings: withFeatures({}, dto.features) as Prisma.InputJsonValue } : {}) },
+        data: { partnerId: partner.id, name: dto.name.trim(), accountType: dto.accountType, timezone: dto.timezone, retentionDays: dto.retentionDays, ...(dto.features || dto.photoFeatures ? { settings: { ...(dto.features ? withFeatures({}, dto.features) : {}), ...(dto.photoFeatures ? { [PHOTO_FEATURES_SETTING]: mergePhotoFeatures(PHOTO_FEATURES_OFF, dto.photoFeatures) } : {}) } as Prisma.InputJsonValue } : {}) },
       });
       if (dto.historyArchive) await setCompanySetting(tx, company.id, 'historyArchive', { enabled: dto.historyArchive.enabled, afterDays: dto.historyArchive.afterDays });
       const roles = await ensureSystemRoles(tx, company.id);
@@ -127,7 +129,7 @@ export class CompaniesService {
 
   async update(ctx: AuthContext, id: string, dto: UpdateCompanyDto): Promise<CompanyDto> {
     const before = await this.find(id);
-    const { features, historyArchive, ...fields } = dto;
+    const { features, photoFeatures, historyArchive, ...fields } = dto;
     // ETMS module switch (P6): turning the add-on on seeds the transport role templates once; turning it off keeps them
     // (menus are hidden and refused while off, nothing is deleted).
     const etmsOn = !!features?.includes('etms') && !companyFeatures(before).includes('etms');
@@ -137,6 +139,8 @@ export class CompaniesService {
       // F9: the add-on list is written as its own key (atomic jsonb_set), so a concurrent settings save by the company
       // can't undo the switch (e.g. turn ETMS back on after a rollback), and this can't undo theirs.
       if (features) await setCompanySetting(tx, id, 'features', withFeatures({}, features).features);
+      // Photo switches: their own key too (a company admin may switch them at the same time from Settings → Features).
+      if (photoFeatures) await writePhotoFeatures(tx, id, before.settings, photoFeatures);
       // History archiving switch: its own key, so a company admin's settings save can't undo it.
       if (historyArchive) await setCompanySetting(tx, id, 'historyArchive', { enabled: historyArchive.enabled, afterDays: historyArchive.afterDays });
       const updated = await tx.company.update({
@@ -150,7 +154,8 @@ export class CompaniesService {
     });
     await this.audit.record(ctx, { action: 'UPDATE', entity: ENTITY, entityId: id, before, after: row });
     if (templates.length) await this.audit.record(ctx, { action: 'CREATE', entity: 'role', entityId: null, details: { reason: pricingOn && !etmsOn ? 'pricing module enabled' : 'etms module enabled', companyId: id, roles: templates } });
-    if ((dto.status && dto.status !== before.status) || features) await this.redis.invalidateCache('company');
+    if ((dto.status && dto.status !== before.status) || features || photoFeatures) await this.redis.invalidateCache('company');
+    if (photoFeatures) await this.redis.invalidateCache('object').catch(() => undefined);
     return toDto(row);
   }
 

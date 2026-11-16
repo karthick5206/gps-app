@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can as canDo, type Action, type LoginResponse, type Me, type MenuKey } from '@veetracer/shared';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { api, refreshAccessToken, setSessionExpiredHandler } from '@/lib/api';
 import { session } from '@/lib/session';
@@ -52,6 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: ({ signal }) => api.get<Me>('/auth/me', undefined, signal),
     enabled: status === 'authenticated',
     staleTime: 5 * 60_000,
+    // Company switches (photo features) and permissions may change elsewhere: read again whenever the tab is back.
+    refetchOnWindowFocus: 'always',
   });
 
   // Report tables show times in the company time zone, the zone of report periods and exports (D-1).
@@ -103,6 +105,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     displayStore.set({ textSize: profileTextSize, mapIconSize: profileIconSize });
   }, [profileTextSize, profileIconSize]);
+  // Person photos switched on / off: the live map reloads its snapshot (photo versions come with it).
+  const personPhotos = me?.company.photoFeatures?.personPhotos;
+  const lastPersonPhotos = useRef(personPhotos);
+  useEffect(() => {
+    if (lastPersonPhotos.current === personPhotos) return;
+    const first = lastPersonPhotos.current === undefined;
+    lastPersonPhotos.current = personPhotos;
+    if (!first && liveStore.snapshotLoaded) liveStore.loadSnapshot().catch(() => undefined);
+  }, [personPhotos]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(

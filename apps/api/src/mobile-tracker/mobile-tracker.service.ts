@@ -14,6 +14,7 @@ import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { SystemMessagesService } from '../templates/system-messages.service';
 import { TrackerSelfService } from './self-service';
+import { trackerPhotoFeatures } from '../photo-features/photo-features';
 import { ObjectPhotosService } from '../object-photos/object-photos.service';
 import type { ObjectPhotoState } from '../object-photos/object-photos.service';
 import type { UploadedPhoto } from '../object-photos/object-photo-image';
@@ -507,12 +508,14 @@ export class MobileTrackerService {
       select: {
         uniqueId: true,
         activationEmail: true,
-        company: { select: { name: true, accountType: true } },
+        company: { select: { id: true, name: true, accountType: true, settings: true } },
         licenceSeat: { select: { source: true, expiresAt: true } },
         assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } },
       },
     });
-    return { ...this.describe(device), config: this.config(), required: s.required, ...this.server() };
+    // v1.18: the account's photo switches (the app hides Profile photo / Photo notes while off; read again on resume).
+    const photoFeatures = device.company ? await trackerPhotoFeatures(this.prisma, device.company, device.uniqueId) : { personPhotos: false, photoNotes: false, canEdit: false };
+    return { ...this.describe(device), photoFeatures, config: this.config(), required: s.required, ...this.server() };
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
@@ -590,6 +593,12 @@ export class MobileTrackerService {
   async photoRemove(authorization: string | undefined): Promise<ObjectPhotoState> {
     const s = await this.session(authorization);
     return this.requirePhotos().trackerRemove(s.deviceId);
+  }
+
+  /** The phone behind a tracker token (feature switches): its device and number. */
+  async phoneSession(authorization: string | undefined): Promise<{ deviceId: string; uniqueId: string }> {
+    const s = await this.session(authorization);
+    return { deviceId: s.deviceId, uniqueId: s.uniqueId };
   }
 
   // ───────────── photo notes of the phone's person ─────────────

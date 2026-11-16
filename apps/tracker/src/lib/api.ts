@@ -68,6 +68,16 @@ export interface MeResponse {
   accountType?: 'BUSINESS' | 'INDIVIDUAL' | 'FAMILY' | null;
   trialEndsAt?: string | null;
   licenceEndsAt?: string | null;
+  /** v1.18: the account's photo switches (absent from older servers = off). */
+  photoFeatures?: PhotoFeatures;
+}
+/** Photo feature switches of the phone's account; canEdit: this phone is the owner of a personal / family account. */
+export interface PhotoFeatures {
+  personPhotos: boolean;
+  photoNotes: boolean;
+  canEdit: boolean;
+  blockedBy?: 'NOT_ADMIN' | 'BUSINESS_ACCOUNT' | 'NOT_OWNER';
+  accountType?: 'BUSINESS' | 'INDIVIDUAL' | 'FAMILY';
 }
 export interface VerifyResponse extends MeResponse { token: string }
 /** Registered number: its e-mail / name (only when this phone activated it before), else a masked e-mail hint. */
@@ -260,6 +270,9 @@ export const api = {
   /** This phone's person's recent photo notes (taken in this app). */
   photoNotes: (token: string, limit = 30) => request<{ items: PhotoNote[] }>('GET', `/photo-notes?limit=${limit}`, undefined, token),
   deletePhotoNote: (token: string, id: string) => request<{ ok: true }>('DELETE', `/photo-notes/${encodeURIComponent(id)}`, undefined, token),
+  /** Photo feature switches; only the owner of a personal / family account may change them (403 otherwise). */
+  photoFeatures: (token: string) => request<PhotoFeatures>('GET', '/photo-features', undefined, token),
+  setPhotoFeatures: (token: string, change: Partial<Pick<PhotoFeatures, 'personPhotos' | 'photoNotes'>>) => request<PhotoFeatures>('PUT', '/photo-features', change, token),
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),

@@ -1,4 +1,4 @@
-import { ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, type CompanyFeature, type DataScope, type PermissionMap } from '@veetracer/shared';
+import { ETMS_ROLE_TEMPLATES, SYSTEM_ROLES, withoutUnavailableMenus, PHOTO_FEATURE_KEYS, type CompanyFeature, type DataScope, type PermissionMap } from '@veetracer/shared';
 import { RolesService } from '../masters/roles/roles.service';
 import { UsersService } from '../masters/users/users.service';
 import { aboveCeiling, assertRoleWithinCeiling, ceilingExcess, resolvePermissions, RoleGrant } from './access-rules';
@@ -42,6 +42,8 @@ function ctxFor(roleIds: string[], opts: { features?: CompanyFeature[]; admin?: 
     isSuperAdmin: !!opts.superAdmin,
     isCompanyAdmin: !!opts.admin || !!opts.superAdmin,
     permissions: withoutUnavailableMenus(resolved.permissions, opts.features ?? []),
+    // As AuthContextService builds it: company switches (photo notes) off, but they do not lower the ceiling.
+    ceilingPermissions: withoutUnavailableMenus(resolved.permissions, opts.features ?? [], PHOTO_FEATURE_KEYS),
     dataScope: resolved.dataScope,
     branchIds: ['b1'],
     objectIds: [],

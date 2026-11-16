@@ -13,6 +13,8 @@ import { dbDescribe } from '../test/scratch-db';
 import { deleteCompanyPhotoDir, OBJECT_PHOTOS_DIR } from './object-photo-files';
 import { ObjectPhotosService } from './object-photos.service';
 
+/** v1.18 photo switches on (default off; photo-features.db-test.ts covers off). */
+const ON = { photos: { personPhotos: true, photoNotes: true } };
 const URL_ = process.env.ETMS_DB_TEST_URL ?? '';
 const { d, dbName } = dbDescribe(URL_);
 
@@ -41,8 +43,8 @@ d(`object photos on ${dbName}`, () => {
 
   beforeAll(async () => {
     partnerId = (await prisma.partner.create({ data: { name: `${tag} partner`, slug: `${tag.toLowerCase()}-p` } })).id;
-    a = (await prisma.company.create({ data: { partnerId, name: `${tag} A` } })).id;
-    b = (await prisma.company.create({ data: { partnerId, name: `${tag} B` } })).id;
+    a = (await prisma.company.create({ data: { partnerId, name: `${tag} A`, settings: ON } })).id;
+    b = (await prisma.company.create({ data: { partnerId, name: `${tag} B`, settings: ON } })).id;
     person = (await prisma.trackedObject.create({ data: { companyId: a, name: `${tag} person`, type: 'PERSON' } })).id;
     vehicle = (await prisma.trackedObject.create({ data: { companyId: a, name: `${tag} car`, type: 'VEHICLE' } })).id;
     otherPerson = (await prisma.trackedObject.create({ data: { companyId: b, name: `${tag} other`, type: 'PERSON' } })).id;

@@ -20,7 +20,7 @@ now; test the photo features after the release.
 |---|---|---|
 | **Person photo** (profile picture on the map, status-coloured ring, hover card on web) | Profile → take photo (front camera) / choose photo / remove — `src/components/ProfilePhoto.tsx`, `src/app/profile.tsx` | Photos shown on the map, lists and vehicle detail — `src/features/objects/object-photo.tsx`, `src/features/map/FleetMap.tsx` |
 | **Location photo notes** (1–5 photos, category Bill / Receipt / Visit / Other, note, amount; saved with GPS position, time, address; offline queue) | Home card + menu → "Add photo here" — `src/app/photo-note.tsx`, `src/lib/photo-notes.ts`, `src/lib/photo-note-queue.ts` | More → Photo notes — `src/app/photo-notes.tsx`, `src/features/photo-notes/*` |
-| **Feature switches** (coming in the same release) | Photo features hidden until the company (or the account owner in the Tracker app) switches them on | Same; admins can switch them on in Settings |
+| **Feature switches** (person photos, photo notes; off by default) | Menu → Features (`src/app/features.tsx`): the owner of a personal / family account switches them; company phones see them read-only ("Ask your administrator"). While off, Profile photo, the home photo-notes card and the Photo notes menu entry are hidden; /me is read again when the app returns to the foreground | More → Features (`src/app/features.tsx`, administrators). While off, Photo notes is hidden and the map shows the figure instead of photos; /auth/me is read again on resume |
 
 ## iOS checklist (both apps)
 

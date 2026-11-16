@@ -14,7 +14,7 @@ import { useColors } from '@/lib/theme';
  * square and removes EXIF incl. GPS), or remove it. Hidden when the phone is not linked to a person (404) or offline.
  * Falls back to the initial when there is no photo.
  */
-export function ProfilePhoto({ initial }: { initial: string }) {
+export function ProfilePhoto({ initial, enabled = true }: { initial: string; enabled?: boolean }) {
   const c = useColors();
   const [state, setState] = useState<PhotoState | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -81,6 +81,13 @@ export function ProfilePhoto({ initial }: { initial: string }) {
       </View>
     );
 
+  if (!enabled) {
+    return (
+      <View style={[styles.photo, { backgroundColor: c.header, alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={[styles.initial, { color: c.headerText }]}>{initial}</Text>
+      </View>
+    );
+  }
   if (!state) return avatar;
   return (
     <View style={styles.wrap}>

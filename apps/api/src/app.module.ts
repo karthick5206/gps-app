@@ -41,6 +41,7 @@ import { FuelModule } from './fuel/fuel.module';
 import { IoSensorsModule } from './io-sensors/io-sensors.module';
 import { MobileTrackerModule } from './mobile-tracker/mobile-tracker.module';
 import { PhotoNotesModule } from './photo-notes/photo-notes.module';
+import { PhotoFeaturesModule } from './photo-features/photo-features.module';
 import { SignupModule } from './signup/signup.module';
 import { GuideModule } from './guide/guide.module';
 import { DeviceClaimModule } from './device-claim/device-claim.module';
@@ -112,6 +113,7 @@ import { PricingModule } from './pricing/pricing.module';
     IoSensorsModule,
     MobileTrackerModule,
     PhotoNotesModule,
+    PhotoFeaturesModule,
     SignupModule,
     GuideModule,
     DeviceClaimModule,

@@ -135,7 +135,8 @@ describe('photo access rules', () => {
 describe('ObjectPhotosService scope', () => {
   const make = (row: unknown) => {
     const prisma = {
-      trackedObject: { findFirst: jest.fn().mockResolvedValue(row), update: jest.fn() },
+      // v1.18: the owner company's person photos switch is on (photo-features.spec.ts covers off).
+      trackedObject: { findFirst: jest.fn().mockResolvedValue(row && { company: { settings: { photos: { personPhotos: true } } }, ...(row as object) }), update: jest.fn() },
       device: { findUnique: jest.fn() },
     };
     const audit = { record: jest.fn(), recordSystem: jest.fn() };

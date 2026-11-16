@@ -262,6 +262,18 @@ const en = {
   cancel: 'Cancel',
   ok: 'OK',
 
+  // Photo feature switches (Features screen)
+  featuresTitle: 'Features',
+  featuresIntro: 'Photo features of this account. Switching one off only hides it: photos and notes already saved are kept and come back when it is switched on again.',
+  featurePersonPhotos: 'Person photos',
+  featurePersonPhotosHint: 'The profile photo of the person this phone tracks, shown on the map.',
+  featurePhotoNotes: 'Photo notes',
+  featurePhotoNotesHint: 'Photos with a note and their place ("Add photo here").',
+  featuresAskAdmin: 'Ask your administrator to change these.',
+  featuresOwnerOnly: 'Only the account owner can change these.',
+  featuresLoadFailed: 'Could not load the features. Check the connection and try again.',
+  photoNotesOff: 'Photo notes are switched off for this account.',
+
   // Messages from the server, which always answers in English: exact text → translation.
   server: {} as Record<string, string>,
 };

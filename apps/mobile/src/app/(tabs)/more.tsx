@@ -2,7 +2,7 @@ import { Children, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon, CameraIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon, CameraIcon, ToggleRightIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -138,6 +138,8 @@ export default function MoreScreen() {
 
       <MenuGroup title={t('Alert Management')}>
         {can('alert_settings') && <MenuItem icon={BellRingIcon} label={t('Alert settings')} href="/alert-settings" />}
+        {/* Company photo switches (person photos, photo notes): administrators. */}
+        {can('settings', 'edit') && <MenuItem icon={ToggleRightIcon} label={t('Features')} href="/features" />}
       </MenuGroup>
 
       <MenuGroup>

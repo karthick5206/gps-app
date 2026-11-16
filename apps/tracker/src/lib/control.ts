@@ -149,3 +149,23 @@ export async function recheckInactive(st: TrackerStatus | null, force = false): 
     await handleAuthError(e);
   }
 }
+
+const SESSION_REFRESH_MS = 30_000;
+let lastSessionRefresh = 0;
+
+/**
+ * Reads /me again (names, licence, the account's photo switches) when the home screen comes back into view or the app
+ * returns to the foreground; at most every 30 s unless forced. Offline: keeps what we have.
+ */
+export async function refreshSession(force = false): Promise<void> {
+  if (!force && Date.now() - lastSessionRefresh < SESSION_REFRESH_MS) return;
+  const token = await getToken();
+  if (!token || !store.session() || store.inactive()) return;
+  lastSessionRefresh = Date.now();
+  try {
+    const me = await api.me(token);
+    store.setSession(sessionFrom(me));
+  } catch (e) {
+    await handleAuthError(e);
+  }
+}

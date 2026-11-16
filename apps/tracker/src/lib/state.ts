@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_CONFIG, type TrackerConfig } from './api';
+import { DEFAULT_CONFIG, type PhotoFeatures, type TrackerConfig } from './api';
 import { kvGet, kvSet } from './db';
 
 /**
@@ -19,6 +19,8 @@ export interface SessionInfo {
   accountType?: string | null;
   trialEndsAt?: string | null;
   licenceEndsAt?: string | null;
+  /** v1.18 photo switches of the account (absent = off). */
+  photoFeatures?: PhotoFeatures;
 }
 
 /** Session row from a /me or /activate/verify response. */
@@ -31,6 +33,7 @@ export function sessionFrom(r: {
   accountType?: string | null;
   trialEndsAt?: string | null;
   licenceEndsAt?: string | null;
+  photoFeatures?: PhotoFeatures;
 }): SessionInfo {
   return {
     uniqueId: r.uniqueId,
@@ -41,6 +44,7 @@ export function sessionFrom(r: {
     accountType: r.accountType ?? null,
     trialEndsAt: r.trialEndsAt ?? null,
     licenceEndsAt: r.licenceEndsAt ?? null,
+    photoFeatures: r.photoFeatures,
   };
 }
 
@@ -62,6 +66,11 @@ export async function setToken(token: string | null): Promise<void> {
   if (token) await SecureStore.setItemAsync(TOKEN_KEY, token);
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
   emit();
+}
+
+/** The account's photo switches from the last /me (off until known). */
+export function photoFeatures(): PhotoFeatures {
+  return store.session()?.photoFeatures ?? { personPhotos: false, photoNotes: false, canEdit: false };
 }
 
 export const store = {
