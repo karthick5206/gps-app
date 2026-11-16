@@ -3,6 +3,7 @@
  * web and mobile build their navigation from this list filtered by the user's permissions.
  */
 import type { CompanyFeature } from './api';
+import type { CompanySwitch } from './photo-features';
 
 /** `approve` (doc 19 §9.3): maker-checker approvals (pricing contracts, vehicle rates, adjustments), grantable without `command`. */
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command', 'approve'] as const;
@@ -14,6 +15,12 @@ export type MenuGroup = 'main' | 'transport' | 'pricing' | 'people' | 'costs' | 
 export interface MenuRequires {
   /** Company add-on (COMPANY_FEATURES) that must be on in the acting company; otherwise the menu is hidden and refused. */
   companyFeature?: CompanyFeature;
+  /**
+   * Company self-service switch (Company.settings, e.g. photos.photoNotes) that must be on. Unlike an add-on the menu
+   * stays part of the built-in roles; while the switch is off it is stripped from the caller's permissions and its
+   * routes answer 403 FEATURE_OFF (not a hidden 404: the company knows the feature and can switch it on).
+   */
+  companySetting?: CompanySwitch;
 }
 
 export interface MenuDef {
@@ -65,6 +72,7 @@ export const MENU_KEYS = [
   'driver_scores',
   'attendance',
   'expenses',
+  'photo_notes',
   'reports',
   'objects',
   'drivers',
@@ -107,7 +115,7 @@ export const MENUS: readonly MenuDef[] = [
   // Tracking: where vehicles are and what is happening now.
   { key: 'dashboard', label: 'Dashboard', group: 'main', path: '/dashboard', actions: ['view'] },
   { key: 'live_map', label: 'Live Map', group: 'main', path: '/live', actions: ['view', 'command'] },
-  { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export'] },
+  { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export', 'command'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
   { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
@@ -150,6 +158,9 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'attendance', label: 'Staff attendance', group: 'people', path: '/attendance', actions: ['view', 'edit', 'export'] },
   // Costs & reports.
   { key: 'expenses', label: 'Fuel & expenses', group: 'costs', path: '/expenses', actions: ['view', 'create', 'delete'] },
+  // Location photo notes (bills, receipts, visits): view = own notes + those within the data scope; edit / delete reach
+  // other people's visible notes (one's own need only create).
+  { key: 'photo_notes', label: 'Photos & notes', group: 'people', path: '/photo-notes', actions: CRUD, requires: { companySetting: 'photoNotes' } },
   { key: 'reports', label: 'Reports', group: 'costs', path: '/reports', actions: ['view', 'export'] },
   { key: 'report_schedules', label: 'Scheduled Reports', group: 'costs', path: '/reports/schedules', actions: ['view', 'create', 'edit', 'delete'] },
   // Masters: fleet set-up first, then places, then reference data.
@@ -196,10 +207,19 @@ export function can(perms: PermissionMap, menu: MenuKey, action: Action = 'view'
   return perms[menu]?.includes(action) ?? false;
 }
 
-/** Whether a menu's module requirements are met by the acting company's add-ons. */
-export function menuAvailable(menu: Pick<MenuDef, 'requires'>, features: readonly CompanyFeature[]): boolean {
+/**
+ * Whether a menu's requirements are met by the acting company's add-ons and self-service switches. `switches` defaults
+ * to none: a caller that does not pass them treats every switch-gated menu as unavailable (fail closed).
+ */
+export function menuAvailable(menu: Pick<MenuDef, 'requires'>, features: readonly CompanyFeature[], switches: readonly CompanySwitch[] = []): boolean {
   const need = menu.requires?.companyFeature;
-  return !need || features.includes(need);
+  const setting = menu.requires?.companySetting;
+  return (!need || features.includes(need)) && (!setting || switches.includes(setting));
+}
+
+/** Menus of an add-on module (hidden, 404 while off), as opposed to a company switch (403 FEATURE_OFF while off). */
+export function isModuleMenu(menu: Pick<MenuDef, 'requires'>): boolean {
+  return !!menu.requires?.companyFeature;
 }
 
 /** Menus of a module (e.g. 'etms'): hidden and refused while the company add-on is off. */
@@ -207,12 +227,15 @@ export function moduleMenuKeys(feature: CompanyFeature): MenuKey[] {
   return MENUS.filter((m) => m.requires?.companyFeature === feature).map((m) => m.key);
 }
 
-/** Drop grants of menus whose module is off in the acting company (navigation hides them, the API refuses them). */
-export function withoutUnavailableMenus(perms: PermissionMap, features: readonly CompanyFeature[]): PermissionMap {
+/**
+ * Drop grants of menus whose module (add-on) or company switch is off in the acting company (navigation hides them,
+ * the API refuses them).
+ */
+export function withoutUnavailableMenus(perms: PermissionMap, features: readonly CompanyFeature[], switches: readonly CompanySwitch[] = []): PermissionMap {
   const out: PermissionMap = {};
   for (const m of MENUS) {
     const actions = perms[m.key];
-    if (actions && menuAvailable(m, features)) out[m.key] = actions;
+    if (actions && menuAvailable(m, features, switches)) out[m.key] = actions;
   }
   return out;
 }
@@ -226,7 +249,8 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     permissions: Object.fromEntries(
       // Module menus (requires) are never part of the global built-in roles: they come from the module's role templates
       // (ETMS: ETMS_ROLE_TEMPLATES, seeded when the add-on is switched on; P6).
-      MENUS.filter((m) => !m.superAdminOnly && !m.requires).map((m) => [m.key, [...m.actions]]),
+      // Menus behind a company switch (requires.companySetting, e.g. photo notes) stay in: the switch hides them.
+      MENUS.filter((m) => !m.superAdminOnly && !isModuleMenu(m)).map((m) => [m.key, [...m.actions]]),
     ) as PermissionMap,
   },
   {
@@ -245,6 +269,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       driver_scores: ['view'],
       attendance: ['view', 'export'],
       expenses: ['view', 'create', 'delete'],
+      photo_notes: ['view', 'create', 'edit', 'delete', 'export'],
       reports: ['view', 'export'],
       geofences: ['view', 'create', 'edit', 'export'],
       routes: ['view', 'create', 'edit', 'delete', 'export'],
@@ -268,7 +293,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     description: 'Tracks assigned branches/vehicles',
     dataScope: 'ASSIGNED',
     permissions: {
-      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
+      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], photo_notes: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
       geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
       routes: ['view'], plannedTrips: ['view'],
     },

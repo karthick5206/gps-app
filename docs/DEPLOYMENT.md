@@ -47,6 +47,7 @@ flowchart LR
 | `GEOCODER_REGIONS` | Optional, Photon only: several instances `CODE\|URL\|minLon,minLat,maxLon,maxLat` separated by `;` (e.g. `IN\|http://127.0.0.1:2322\|68,6,98,37;US\|http://127.0.0.1:2323\|-180,17,-65,72`). Overrides `GEOCODER_URL` (alone = one India instance). All URLs must be loopback / private |
 | `SUPER_ADMIN_PASSWORD` | only when running the seed on an empty database (≥ 12 characters) |
 | `WEBHOOK_ALLOW_PRIVATE`, `RELAY_ALLOW_PRIVATE` | unset (`true` re-opens private-network targets) |
+| `HISTORY_ARCHIVE`, `HISTORY_ARCHIVE_DIR` | History archiving (per company, off by default): `HISTORY_ARCHIVE=off` is the kill switch; `HISTORY_ARCHIVE_DIR` (default `/var/lib/veetrax/history-archive`) must be on the server's own disk and is included in the local nightly file backup (archived points are no longer in the database dump; off-site copy pending, Q-03). Details: [ops/deploy/linux/README.md → History archiving](../ops/deploy/linux/README.md#history-archiving-raw-gps-points--compressed-files-on-this-server) |
 | `API_HOST` | unset: the API then listens on 127.0.0.1 (production), reached only through the local proxy / tunnel. Set a private address only for a proxy on another host; `0.0.0.0` restores listening on every interface |
 
 ## 4. First-time setup (once per server)

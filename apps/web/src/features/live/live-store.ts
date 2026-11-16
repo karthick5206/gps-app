@@ -66,8 +66,22 @@ class LiveStore {
   /** Merges a `live:batch` (latest state per object). */
   applyBatch(items: LiveObject[]) {
     if (!items.length) return;
-    for (const o of items) this.objects.set(o.objectId, o);
-    this.emit({ type: 'batch', changed: items });
+    // Socket states carry no photo version (it comes with the snapshot): keep the one we have.
+    const merged = items.map((o) => {
+      const prev = this.objects.get(o.objectId);
+      return o.photoVersion === undefined && prev?.photoVersion !== undefined ? { ...o, photoVersion: prev.photoVersion } : o;
+    });
+    for (const o of merged) this.objects.set(o.objectId, o);
+    this.emit({ type: 'batch', changed: merged });
+  }
+
+  /** Local change of one object (e.g. a new person photo) shown at once. */
+  patch(objectId: string, changes: Partial<LiveObject>) {
+    const prev = this.objects.get(objectId);
+    if (!prev) return;
+    const next = { ...prev, ...changes };
+    this.objects.set(objectId, next);
+    this.emit({ type: 'batch', changed: [next] });
   }
 
   reset() {

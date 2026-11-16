@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -14,7 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { COMPANY_FEATURES, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type CompanyFeature } from '@veetracer/shared';
+import { COMPANY_FEATURES, HISTORY_ARCHIVE_MAX_DAYS, HISTORY_ARCHIVE_MIN_DAYS, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type CompanyFeature } from '@veetracer/shared';
 import { ListQueryDto } from '../../common/list-query';
 import { MOBILE_MESSAGE, MOBILE_PATTERN, PASSWORD_MESSAGE, PASSWORD_PATTERN } from '../../common/secrets';
 
@@ -32,6 +33,18 @@ export class CompanyAdminDto {
   @Matches(PASSWORD_PATTERN, { message: PASSWORD_MESSAGE }) password!: string;
 }
 
+/** Self-service photo switches (Company.settings.photos); only the keys sent change. */
+export class PhotoFeaturesDto {
+  @IsOptional() @IsBoolean() personPhotos?: boolean;
+  @IsOptional() @IsBoolean() photoNotes?: boolean;
+}
+
+/** Company.settings.historyArchive (Super Admin only). */
+export class HistoryArchiveDto {
+  @IsBoolean() enabled!: boolean;
+  @IsInt() @Min(HISTORY_ARCHIVE_MIN_DAYS) @Max(HISTORY_ARCHIVE_MAX_DAYS) afterDays!: number;
+}
+
 export class CreateCompanyDto {
   @IsString() @Length(1, 120) name!: string;
   @IsIn(ACCOUNT_TYPES) accountType!: AccountTypeValue;
@@ -39,6 +52,9 @@ export class CreateCompanyDto {
   @IsOptional() @IsInt() @Min(RETENTION_MIN_DAYS) @Max(RETENTION_MAX_DAYS) retentionDays?: number;
   /** Add-ons switched on (Company.settings.features). */
   @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
+  /** Person photos / photo notes (default off). */
+  @IsOptional() @ValidateNested() @Type(() => PhotoFeaturesDto) photoFeatures?: PhotoFeaturesDto;
+  @IsOptional() @ValidateNested() @Type(() => HistoryArchiveDto) historyArchive?: HistoryArchiveDto;
   @ValidateNested() @Type(() => CompanyAdminDto) admin!: CompanyAdminDto;
 }
 
@@ -50,4 +66,8 @@ export class UpdateCompanyDto {
   @IsOptional() @IsIn(['ACTIVE', 'SUSPENDED']) status?: 'ACTIVE' | 'SUSPENDED';
   /** Add-ons switched on; replaces the whole list (Company.settings.features). */
   @IsOptional() @IsArray() @IsIn(COMPANY_FEATURES, { each: true }) features?: CompanyFeature[];
+  /** Person photos / photo notes switches (Company.settings.photos); only the keys sent change. */
+  @IsOptional() @ValidateNested() @Type(() => PhotoFeaturesDto) photoFeatures?: PhotoFeaturesDto;
+  /** History archiving switch; written as its own settings key. */
+  @IsOptional() @ValidateNested() @Type(() => HistoryArchiveDto) historyArchive?: HistoryArchiveDto;
 }

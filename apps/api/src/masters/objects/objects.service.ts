@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisKeys } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { CreateObjectDto, ObjectListQuery, UpdateObjectDto } from './objects.dto';
+import { deletePhotoFiles } from '../../object-photos/object-photo-files';
+import { visiblePhotoVersion } from '../../photo-features/photo-features';
 
 const ENTITY = 'object';
 const INCLUDE = {
@@ -20,6 +22,8 @@ const INCLUDE = {
     include: { device: { select: { id: true, uniqueId: true, model: { select: { brand: true, model: true } } } } },
   },
   groups: { include: { group: { select: { id: true, name: true } } } },
+  // personPhotos switch of the owner company (photoVersion is null while it is off).
+  company: { select: { settings: true } },
 } satisfies Prisma.TrackedObjectInclude;
 type Row = Prisma.TrackedObjectGetPayload<{ include: typeof INCLUDE }>;
 
@@ -81,13 +85,15 @@ function toDto(o: Row): TrackedObjectDto {
     device: device ? { id: device.id, uniqueId: device.uniqueId, modelName: `${device.model.brand} ${device.model.model}` } : null,
     groups: o.groups.map((g) => ({ id: g.group.id, name: g.group.name })),
     customFields: asRecord(o.customFields),
+    photoVersion: visiblePhotoVersion(o.photoAt, o.company.settings),
     createdAt: iso(o.createdAt),
     updatedAt: iso(o.updatedAt),
   };
 }
 
 function snapshot(o: Row) {
-  const { branch, assignments, groups, ...scalars } = o;
+  // Photo file paths stay out of the audit trail (a photo change is audited as photo: true / false).
+  const { branch, assignments, groups, company: _c, photoPath: _p, photoThumbPath: _t, ...scalars } = o;
   return { ...scalars, deviceId: assignments[0]?.deviceId ?? null };
 }
 
@@ -187,6 +193,7 @@ export class ObjectsService {
   async remove(ctx: AuthContext, id: string): Promise<void> {
     const before = await this.find(ctx, id);
     await this.prisma.trackedObject.delete({ where: { id } });
+    await deletePhotoFiles([before]);
     await this.audit.record(ctx, { action: 'DELETE', entity: ENTITY, entityId: id, before: snapshot(before) });
     await this.redis.invalidateCache('object');
   }

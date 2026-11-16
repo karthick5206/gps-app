@@ -4,7 +4,7 @@ import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePermissions } from './access-rules';
-import { ALL_COMPANIES, withoutUnavailableMenus } from '@veetracer/shared';
+import { ALL_COMPANIES, companySwitchesOf, PHOTO_FEATURE_KEYS, withoutUnavailableMenus } from '@veetracer/shared';
 import { ADMIN_ROLE } from './access-rules';
 import { companyFeatures } from '../common/company-features';
 import { companyAutoRouting } from '../routing-switch/routing-switch';
@@ -70,6 +70,8 @@ export class AuthContextService {
     }
 
     const features = companyFeatures(acting);
+    // Self-service company switches (photo features): menus behind them are stripped while off (MenuDef.requires).
+    const switches = companySwitchesOf(acting.settings);
     const resolved = resolvePermissions(
       user.roles.map((ur) => ur.role),
       user.isSuperAdmin,
@@ -78,7 +80,8 @@ export class AuthContextService {
     // R-12 ceiling exemption: the built-in Admin role of the user's own company (only the Super Admin switches company).
     const isCompanyAdmin = user.isSuperAdmin || user.roles.some((ur) => ur.role.isSystem && ur.role.name === ADMIN_ROLE && ur.role.companyId === user.companyId);
     // Module menus (e.g. ETMS) are hidden and refused while the acting company's add-on is off (MenuDef.requires).
-    const permissions = withoutUnavailableMenus(resolved.permissions, features);
+    const permissions = withoutUnavailableMenus(resolved.permissions, features, switches);
+    const ceilingPermissions = withoutUnavailableMenus(resolved.permissions, features, PHOTO_FEATURE_KEYS);
     return {
       userId: user.id,
       homeCompanyId: user.companyId,
@@ -92,6 +95,8 @@ export class AuthContextService {
       objectIds: user.objects.map((o) => o.objectId),
       shares: dataScope === 'COMPANY' && !allCompanies ? await this.sharesOf(companyId) : [],
       features,
+      switches,
+      ceilingPermissions,
       // v1.16: the company's automatic route planning switch (planning routes also need the platform switch and the env).
       ...(features.includes('etms') && !allCompanies && companyAutoRouting(acting.settings) ? { autoRouting: true } : {}),
       // E1b: only a transport provider (add-ons etms + etmsProvider) acts for customers; switching etmsProvider off

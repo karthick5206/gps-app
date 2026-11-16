@@ -34,6 +34,7 @@ export class ReportsController {
       totals: r.totals,
       truncated: r.truncated,
       totalRows: r.totalRows,
+      ...(r.archived ? { archived: r.archived } : {}),
     };
   }
 
@@ -93,6 +94,7 @@ export class ReportsController {
     if (PERIOD_REPORT_TYPES.includes(req.type) && req.period) out.push({ label: 'Grouped by', value: req.period.toLowerCase() });
     out.push(...describeOptions(req.type, req.options));
     if (view) out.push({ label: 'Filtered view', value: view.label?.trim() || 'Rows filtered on screen' });
+    if (data.archived) out.push({ label: 'Archived history', value: data.archived.message });
     return out;
   }
 }

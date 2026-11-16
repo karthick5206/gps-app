@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
-import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
+import { historyArchiveOf, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
+import { PhotoNotesService } from '../photo-notes/photo-notes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
@@ -84,6 +85,7 @@ export class RetentionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    @Optional() private readonly photoNotes?: PhotoNotesService,
   ) {}
 
   @Timeout(2 * 60_000)
@@ -133,6 +135,9 @@ export class RetentionService {
 
     for (const c of companies) {
       const cutoff = ago(effectiveRetentionDays(c.retentionDays));
+      // History archiving on: raw points are not deleted here but moved to the archive by the archive job (which only
+      // deletes points it has written to a verified file; restored days stay until their keep period ends).
+      const archived = historyArchiveOf(c.settings).enabled;
       const steps: [string, () => Promise<number>][] = [
         [
           'positions',
@@ -172,7 +177,10 @@ export class RetentionService {
         ['routePlansStuck', async () => purgeStuckRoutePlans(this.prisma, c.id, cutoff, await this.routingOn(c.id), ROUTING_BATCH)],
         ['alerts', () => this.prisma.$executeRaw`DELETE FROM "Alert" WHERE id IN (SELECT id FROM "Alert" WHERE "companyId" = ${c.id}::uuid AND "occurredAt" < ${cutoff} LIMIT ${BATCH})`],
       ];
-      for (const [key, step] of steps) if (!(await drain(key, step))) complete = false;
+      for (const [key, step] of steps) {
+        if (archived && key === 'positions') continue;
+        if (!(await drain(key, step))) complete = false;
+      }
       if (!complete) break;
     }
 
@@ -193,6 +201,17 @@ export class RetentionService {
         add,
       );
       add('driverMediaIncomingDays', await sweepIncoming(now).catch(() => 0));
+    }
+
+    // Location photo notes: soft-deleted ones past their keep time (and PHOTO_NOTE_RETENTION_DAYS when set) with their
+    // files, then photo folders whose note is gone (e.g. after a purge of the person, user or company).
+    if (complete && this.photoNotes) {
+      const r = await this.photoNotes.sweep(now, deadline).catch((e: Error) => {
+        this.logger.warn(`Photo note cleanup failed: ${e.message}`);
+        return { notes: 0, orphanDirs: 0 };
+      });
+      add('photoNotes', r.notes);
+      add('photoNoteOrphanDirs', r.orphanDirs);
     }
 
     if (complete) {

@@ -1,4 +1,6 @@
-import { Body, Controller, Put, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Patch, Post, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Put, Get, Headers, HttpCode, Logger, Param, ParseUUIDPipe, Patch, Post, Query, StreamableFile, UseGuards, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { OBJECT_PHOTO_MAX_BYTES } from '@veetracer/shared';
+import { parsePhotoSize } from '../object-photos/object-photo-access';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthContext } from '../access/auth-context';
@@ -70,6 +72,30 @@ export class MobileTrackerController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 30 * 1024 * 1024, files: 1 } }))
   attendanceVideo(@Headers('authorization') authorization: string | undefined, @UploadedFile() file?: { buffer: Buffer; mimetype?: string }) {
     return this.service.attendanceVideo(authorization, file);
+  }
+
+  /** Profile photo of the person this phone tracks: `{ objectId, photoVersion }` (null = none, 404 = not a person). */
+  @Public() @Get('photo/state') @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  photoState(@Headers('authorization') authorization?: string) {
+    return this.service.photoState(authorization);
+  }
+
+  /** The photo itself (JPEG), `size=thumb` (64 px) or `full` (256 px). */
+  @Public() @Get('photo') @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  photo(@Headers('authorization') authorization: string | undefined, @Query('size') size?: string): Promise<StreamableFile> {
+    return this.service.photoFile(authorization, parsePhotoSize(size));
+  }
+
+  /** Take / pick and upload: multipart `file`, JPEG / PNG / WebP up to 5 MB (re-encoded, EXIF incl. GPS dropped). */
+  @Public() @Post('photo') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: OBJECT_PHOTO_MAX_BYTES, files: 1 } }))
+  photoUpload(@Headers('authorization') authorization: string | undefined, @UploadedFile() file?: { buffer: Buffer; mimetype?: string }) {
+    return this.service.photoUpload(authorization, file);
+  }
+
+  @Public() @Delete('photo') @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  photoRemove(@Headers('authorization') authorization?: string) {
+    return this.service.photoRemove(authorization);
   }
 
   /** Crash reports from the app (stack traces only, no location or personal data). Logged for support. */

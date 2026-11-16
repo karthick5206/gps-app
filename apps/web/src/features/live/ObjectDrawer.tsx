@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
+import { chargeState, DEFAULT_SPEED_LIMIT_KPH, displayStatus, displayStatusLabel, hasPhotoType, personActivity, type DeviceDto, type LiveObject } from '@veetracer/shared';
 import { CrosshairIcon, HistoryIcon, LocateFixedIcon, LocateIcon, LockIcon, Share2Icon, WrenchIcon, XIcon } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuth, usePhotoFeatures } from '@/features/auth/auth-context';
 import { useAddress } from '@/features/geocoding/use-address';
 import { api, errorMessage } from '@/lib/api';
 import { formatDateTime, formatDuration, relativeTime } from '@/lib/format';
@@ -26,6 +26,7 @@ import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
 import { chargeText, ignitionText, TodayCard, useDayStats } from './day-stats';
+import { ObjectAvatar, ObjectPhotoEditor } from '@/features/objects/object-photo';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -234,6 +235,7 @@ export function ObjectDrawer({
   const { t } = useTranslation();
   const hasCoords = object.lat !== null;
   const { can } = useAuth();
+  const { personPhotos } = usePhotoFeatures();
   const [maintenance, setMaintenance] = useState<{ id: string; value: boolean } | null>(null);
   const inMaintenance = maintenance?.id === object.objectId ? maintenance.value : !!object.inMaintenance;
   const owned = !object.shared;
@@ -247,6 +249,9 @@ export function ObjectDrawer({
       className={cn('flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card shadow-xl animate-slide-in-right', className)}
     >
       <div className="flex items-start gap-3 border-b p-4">
+        {owned && hasPhotoType(object.type) && !can('objects', 'edit') && object.photoVersion ? (
+          <ObjectAvatar objectId={object.objectId} version={object.photoVersion} type={object.type} name={object.name} size={56} photoSize="full" />
+        ) : null}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold">{object.name}</h2>
           <p className="truncate text-xs text-muted-foreground">
@@ -288,6 +293,11 @@ export function ObjectDrawer({
           </Button>
         )}
         {owned && !object.licenceLocked && hasCoords && <ShareLiveButton objectId={object.objectId} name={object.name} />}
+        {owned && personPhotos && can('objects', 'edit') && hasPhotoType(object.type) && (
+          <div className="w-full">
+            <ObjectPhotoEditor objectId={object.objectId} version={object.photoVersion} type={object.type} name={object.name} size={56} compact />
+          </div>
+        )}
         {owned && can('objects', 'edit') && <MaintenanceControl objectId={object.objectId} inMaintenance={inMaintenance} onChange={(value) => setMaintenance({ id: object.objectId, value })} />}
       </div>
       <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">

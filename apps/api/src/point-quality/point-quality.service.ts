@@ -139,7 +139,7 @@ export class PointQualityService {
   async analyze(ctx: AuthContext, objectId: string, fromRaw?: string, toRaw?: string): Promise<PointQualityResponse> {
     if (!(await this.settings()).enabled) throw new ForbiddenException('Point analysis is switched off');
     const meta = await this.history.objectMeta(ctx, objectId);
-    const { from, to } = this.history.resolveRange(fromRaw, toRaw, meta);
+    const { from, to } = await this.history.rangeFor(fromRaw, toRaw, meta);
 
     const stored = await this.prisma.$queryRaw<StoredRow[]>`
       SELECT (extract(epoch from "fixTime") * 1000)::float8 AS t, lat, lng, "speedKph"::float8 AS spd,

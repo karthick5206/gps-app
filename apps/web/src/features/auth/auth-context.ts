@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Action, LoginResponse, Me, MenuKey } from '@veetracer/shared';
+import { PHOTO_FEATURES_OFF, type Action, type LoginResponse, type Me, type MenuKey, type PhotoFeatures } from '@veetracer/shared';
 
 export const meQueryKey = (companyId: string | null) => ['me', companyId] as const;
 
@@ -32,4 +32,9 @@ export function useMe(): Me {
 
 export function useCan() {
   return useAuth().can;
+}
+
+/** The acting company's photo feature switches (default off; Settings → Features). */
+export function usePhotoFeatures(): PhotoFeatures {
+  return useAuth().me?.company.photoFeatures ?? PHOTO_FEATURES_OFF;
 }

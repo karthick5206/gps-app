@@ -13,7 +13,7 @@ import {
   type ReportScope,
   type ReportType,
 } from '@veetracer/shared';
-import { CalendarClockIcon, CalendarPlusIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, FilterIcon, GlobeIcon, PlayIcon, TableIcon } from 'lucide-react';
+import { ArchiveIcon, CalendarClockIcon, CalendarPlusIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, FilterIcon, GlobeIcon, PlayIcon, TableIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -294,6 +294,19 @@ export function ReportsPage() {
                 )}
               </div>
             </div>
+            {result.res.archived && (
+              <div role="status" className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                <ArchiveIcon className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {t('Raw GPS points of {{days}} day(s) between {{from}} and {{to}} ({{objects}} vehicle(s)) are archived, so this report is incomplete for those days. Restore them from History, then run the report again.', {
+                    days: result.res.archived.days,
+                    from: periodLabel(result.res.archived.firstDay),
+                    to: periodLabel(result.res.archived.lastDay),
+                    objects: result.res.archived.objects,
+                  })}
+                </span>
+              </div>
+            )}
             <ReportInsights
               key={`insights-${run.submittedAt}`}
               type={result.req.type}

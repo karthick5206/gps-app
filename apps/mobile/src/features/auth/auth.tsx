@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { can as canDo, type Action, type LoginResponse, type Me, type MenuKey } from '@veetracer/shared';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Alert, AppState } from 'react-native';
 import { api, refreshAccessTokenOutcome, setSessionExpiredHandler } from '@/lib/api';
 import type { OfflineIdentity } from '@/features/transport/sos-context';
@@ -8,12 +8,14 @@ import { forgetOfflineIdentity, loadOfflineIdentity } from '@/features/transport
 import { serverChoice } from '@/lib/config';
 import { session } from '@/lib/session';
 import { liveStore } from '@/features/live/live-store';
+import { clearPhotoCache } from '@/features/objects/object-photo';
 import { unregisterPush } from '@/features/notifications/push';
 import { applyThemePreference, restoreThemePreference } from '@/features/theme/theme';
 import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
 import { display } from '@/features/display/display';
 import { voiceAlerts } from '@/features/notifications/voice';
 import { basemap } from '@/features/map/basemap';
+import { clearPhotoNoteQueue } from '@/features/photo-notes/photo-note-store';
 
 /**
  * `offline` (r114, QA B4): the app started with a saved session but could not reach the server, and the last signed-in
@@ -99,6 +101,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (refreshToken) api.post('/auth/logout', { refreshToken }, { anonymous: true }).catch(() => undefined);
     session.clear();
     liveStore.reset();
+    clearPhotoCache();
+    // Unsent photo notes and their photos leave the phone with the session (privacy).
+    clearPhotoNoteQueue();
     queryClient.clear();
     setStatus('anonymous');
   }, [queryClient]);
@@ -117,6 +122,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: status === 'authenticated',
     staleTime: 5 * 60_000,
   });
+
+  // Back in the foreground: read /auth/me again (company switches such as the photo features may have changed).
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void queryClient.invalidateQueries({ queryKey: ['me'] });
+    });
+    return () => sub.remove();
+  }, [status, queryClient]);
 
   // A stale company selection falls back to the platform company; other failures sign out.
   useEffect(() => {
@@ -160,6 +174,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     display.set({ textSize: textSizePref, mapIconSize: iconSizePref });
   }, [textSizePref, iconSizePref]);
+  // Person photos switched on / off: reload the live snapshot (it carries the photo versions).
+  const personPhotos = me?.company.photoFeatures?.personPhotos;
+  const lastPersonPhotos = useRef(personPhotos);
+  useEffect(() => {
+    if (lastPersonPhotos.current === personPhotos) return;
+    const first = lastPersonPhotos.current === undefined;
+    lastPersonPhotos.current = personPhotos;
+    if (!first && liveStore.snapshotLoaded) liveStore.loadSnapshot().catch(() => undefined);
+  }, [personPhotos]);
   const can = useCallback((menu: MenuKey, action: Action = 'view') => !!me && canDo(me.permissions, menu, action), [me]);
 
   const value = useMemo<AuthContextValue>(

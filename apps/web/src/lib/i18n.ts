@@ -13,15 +13,35 @@ const KEY = 'vt.language';
  * load). English is the key language and needs no bundle. Mobile still uses the eager `i18nResources()`.
  */
 const BUNDLES: Record<Exclude<LanguageCode, 'en'>, BundleImporter> = {
-  // Pooling (doc 20) and pricing (doc 19) strings live in their own tables; the main table wins for a shared key.
+  // Pooling (doc 20), pricing (doc 19) and photo-note strings live in their own tables; the main table wins for a shared key.
   hi: () =>
-    Promise.all([import('@veetracer/shared-i18n/hi'), import('@veetracer/shared-i18n/pooling'), import('@veetracer/shared-i18n/pricing-web')]).then(([m, p, pr]) => ({
+    Promise.all([
+      import('@veetracer/shared-i18n/hi'),
+      import('@veetracer/shared-i18n/pooling'),
+      import('@veetracer/shared-i18n/pricing-web'),
+      import('@veetracer/shared-i18n/object-photo'),
+      import('@veetracer/shared-i18n/photo-notes'),
+      import('@veetracer/shared-i18n/photo-features'),
+    ]).then(([m, p, pr, ph, pn, pf]) => ({
+      ...pf.PHOTO_FEATURES_HI,
+      ...pn.PHOTO_NOTES_HI,
+      ...ph.OBJECT_PHOTO_HI,
       ...pr.PRICING_WEB_HI,
       ...p.POOLING_HI,
       ...m.HI,
     })),
   ta: () =>
-    Promise.all([import('@veetracer/shared-i18n/ta'), import('@veetracer/shared-i18n/pooling'), import('@veetracer/shared-i18n/pricing-web')]).then(([m, p, pr]) => ({
+    Promise.all([
+      import('@veetracer/shared-i18n/ta'),
+      import('@veetracer/shared-i18n/pooling'),
+      import('@veetracer/shared-i18n/pricing-web'),
+      import('@veetracer/shared-i18n/object-photo'),
+      import('@veetracer/shared-i18n/photo-notes'),
+      import('@veetracer/shared-i18n/photo-features'),
+    ]).then(([m, p, pr, ph, pn, pf]) => ({
+      ...pf.PHOTO_FEATURES_TA,
+      ...pn.PHOTO_NOTES_TA,
+      ...ph.OBJECT_PHOTO_TA,
       ...pr.PRICING_WEB_TA,
       ...p.POOLING_TA,
       ...m.TA,

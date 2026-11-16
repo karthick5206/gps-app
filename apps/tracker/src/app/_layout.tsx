@@ -102,6 +102,8 @@ export default function RootLayout() {
           <Stack.Screen name="details" options={{ title: S.detailsTitle }} />
           <Stack.Screen name="profile" options={{ title: S.profileTitle }} />
           <Stack.Screen name="checkin-camera" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="photo-note" options={{ title: S.photoNotesTitle }} />
+          <Stack.Screen name="features" options={{ title: S.featuresTitle }} />
         </Stack.Protected>
         <Stack.Protected guard={!signedIn}>
           <Stack.Screen name="activate" options={{ headerShown: false }} />

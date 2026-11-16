@@ -193,4 +193,9 @@ export interface LiveObject {
   driverSource?: 'MANUAL' | 'RFID' | null;
   /** The vehicle's licence expired past the grace period: position and history are hidden until it is renewed. */
   licenceLocked?: boolean;
+  /**
+   * Person / pet / asset photo version (ms of the last change), from the snapshot only (socket batches leave it out;
+   * the client keeps the snapshot's value). Null / absent = no photo.
+   */
+  photoVersion?: number | null;
 }

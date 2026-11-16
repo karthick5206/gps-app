@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import { api, ApiError, type VerifyResponse } from './api';
 import { APP_VERSION, deviceName, requestNotifications } from './device';
+import { clearPhotoNotes } from './photo-notes';
 import { getToken, sessionFrom, setToken, store } from './state';
 import { S } from './strings';
 import { applyConfig, startNative, Tracker, type TrackerStatus } from './tracking';
@@ -92,6 +93,8 @@ export async function deactivate(): Promise<void> {
 /** Stops tracking and clears the token and all local data. `notice` is shown on the activation screen. */
 export async function signOut(notice: string | null): Promise<void> {
   await Tracker.clear().catch(() => undefined);
+  // Unsent photo notes and their photo files are deleted too (privacy).
+  await clearPhotoNotes().catch(() => undefined);
   await setToken(null);
   store.setInactive(false);
   store.setInactiveCheckAt(0);
@@ -142,6 +145,26 @@ export async function recheckInactive(st: TrackerStatus | null, force = false): 
     store.setInactive(false);
     store.setSession(sessionFrom(me));
     await applyConfig(me.config);
+  } catch (e) {
+    await handleAuthError(e);
+  }
+}
+
+const SESSION_REFRESH_MS = 30_000;
+let lastSessionRefresh = 0;
+
+/**
+ * Reads /me again (names, licence, the account's photo switches) when the home screen comes back into view or the app
+ * returns to the foreground; at most every 30 s unless forced. Offline: keeps what we have.
+ */
+export async function refreshSession(force = false): Promise<void> {
+  if (!force && Date.now() - lastSessionRefresh < SESSION_REFRESH_MS) return;
+  const token = await getToken();
+  if (!token || !store.session() || store.inactive()) return;
+  lastSessionRefresh = Date.now();
+  try {
+    const me = await api.me(token);
+    store.setSession(sessionFrom(me));
   } catch (e) {
     await handleAuthError(e);
   }

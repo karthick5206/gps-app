@@ -146,6 +146,8 @@ model Company {
   routingUsage                   RoutingUsage[]
   /// ETMS E4 (Cascade): passenger stops of this company (as customer) in operator plans.
   routePlanStopsAsCustomer       RoutePlanStop[]             @relation("RoutePlanStopCustomer")
+  /// Location photo notes (FK Restrict, walked by a company purge).
+  geoPhotoNotes                  GeoPhotoNote[]
 }
 
 model Branch {
@@ -204,6 +206,8 @@ model User {
   driver                   Driver?
   /// ETMS E5: in-app transport notifications (Cascade on a user purge).
   transportNotifications   TransportNotification[]
+  /// Location photo notes this login uploaded (Cascade on a user purge).
+  geoPhotoNotes            GeoPhotoNote[]
 
   @@index([companyId])
 }
@@ -359,6 +363,12 @@ model TrackedObject {
   /// Set while the vehicle is in the workshop: alerts are suppressed and it is listed separately on the criticality board.
   maintenanceSince DateTime?    @db.Timestamptz(3)
   maintenanceNote  String?
+  /// Person / pet / asset photo: square JPEGs re-encoded on upload (EXIF incl. GPS stripped), 256 px and 64 px, under
+  /// var/object-photos/<companyId>/ with an unguessable name; served only through GET /objects/:id/photo.
+  photoPath        String?
+  photoThumbPath   String?
+  /// When the photo last changed (null = no photo); clients use it as the cache version.
+  photoAt          DateTime?    @db.Timestamptz(3)
   customFields     Json         @default("{}")
   isActive         Boolean      @default(true)
   createdAt        DateTime     @default(now())
@@ -396,6 +406,8 @@ model TrackedObject {
   transportAllocations  TransportFleetAllocation[]
   /// ETMS E4 (SetNull): plan assignments keep their history after a vehicle purge.
   routeAssignments      RouteAssignment[]
+  /// Location photo notes of this person / object (Cascade on a purge).
+  geoPhotoNotes         GeoPhotoNote[]
 
   @@index([companyId, branchId])
 }
@@ -4781,4 +4793,107 @@ model TransportDispatchRequest {
   @@index([companyId, createdAt(sort: Desc)])
   @@index([status, createdAt])
   @@index([bookingId])
+}
+
+/// Location photo note ("memory pin"): 1–5 photos taken at a place with a note, category and optional amount.
+/// Uploaded from the Tracker app (objectId = the phone's person, userId null), the mobile app or the web (userId =
+/// uploader). category BILL | RECEIPT | VISIT | OTHER; source TRACKER_APP | MOBILE | WEB. clientId = the device's
+/// idempotency key (offline queues re-send). Soft delete (deletedAt); rows and files are removed for good by the
+/// retention job after PHOTO_NOTE_DELETED_KEEP_DAYS. Personal data: cascades with the object / user on a purge.
+model GeoPhotoNote {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  objectId    String?   @db.Uuid
+  userId      String?   @db.Uuid
+  takenAt     DateTime  @db.Timestamptz(3)
+  lat         Float
+  lng         Float
+  accuracyM   Float?
+  address     String?
+  category    String
+  note        String?
+  /// Minor units (paise for INR); BILL / RECEIPT only.
+  amountMinor Int?
+  currency    String?
+  source      String
+  clientId    String?
+  /// Expense created from this note (logical link, no foreign key).
+  expenseId   String?   @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt   DateTime? @db.Timestamptz(3)
+  deletedById String?   @db.Uuid
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  object  TrackedObject?      @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  user    User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos  GeoPhotoNotePhoto[]
+
+  @@unique([companyId, clientId])
+  @@index([companyId, takenAt(sort: Desc)])
+  @@index([objectId, takenAt(sort: Desc)])
+  @@index([userId, takenAt(sort: Desc)])
+  @@index([deletedAt])
+}
+
+/// One stored photo of a note: re-encoded JPEG (max 1920 px, metadata stripped) and a 320 px thumbnail.
+model GeoPhotoNotePhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  noteId    String   @db.Uuid
+  position  Int
+  path      String
+  thumbPath String
+  width     Int
+  height    Int
+  bytes     Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  note GeoPhotoNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, position])
+}
+
+/// History archiving: lifecycle of an archived day.
+enum ArchivedDayStatus {
+  CLAIMED
+  ARCHIVED
+  RESTORING
+  RESTORED
+  FAILED
+}
+
+/// History archiving: one vehicle-day of raw points moved to a compressed file on the server's disk
+/// (HISTORY_ARCHIVE_DIR/<companyId>/<objectId>/<yyyy>/<mm>/<dd>.jsonl.gz). Doubles as the archive job's claim row.
+/// Logical keys without foreign keys (like the other history tables): the purge plan removes the rows by
+/// companyId / objectId and the purge service removes the files.
+model ArchivedDay {
+  id                 String            @id @default(uuid()) @db.Uuid
+  companyId          String            @db.Uuid
+  objectId           String            @db.Uuid
+  /// Day in the company time zone.
+  day                DateTime          @db.Date
+  status             ArchivedDayStatus @default(CLAIMED)
+  /// Path relative to HISTORY_ARCHIVE_DIR.
+  filePath           String?
+  pointCount         Int               @default(0)
+  /// sha256 (hex) of the point lines, as written in the file trailer.
+  checksum           String?
+  bytes              Int               @default(0)
+  archivedAt         DateTime?         @db.Timestamptz(3)
+  restoreRequestedAt DateTime?         @db.Timestamptz(3)
+  restoreRequestedBy String?           @db.Uuid
+  /// Days the restored points stay in the database before they are archived again.
+  restoreKeepDays    Int?
+  restoredAt         DateTime?         @db.Timestamptz(3)
+  keepUntil          DateTime?         @db.Timestamptz(3)
+  claimToken         String?
+  claimedAt          DateTime?         @db.Timestamptz(3)
+  attempts           Int               @default(0)
+  lastError          String?
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@unique([objectId, day])
+  @@index([companyId, day])
+  @@index([status, keepUntil])
 }

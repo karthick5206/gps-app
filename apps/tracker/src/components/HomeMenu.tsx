@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
-import { Activity, LogOut, PowerOff, UserRound, type LucideIcon } from 'lucide-react-native';
+import { Activity, Camera, LogOut, PowerOff, ToggleRight, UserRound, type LucideIcon } from 'lucide-react-native';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deactivate as deactivatePhone } from '@/lib/control';
+import { photoFeatures } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 import type { TrackerStatus } from '@/lib/tracking';
@@ -33,7 +34,7 @@ function Item({ icon: Icon, label, danger, onPress }: { icon: LucideIcon; label:
   );
 }
 
-/** The menu behind the top-right icon on the home screen: Profile, Details, sign out, deactivate. Delete account is on Profile. */
+/** The menu behind the top-right icon on the home screen: Profile, Details, Photo notes, sign out, deactivate. Delete account is on Profile. */
 export function HomeMenu({ open, onClose, status }: { open: boolean; onClose: () => void; status: TrackerStatus | null }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -47,6 +48,9 @@ export function HomeMenu({ open, onClose, status }: { open: boolean; onClose: ()
         <View accessibilityRole="menu" style={[styles.card, { top: insets.top + 64, backgroundColor: c.card, borderColor: c.border }]}>
           <Item icon={UserRound} label={S.profileTitle} onPress={go(() => router.push('/profile'))} />
           <Item icon={Activity} label={S.detailsTitle} onPress={go(() => router.push('/details'))} />
+          {photoFeatures().photoNotes ? <Item icon={Camera} label={S.photoNotesTitle} onPress={go(() => router.push('/photo-note'))} /> : null}
+          {/* Photo switches: the owner of a personal / family account changes them, others see them read-only. */}
+          <Item icon={ToggleRight} label={S.featuresTitle} onPress={go(() => router.push('/features'))} />
           <View style={[styles.divider, { backgroundColor: c.divider }]} />
           {/* Both end this phone's session: tracking stops and a new code is needed to come back. */}
           <Item icon={LogOut} label={S.signOutShort} onPress={go(() => confirmDeactivate(status, `${S.signOutShort}?`))} />

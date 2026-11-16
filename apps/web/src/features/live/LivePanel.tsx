@@ -19,6 +19,7 @@ import { ChargeIcon, RowDayLine, useDayStats } from './day-stats';
 import type { LiveFilters } from './filters';
 import { StatusCards } from './StatusCards';
 import { VirtualList } from './VirtualList';
+import { ObjectAvatar } from '@/features/objects/object-photo';
 
 const ROW_HEIGHT = 64;
 /** Rows with the address and today's figures (List → "Today's figures"). */
@@ -107,7 +108,14 @@ const ObjectRow = memo(function ObjectRow({
     >
       <Checkbox checked={checked} onCheckedChange={() => onToggle(o.objectId)} aria-label={t('Select {{name}}', { name: o.name })} />
       <button type="button" onClick={() => onPick(o.objectId)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:underline">
-        <StatusDot status={shown} />
+        {o.photoVersion ? (
+          <span className="relative shrink-0">
+            <ObjectAvatar objectId={o.objectId} version={o.photoVersion} type={o.type} name={o.name} size={32} />
+            <StatusDot status={shown} className="absolute -right-0.5 -bottom-0.5 rounded-full ring-2 ring-card" />
+          </span>
+        ) : (
+          <StatusDot status={shown} />
+        )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{o.name}</span>
           <span className="block truncate text-xs text-muted-foreground">

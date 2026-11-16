@@ -1,6 +1,8 @@
 /** REST API shapes shared by the backend and clients. */
 import type { DataScope, MenuKey, Action, PermissionMap } from './permissions';
+import type { HistoryArchiveSettings } from './history-archive';
 import type { ObjectType, VehicleType, StatusThresholds } from './tracking';
+import type { PhotoFeatures } from './photo-features';
 
 /**
  * Colour themes (profile; the web and mobile apps share them): four light palettes and one dark.
@@ -83,6 +85,8 @@ export interface CompanySummary {
   thresholds: StatusThresholds;
   /** Add-ons switched on for this company (all of them for the platform company). */
   features: CompanyFeature[];
+  /** Self-service photo feature switches (Company.settings.photos, default off; see photo-features.ts). */
+  photoFeatures: PhotoFeatures;
 }
 
 export interface Me {
@@ -169,6 +173,8 @@ export interface TrackedObjectDto {
   device: { id: string; uniqueId: string; modelName: string } | null;
   groups: { id: string; name: string }[];
   customFields: Record<string, unknown>;
+  /** Person / pet / asset photo version (ms of the last change); null = no photo. See objectPhotoPath. */
+  photoVersion: number | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -186,6 +192,8 @@ export interface CompanyDto extends CompanySummary {
   branchCount: number; userCount: number; objectCount: number; deviceCount: number;
   /** Days of history (positions, trips, stops, alerts) kept; older data is deleted automatically. */
   retentionDays: number;
+  /** History archiving (Company.settings.historyArchive; off by default). */
+  historyArchive: HistoryArchiveSettings;
   createdAt: string; updatedAt: string;
 }
 

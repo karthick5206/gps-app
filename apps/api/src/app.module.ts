@@ -24,6 +24,7 @@ import { VehicleSharesModule } from './vehicle-shares/vehicle-shares.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
+import { ObjectPhotosModule } from './object-photos/object-photos.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { DownloadsModule } from './downloads/downloads.module';
@@ -39,6 +40,8 @@ import { PoisModule } from './pois/pois.module';
 import { FuelModule } from './fuel/fuel.module';
 import { IoSensorsModule } from './io-sensors/io-sensors.module';
 import { MobileTrackerModule } from './mobile-tracker/mobile-tracker.module';
+import { PhotoNotesModule } from './photo-notes/photo-notes.module';
+import { PhotoFeaturesModule } from './photo-features/photo-features.module';
 import { SignupModule } from './signup/signup.module';
 import { GuideModule } from './guide/guide.module';
 import { DeviceClaimModule } from './device-claim/device-claim.module';
@@ -47,6 +50,7 @@ import { DeveloperModule } from './developer/developer.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { RetentionModule } from './retention/retention.module';
+import { HistoryArchiveModule } from './history-archive/history-archive.module';
 import { ReportsModule } from './reports/reports.module';
 import { TemplatesModule } from './templates/templates.module';
 import { RelayModule } from './relay/relay.controller';
@@ -86,6 +90,7 @@ import { PricingModule } from './pricing/pricing.module';
     TransferModule,
     VehicleSharesModule,
     MastersModule,
+    ObjectPhotosModule,
     LiveModule,
     AlertsModule,
     TemplatesModule,
@@ -97,6 +102,7 @@ import { PricingModule } from './pricing/pricing.module';
     ReportSchedulesModule,
     DashboardModule,
     RetentionModule,
+    HistoryArchiveModule,
     CommandsModule,
     VideoModule,
     DriverEventsModule,
@@ -106,6 +112,8 @@ import { PricingModule } from './pricing/pricing.module';
     FuelModule,
     IoSensorsModule,
     MobileTrackerModule,
+    PhotoNotesModule,
+    PhotoFeaturesModule,
     SignupModule,
     GuideModule,
     DeviceClaimModule,

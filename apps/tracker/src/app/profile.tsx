@@ -1,8 +1,9 @@
 import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WEB_URL } from '@/components/HomeMenu';
 import { Row, Section } from '@/components/ui';
+import { ProfilePhoto } from '@/components/ProfilePhoto';
 import { APP_VERSION } from '@/lib/device';
-import { store, useStoreVersion } from '@/lib/state';
+import { photoFeatures, store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
 
@@ -18,9 +19,8 @@ export default function ProfileScreen() {
     <ScrollView style={{ backgroundColor: c.background }} contentContainerStyle={styles.scroll}>
       {session ? (
         <View style={styles.who}>
-          <View style={[styles.avatar, { backgroundColor: c.header }]}>
-            <Text style={[styles.initial, { color: c.headerText }]}>{(session.objectName || '#').trim().charAt(0).toUpperCase()}</Text>
-          </View>
+          {/* Profile photo only while the account's person photos switch is on; otherwise just the initial. */}
+          <ProfilePhoto initial={(session.objectName || '#').trim().charAt(0).toUpperCase()} enabled={photoFeatures().personPhotos} />
           <Text style={[styles.name, { color: c.text }]} numberOfLines={2}>
             {session.objectName || `+${session.uniqueId}`}
           </Text>
@@ -60,8 +60,6 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 14, paddingBottom: 40 },
   who: { alignItems: 'center', gap: 6, paddingVertical: 8 },
-  avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
-  initial: { fontSize: 28, fontWeight: '800' },
   name: { fontSize: 19, fontWeight: '800', textAlign: 'center' },
   legal: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, columnGap: 20, marginTop: 4 },
   legalLink: { fontSize: 13, textDecorationLine: 'underline' },

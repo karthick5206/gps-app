@@ -1,6 +1,6 @@
 import type { PhoneAttendanceDto, PhoneAttention } from '@veetracer/shared';
 import { AttendanceService } from '../attendance/attendance.service';
-import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { MobileTrackerStatusDto, sanitizeTrackerEvents, sanitizeTrackerHealth, TrackerEventKind, TrackerHealth } from '@veetracer/shared';
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
@@ -14,6 +14,12 @@ import { positionsStreamMaxLen, RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { SystemMessagesService } from '../templates/system-messages.service';
 import { TrackerSelfService } from './self-service';
+import { trackerPhotoFeatures } from '../photo-features/photo-features';
+import { ObjectPhotosService } from '../object-photos/object-photos.service';
+import type { ObjectPhotoState } from '../object-photos/object-photos.service';
+import type { UploadedPhoto } from '../object-photos/object-photo-image';
+import type { ObjectPhotoSize } from '@veetracer/shared';
+import type { StreamableFile } from '@nestjs/common';
 import {
   CODE_MAX_ATTEMPTS,
   CODE_MAX_PER_DAY,
@@ -84,6 +90,7 @@ export class MobileTrackerService {
     private readonly audit: AuditService,
     private readonly alerts: OfflineAlertService,
     @Optional() private readonly attendance?: AttendanceService,
+    @Optional() private readonly photos?: ObjectPhotosService,
   ) {}
 
   /** Latest attendance notice per phone: uploads come every few seconds, the answer changes far less often. */
@@ -501,12 +508,14 @@ export class MobileTrackerService {
       select: {
         uniqueId: true,
         activationEmail: true,
-        company: { select: { name: true, accountType: true } },
+        company: { select: { id: true, name: true, accountType: true, settings: true } },
         licenceSeat: { select: { source: true, expiresAt: true } },
         assignments: { where: { toTime: null }, select: { object: { select: { name: true } } } },
       },
     });
-    return { ...this.describe(device), config: this.config(), required: s.required, ...this.server() };
+    // v1.18: the account's photo switches (the app hides Profile photo / Photo notes while off; read again on resume).
+    const photoFeatures = device.company ? await trackerPhotoFeatures(this.prisma, device.company, device.uniqueId) : { personPhotos: false, photoNotes: false, canEdit: false };
+    return { ...this.describe(device), photoFeatures, config: this.config(), required: s.required, ...this.server() };
   }
 
   /** Validates the points and adds them to the positions stream (the gateway's path into the processor). */
@@ -557,6 +566,50 @@ export class MobileTrackerService {
     const value = (await this.attendance?.phoneNotice(deviceId).catch(() => null)) ?? null;
     this.notices.set(deviceId, { at: now, value });
     return value;
+  }
+
+  // ───────────── profile photo of the phone's own person ─────────────
+
+  private requirePhotos(): ObjectPhotosService {
+    if (!this.photos) throw new NotFoundException('Profile photos are not available');
+    return this.photos;
+  }
+
+  async photoState(authorization: string | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerState(s.deviceId);
+  }
+
+  async photoFile(authorization: string | undefined, size: ObjectPhotoSize): Promise<StreamableFile> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerFile(s.deviceId, size);
+  }
+
+  async photoUpload(authorization: string | undefined, file: UploadedPhoto | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerUpload(s.deviceId, file);
+  }
+
+  async photoRemove(authorization: string | undefined): Promise<ObjectPhotoState> {
+    const s = await this.session(authorization);
+    return this.requirePhotos().trackerRemove(s.deviceId);
+  }
+
+  /** The phone behind a tracker token (feature switches): its device and number. */
+  async phoneSession(authorization: string | undefined): Promise<{ deviceId: string; uniqueId: string }> {
+    const s = await this.session(authorization);
+    return { deviceId: s.deviceId, uniqueId: s.uniqueId };
+  }
+
+  // ───────────── photo notes of the phone's person ─────────────
+
+  /** The company and person (current assignment) behind the phone's token, for photo notes; 400 when none is assigned. */
+  async phoneOwner(authorization: string | undefined): Promise<{ companyId: string; objectId: string }> {
+    const s = await this.session(authorization);
+    const d = await this.prisma.device.findUnique({ where: { id: s.deviceId }, select: { companyId: true, assignments: { where: { toTime: null }, select: { objectId: true } } } });
+    const objectId = d?.assignments[0]?.objectId;
+    if (!d?.companyId || !objectId) throw new BadRequestException('This phone is not assigned to a person yet. Ask your administrator.');
+    return { companyId: d.companyId, objectId };
   }
 
   // ───────────── attendance on the phone ─────────────
