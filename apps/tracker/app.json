@@ -72,7 +72,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie or video, if your employer asks for one.",
+          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie or video, if your employer asks for one, and for the photo notes you take.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
@@ -80,7 +80,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie, if your employer asks for one.",
+          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie, if your employer asks for one, and for the photo notes you take.",
           "photosPermission": false,
           "microphonePermission": false
         }

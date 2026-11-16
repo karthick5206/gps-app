@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import { api, ApiError, type VerifyResponse } from './api';
 import { APP_VERSION, deviceName, requestNotifications } from './device';
+import { clearPhotoNotes } from './photo-notes';
 import { getToken, sessionFrom, setToken, store } from './state';
 import { S } from './strings';
 import { applyConfig, startNative, Tracker, type TrackerStatus } from './tracking';
@@ -92,6 +93,8 @@ export async function deactivate(): Promise<void> {
 /** Stops tracking and clears the token and all local data. `notice` is shown on the activation screen. */
 export async function signOut(notice: string | null): Promise<void> {
   await Tracker.clear().catch(() => undefined);
+  // Unsent photo notes and their photo files are deleted too (privacy).
+  await clearPhotoNotes().catch(() => undefined);
   await setToken(null);
   store.setInactive(false);
   store.setInactiveCheckAt(0);

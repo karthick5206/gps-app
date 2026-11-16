@@ -12,7 +12,8 @@
       "bundleIdentifier": "com.sasvata.veetrax",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "VeeTrax uses your location to show you on the map and to save where a photo note was taken."
       }
     },
     "android": {
@@ -73,7 +74,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow VeeTrax to take photos of fuel and expense bills.",
+          "cameraPermission": "Allow VeeTrax to take photos of bills, receipts and places for your expenses and photo notes.",
           "photosPermission": false,
           "microphonePermission": false
         }

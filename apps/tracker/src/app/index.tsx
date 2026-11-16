@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
-import { ExternalLink, Play, Square, UserRound } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { Camera, ExternalLink, Play, Square, UserRound } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AttendanceCard } from '@/components/AttendanceCard';
 import { NeedsAttention, useChecks } from '@/components/ChecksCards';
@@ -12,6 +12,7 @@ import { TrackerMark } from '@/components/TrackerLogo';
 import { Body, Button, Card, HeaderBand, HeaderIconButton, toneColors } from '@/components/ui';
 import { beginTracking, isInactive, permissionsReady, recheckInactive, syncStopReason } from '@/lib/control';
 import { ago } from '@/lib/format';
+import { startPhotoNotes, usePhotoNoteQueue } from '@/lib/photo-notes';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
 import { useColors } from '@/lib/theme';
@@ -34,6 +35,14 @@ export default function HomeScreen() {
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const statusRef = useRef(status);
+  const photoQueue = usePhotoNoteQueue();
+  const photoWaiting = photoQueue.pending + photoQueue.failed;
+  // Home focus: load the photo-note queue (once) and send what is waiting.
+  useFocusEffect(
+    useCallback(() => {
+      startPhotoNotes().catch(() => undefined);
+    }, []),
+  );
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -131,6 +140,13 @@ export default function HomeScreen() {
         <AttendanceCard />
 
         <SosButton onDone={refreshStatus} />
+
+        {/* Location photo notes: bills, receipts, visits (works offline; queued notes are counted here). */}
+        <Card>
+          <Body style={{ fontWeight: '700' }}>{S.photoNotesTitle}</Body>
+          <Body muted>{photoWaiting > 0 ? S.photoNotePendingCount(photoWaiting) : S.photoNoteHomeBody}</Body>
+          <Button title={S.addPhotoHere} variant="outline" icon={<Camera color={c.primary} size={18} />} onPress={() => router.push('/photo-note')} />
+        </Card>
 
         {/* Language after activation: right on the home screen, each in its own script so anyone can find theirs. */}
         <View style={styles.language}>
