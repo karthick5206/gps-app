@@ -40,6 +40,11 @@ export async function setDemoServer(demo: boolean): Promise<void> {
 
 const apiBase = () => `${serverUrl}/api/tracker/v1`;
 
+/** Image URL of a photo-note photo (send the Bearer token as a header). */
+export function photoNotePhotoUrl(noteId: string, photoId: string, size: 'thumb' | 'full' = 'thumb'): string {
+  return `${apiBase()}/photo-notes/${encodeURIComponent(noteId)}/photos/${encodeURIComponent(photoId)}?size=${size}`;
+}
+
 export interface TrackerConfig {
   intervalSec: number;
   stoppedIntervalSec: number;
@@ -86,6 +91,43 @@ export interface PhoneAttendance {
   lastOut?: string | null;
   /** Minutes worked so far today; older servers send nothing. */
   workedMin?: number;
+}
+
+/** Location photo note (packages/shared/src/photo-notes.ts PhotoNoteDto; the fields this app shows). */
+export type PhotoNoteCategory = 'BILL' | 'RECEIPT' | 'VISIT' | 'OTHER';
+export const PHOTO_NOTE_CATEGORIES: readonly PhotoNoteCategory[] = ['BILL', 'RECEIPT', 'VISIT', 'OTHER'];
+/** Categories that may carry an amount. */
+export const PHOTO_NOTE_MONEY_CATEGORIES: readonly PhotoNoteCategory[] = ['BILL', 'RECEIPT'];
+export const PHOTO_NOTE_MAX_PHOTOS = 5;
+export const PHOTO_NOTE_NOTE_MAX = 1000;
+export interface PhotoNote {
+  id: string;
+  takenAt: string;
+  lat: number;
+  lng: number;
+  accuracyM: number | null;
+  address: string | null;
+  category: PhotoNoteCategory;
+  note: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  clientId: string | null;
+  photos: { id: string; width: number; height: number }[];
+  createdAt: string;
+  canDelete?: boolean;
+}
+/** Text fields of the multipart create (photos go as `photos` file parts). */
+export interface PhotoNoteUpload {
+  clientId: string;
+  takenAt: string;
+  lat: number;
+  lng: number;
+  accuracyM: number | null;
+  category: string;
+  note: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  photos: { uri: string; mimeType: string; name: string }[];
 }
 
 /** HTTP error from the server: status + message (+ code such as REVOKED / INVALID / INACTIVE). */
@@ -200,6 +242,24 @@ export const api = {
   removePhoto: (token: string) => request<PhotoState>('DELETE', '/photo', undefined, token),
   /** Image source for <Image>: the photo with the phone's token (no public URL exists). */
   photoSource: (token: string, version: number) => ({ uri: `${apiBase()}/photo?size=full&v=${version}`, headers: { Authorization: `Bearer ${token}` } }),
+  /** Location photo note (multipart; idempotent by clientId: a resend returns the note already saved). */
+  sendPhotoNote: (token: string, n: PhotoNoteUpload) => {
+    const form = new FormData();
+    for (const p of n.photos) form.append('photos', { uri: p.uri, type: p.mimeType, name: p.name } as unknown as Blob);
+    form.append('clientId', n.clientId);
+    form.append('takenAt', n.takenAt);
+    form.append('lat', String(n.lat));
+    form.append('lng', String(n.lng));
+    if (n.accuracyM !== null) form.append('accuracyM', String(Math.round(n.accuracyM)));
+    form.append('category', n.category);
+    if (n.note) form.append('note', n.note);
+    if (n.amountMinor !== null) form.append('amountMinor', String(n.amountMinor));
+    if (n.currency) form.append('currency', n.currency);
+    return uploadForm<PhotoNote>('/photo-notes', form, token);
+  },
+  /** This phone's person's recent photo notes (taken in this app). */
+  photoNotes: (token: string, limit = 30) => request<{ items: PhotoNote[] }>('GET', `/photo-notes?limit=${limit}`, undefined, token),
+  deletePhotoNote: (token: string, id: string) => request<{ ok: true }>('DELETE', `/photo-notes/${encodeURIComponent(id)}`, undefined, token),
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),

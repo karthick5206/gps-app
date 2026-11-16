@@ -65,6 +65,7 @@ export const MENU_KEYS = [
   'driver_scores',
   'attendance',
   'expenses',
+  'photo_notes',
   'reports',
   'objects',
   'drivers',
@@ -150,6 +151,9 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'attendance', label: 'Staff attendance', group: 'people', path: '/attendance', actions: ['view', 'edit', 'export'] },
   // Costs & reports.
   { key: 'expenses', label: 'Fuel & expenses', group: 'costs', path: '/expenses', actions: ['view', 'create', 'delete'] },
+  // Location photo notes (bills, receipts, visits): view = own notes + those within the data scope; edit / delete reach
+  // other people's visible notes (one's own need only create).
+  { key: 'photo_notes', label: 'Photos & notes', group: 'people', path: '/photo-notes', actions: CRUD },
   { key: 'reports', label: 'Reports', group: 'costs', path: '/reports', actions: ['view', 'export'] },
   { key: 'report_schedules', label: 'Scheduled Reports', group: 'costs', path: '/reports/schedules', actions: ['view', 'create', 'edit', 'delete'] },
   // Masters: fleet set-up first, then places, then reference data.
@@ -245,6 +249,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       driver_scores: ['view'],
       attendance: ['view', 'export'],
       expenses: ['view', 'create', 'delete'],
+      photo_notes: ['view', 'create', 'edit', 'delete', 'export'],
       reports: ['view', 'export'],
       geofences: ['view', 'create', 'edit', 'export'],
       routes: ['view', 'create', 'edit', 'delete', 'export'],
@@ -268,7 +273,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     description: 'Tracks assigned branches/vehicles',
     dataScope: 'ASSIGNED',
     permissions: {
-      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
+      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], photo_notes: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
       geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
       routes: ['view'], plannedTrips: ['view'],
     },

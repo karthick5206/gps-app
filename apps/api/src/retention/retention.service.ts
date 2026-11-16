@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
 import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
+import { PhotoNotesService } from '../photo-notes/photo-notes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { etmsRoutingEnabled } from '../etms/transport-feature.guard';
@@ -84,6 +85,7 @@ export class RetentionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    @Optional() private readonly photoNotes?: PhotoNotesService,
   ) {}
 
   @Timeout(2 * 60_000)
@@ -193,6 +195,17 @@ export class RetentionService {
         add,
       );
       add('driverMediaIncomingDays', await sweepIncoming(now).catch(() => 0));
+    }
+
+    // Location photo notes: soft-deleted ones past their keep time (and PHOTO_NOTE_RETENTION_DAYS when set) with their
+    // files, then photo folders whose note is gone (e.g. after a purge of the person, user or company).
+    if (complete && this.photoNotes) {
+      const r = await this.photoNotes.sweep(now, deadline).catch((e: Error) => {
+        this.logger.warn(`Photo note cleanup failed: ${e.message}`);
+        return { notes: 0, orphanDirs: 0 };
+      });
+      add('photoNotes', r.notes);
+      add('photoNoteOrphanDirs', r.orphanDirs);
     }
 
     if (complete) {

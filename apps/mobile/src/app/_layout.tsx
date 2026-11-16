@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from '@/features/auth/auth';
 import { setTransportPushRoles } from '@/features/notifications/push';
 import { appHome, transportRoles, type TransportRoles } from '@/features/transport/roles';
 import { useTransportQueueLifecycle } from '@/features/transport/queue-store';
+import { usePhotoNoteQueueLifecycle } from '@/features/photo-notes/photo-note-store';
 import { sosHeaderRight } from '@/features/transport/SosScreen';
 import { rememberOfflineIdentity, useDriverSosLifecycle, useSosQueueLifecycle } from '@/features/transport/sos-store';
 import { useBrandBarStyle, useColors, useScheme } from '@/lib/theme';
@@ -21,7 +22,7 @@ const PASSENGER_SOS = { headerRight: sosHeaderRight('passenger') };
 const DRIVER_SOS = { headerRight: sosHeaderRight('driver') };
 
 function RootStack() {
-  const { status, me, offlineIdentity } = useAuth();
+  const { status, me, offlineIdentity, can } = useAuth();
   const { t } = useTranslation();
   const scheme = useScheme();
   const c = useColors();
@@ -40,6 +41,8 @@ function RootStack() {
   // run before this component's effects, so a cold-start tap on a trip push already knows the roles.
   setTransportPushRoles(roles ?? { passenger: false, driver: false, incidents: false, fleet: false });
   useTransportQueueLifecycle(status === 'authenticated' && roles?.driver ? (me?.user.id ?? null) : null);
+  // Photo notes taken offline are sent when the connection is back (also when their screen is closed).
+  usePhotoNoteQueueLifecycle(status === 'authenticated' && can('photo_notes', 'create') ? (me?.user.id ?? null) : null);
   // The SOS queues (pending SOS are retried after a restart until the server confirms them): passenger (E5 WP 5.3) and
   // driver (r114). Offline cold start: the remembered identity loads them so the offline SOS screen works.
   const offline = status === 'offline' ? offlineIdentity : null;
@@ -133,6 +136,7 @@ function RootStack() {
           <Stack.Screen name="family" options={{ title: t('Family members') }} />
           <Stack.Screen name="geofences/index" options={{ title: t('Geofences') }} />
           <Stack.Screen name="expenses" options={{ title: t('Fuel & expenses') }} />
+          <Stack.Screen name="photo-notes" options={{ title: t('Photo notes') }} />
           <Stack.Screen name="attendance" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-day" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-person" options={{ title: t('Staff attendance') }} />

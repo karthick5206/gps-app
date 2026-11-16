@@ -30,6 +30,7 @@ import { PlaybackEngine } from './playback-engine';
 import { detectPreset, rangeFromParams, type TimeRange } from './time-range';
 import { useCompareHistories, useGapEstimates, useHistory, useMediaQuery, usePointQuality, usePointQualitySettings, useVehicleOptions } from './use-history';
 import { useTheme } from '@/features/theme/use-theme';
+import { HistoryPhotoNotePins } from '@/features/photo-notes/PhotoNotePins';
 import { MAX_GAP_ESTIMATES, POINT_LABELS, STATUS_META, TRACK_STATUS_CODES, type PointLabel, type PointQualityResponse } from '@veetracer/shared';
 
 function useHistoryMap(containerRef: RefObject<HTMLDivElement | null>, onMarkClick: (m: MarkClick) => void, onFollowInterrupted: () => void, onPointClick?: (p: PointPick) => void) {
@@ -628,6 +629,7 @@ export function HistoryPage() {
               </button>
             )}
             {objectId && <PointRemoveDialog objectId={objectId} pick={pointPick} onClose={() => setPointPick(null)} />}
+            <HistoryPhotoNotePins map={map?.mapInstance ?? null} objectId={objectId} from={range.from} to={range.to} />
             {/* Under the zoom buttons: save the map as a picture, full screen. */}
             {!unsupported && (
               <MapTools

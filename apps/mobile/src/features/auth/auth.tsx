@@ -15,6 +15,7 @@ import { i18n, restoreLanguage, setLanguage } from '@/lib/i18n';
 import { display } from '@/features/display/display';
 import { voiceAlerts } from '@/features/notifications/voice';
 import { basemap } from '@/features/map/basemap';
+import { clearPhotoNoteQueue } from '@/features/photo-notes/photo-note-store';
 
 /**
  * `offline` (r114, QA B4): the app started with a saved session but could not reach the server, and the last signed-in
@@ -101,6 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session.clear();
     liveStore.reset();
     clearPhotoCache();
+    // Unsent photo notes and their photos leave the phone with the session (privacy).
+    clearPhotoNoteQueue();
     queryClient.clear();
     setStatus('anonymous');
   }, [queryClient]);

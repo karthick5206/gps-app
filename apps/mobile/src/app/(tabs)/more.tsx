@@ -2,7 +2,7 @@ import { Children, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon, CameraIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -122,6 +122,7 @@ export default function MoreScreen() {
       <MenuGroup title={t('Costs & Reports')}>
         {can('reports') && <MenuItem icon={FileBarChartIcon} label={t('Reports')} href="/reports" />}
         {can('expenses') && <MenuItem icon={FuelIcon} label={t('Fuel & expenses')} href="/expenses" />}
+        {can('photo_notes') && <MenuItem icon={CameraIcon} label={t('Photo notes')} href="/photo-notes" />}
         {can('billing') && !me?.user.isSuperAdmin && <MenuItem icon={ReceiptIndianRupeeIcon} label={t('Licences & invoices')} href="/licences" />}
       </MenuGroup>
 

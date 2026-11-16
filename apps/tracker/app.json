@@ -12,7 +12,10 @@
       "bundleIdentifier": "com.sasvata.veetrax.tracker",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Take your check-in selfie or video, if your employer asks for one, or a photo of a bill or place to save with its location.",
+        "NSPhotoLibraryUsageDescription": "Choose a photo for your profile or a photo note.",
+        "NSLocationWhenInUseUsageDescription": "Share this phone's location with your employer's VeeTrax fleet account while tracking is switched on, save the place where a photo note was taken and show your position."
       }
     },
     "android": {
@@ -62,7 +65,7 @@
         {
           "locationAlwaysAndWhenInUsePermission": "VeeTrax Tracker shares this phone's location with your employer's VeeTrax fleet account, including in the background when the app is closed, while tracking is switched on.",
           "locationAlwaysPermission": "VeeTrax Tracker shares this phone's location with your employer's VeeTrax fleet account, including in the background when the app is closed, while tracking is switched on.",
-          "locationWhenInUsePermission": "VeeTrax Tracker uses your location to share it with your employer's VeeTrax fleet account while tracking is switched on.",
+          "locationWhenInUsePermission": "Share this phone's location with your employer's VeeTrax fleet account while tracking is switched on, save the place where a photo note was taken and show your position.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
@@ -72,7 +75,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie or video, if your employer asks for one.",
+          "cameraPermission": "Take your check-in selfie or video, if your employer asks for one, or a photo of a bill or place to save with its location.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
@@ -80,8 +83,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "VeeTrax Tracker uses the camera for your check-in selfie, if your employer asks for one, and for your profile photo.",
-          "photosPermission": false,
+          "cameraPermission": "Take your check-in selfie or video if your employer asks for one, your profile photo, or a photo of a bill or place to save with its location.",
+          "photosPermission": "Choose a photo for your profile or a photo note.",
           "microphonePermission": false
         }
       ],

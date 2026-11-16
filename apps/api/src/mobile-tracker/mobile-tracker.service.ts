@@ -1,6 +1,6 @@
 import type { PhoneAttendanceDto, PhoneAttention } from '@veetracer/shared';
 import { AttendanceService } from '../attendance/attendance.service';
-import { ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import { MobileTrackerStatusDto, sanitizeTrackerEvents, sanitizeTrackerHealth, TrackerEventKind, TrackerHealth } from '@veetracer/shared';
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import { AuthContext } from '../access/auth-context';
@@ -590,6 +590,17 @@ export class MobileTrackerService {
   async photoRemove(authorization: string | undefined): Promise<ObjectPhotoState> {
     const s = await this.session(authorization);
     return this.requirePhotos().trackerRemove(s.deviceId);
+  }
+
+  // ───────────── photo notes of the phone's person ─────────────
+
+  /** The company and person (current assignment) behind the phone's token, for photo notes; 400 when none is assigned. */
+  async phoneOwner(authorization: string | undefined): Promise<{ companyId: string; objectId: string }> {
+    const s = await this.session(authorization);
+    const d = await this.prisma.device.findUnique({ where: { id: s.deviceId }, select: { companyId: true, assignments: { where: { toTime: null }, select: { objectId: true } } } });
+    const objectId = d?.assignments[0]?.objectId;
+    if (!d?.companyId || !objectId) throw new BadRequestException('This phone is not assigned to a person yet. Ask your administrator.');
+    return { companyId: d.companyId, objectId };
   }
 
   // ───────────── attendance on the phone ─────────────

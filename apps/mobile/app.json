@@ -12,7 +12,10 @@
       "bundleIdentifier": "com.sasvata.veetrax",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Save the place where a photo note was taken and show your position.",
+        "NSCameraUsageDescription": "Take a profile photo or a photo of a bill or place to save with its location.",
+        "NSPhotoLibraryUsageDescription": "Choose a photo for your profile or a photo note."
       }
     },
     "android": {
@@ -73,8 +76,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow VeeTrax to take photos of fuel and expense bills.",
-          "photosPermission": false,
+          "cameraPermission": "Take a profile photo or a photo of a bill or place to save with its location.",
+          "photosPermission": "Choose a photo for your profile or a photo note.",
           "microphonePermission": false
         }
       ]
