@@ -78,7 +78,7 @@ The server still applies its own `maxAccuracyM` / mock rules on top.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EXPO_PUBLIC_SERVER_URL` | `https://gps.mintplus.co.in` | Server; the app calls `${SERVER}/api/tracker/v1` |
+| — | `https://app.veetrax.com` | Server, chosen on the activation screen: off = live (`app.veetrax.com`), **Demo account** on = `gps.mintplus.co.in`. Phones activated before this switch existed stay on `gps.mintplus.co.in`. See `src/lib/server.ts`. |
 
 Put overrides in `apps/tracker/.env.local` (not committed). The value is baked in at build time.
 
@@ -176,5 +176,21 @@ continuous tracking; mention the fleet/workforce use case if Play asks.
 
 ## iOS
 
-The config has `UIBackgroundModes: location` and the permission texts, but the app is built and tested for
-Android only for now.
+The same native API is implemented in Swift (`modules/veetrax-tracker/ios/`, a port of the Android engine: same
+filter, queue, upload format, backoff, SOS and server stop rules). iOS differences:
+
+- Background: `CLLocationManager` with background updates (the blue location indicator shows while tracking) plus
+  significant-change monitoring, which relaunches the app after it was closed or killed; tracking then resumes
+  natively, without the JS app. Closing the app from the app switcher pauses tracking until the phone moves on
+  (a notification says so).
+- Location must be **Always** for restarts in the background; "While Using" works only while started from the app.
+- iOS has no update interval: fixes are thinned to `intervalSec` / `stoppedIntervalSec` in the engine.
+- Watchdog: a `BGAppRefreshTask` (about every 15 min, when iOS allows) instead of WorkManager.
+- `installId` is a UUID kept in the Keychain (survives a reinstall); the token is in the Keychain too.
+- No battery-optimisation or autostart screens (those cards are Android only).
+
+Built in the cloud with EAS (`eas.json`, project `@karthick5206/veetrax-tracker`), no Mac/Xcode needed:
+
+    cd apps/tracker
+    npx eas-cli build -p ios --profile production     # first time: interactive, signs in to Apple
+    npx eas-cli submit -p ios --latest                # to TestFlight / App Store Connect

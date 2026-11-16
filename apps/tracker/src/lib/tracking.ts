@@ -2,7 +2,8 @@ import * as Location from 'expo-location';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Tracker from '../../modules/veetrax-tracker';
-import { SERVER_URL, type TrackerConfig } from './api';
+import { type TrackerConfig } from './api';
+import { serverUrl } from './server';
 import { getToken, store } from './state';
 
 /**
@@ -45,7 +46,7 @@ export async function startNative(): Promise<string | null> {
     // Ask for Google's high-accuracy mode (GPS + Wi-Fi + cell). The user can decline; tracking still works.
     await Location.enableNetworkProviderAsync().catch(() => undefined);
   }
-  const r = await Tracker.start(token, SERVER_URL, store.config());
+  const r = await Tracker.start(token, serverUrl(), store.config());
   return r === 'started' ? null : r;
 }
 

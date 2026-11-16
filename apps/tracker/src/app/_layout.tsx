@@ -3,7 +3,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { api, SERVER_URL } from '@/lib/api';
+import { api } from '@/lib/api';
+import { initServerChoice, serverUrl } from '@/lib/server';
 import { installJsCrashHandler, reportCrashes } from '@/lib/crash';
 import { handleAuthError, restoreActivation, syncStopReason } from '@/lib/control';
 import { initLanguage } from '@/lib/language';
@@ -28,7 +29,7 @@ async function startup(): Promise<void> {
   await syncStopReason(st);
   if (!(await getToken())) return;
   // Make sure the native engine has the token (e.g. an install that activated before the native engine existed).
-  if (st && !st.hasToken && !st.stopReason) await Tracker.setCredentials(token, SERVER_URL).catch(() => undefined);
+  if (st && !st.hasToken && !st.stopReason) await Tracker.setCredentials(token, serverUrl()).catch(() => undefined);
   await resumeIfWanted();
   try {
     const me = await api.me(token);
@@ -66,7 +67,9 @@ export default function RootLayout() {
   }, [ready, signedIn, segments]);
 
   useEffect(() => {
-    getToken()
+    initServerChoice()
+      .catch(() => undefined)
+      .then(() => getToken())
       .catch(() => null)
       // After an update or reinstall the app may have lost its token: take the activation up again (max 8 s).
       .then((token) => (token ? undefined : Promise.race([restoreActivation(), new Promise((r) => setTimeout(r, 8000))])))

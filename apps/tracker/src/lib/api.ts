@@ -3,8 +3,10 @@
  * Position uploads are done by the native engine (modules/veetrax-tracker), not from JS.
  */
 
-export const SERVER_URL = (process.env.EXPO_PUBLIC_SERVER_URL || 'https://gps.mintplus.co.in').replace(/\/+$/, '');
-export const API_BASE = `${SERVER_URL}/api/tracker/v1`;
+import { serverUrl } from './server';
+
+/** The tracker API of the server chosen on the activation screen (live or demo, see server.ts). */
+const apiBase = () => `${serverUrl()}/api/tracker/v1`;
 
 export interface TrackerConfig {
   intervalSec: number;
@@ -82,7 +84,7 @@ async function request<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: u
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
+    res = await fetch(`${apiBase()}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: ctrl.signal });
   } catch (e) {
     throw new NetworkError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -110,7 +112,7 @@ function parseResponse<T>(ok: boolean, status: number, text: string): T {
 function uploadForm<T>(path: string, form: FormData, token: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.open('POST', `${apiBase()}${path}`);
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.timeout = UPLOAD_TIMEOUT_MS;
@@ -150,5 +152,6 @@ export const api = {
   signOut: (token: string) => request<{ ok: true }>('POST', '/signout', undefined, token),
   diagnostics: (body: { appVersion: string; platform: string; device: string; nativeCrash: string | null; jsCrash: string | null }) =>
     request<{ ok: true }>('POST', '/diagnostics', body),
-};import { APP_VERSION } from './device';
+};
+import { APP_VERSION } from './device';
 

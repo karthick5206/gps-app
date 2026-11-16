@@ -1,4 +1,6 @@
+import { Platform } from 'react-native';
 import { hi } from './strings-hi';
+import { IOS_OVERRIDES } from './strings-ios';
 import { ta } from './strings-ta';
 
 /** All user-facing text. English here is the source; strings-hi.ts and strings-ta.ts have the same keys. */
@@ -9,6 +11,11 @@ const en = {
   activateTitle: 'Activate this phone',
   activateIntro: 'Enter this phone\'s mobile number and your e-mail. We send a 6-digit code to the phone.',
   steps: ['Enter your mobile number and e-mail', 'Type the 6-digit code from the SMS', 'Tracking runs in the background until you stop it', 'See your location and history in the VeeTrax app'],
+  demoAccount: 'Demo account',
+  demoAccountHint: 'Turn on only for a demo account: updates go to the demo server (gps.mintplus.co.in). Off: your live VeeTrax account (app.veetrax.com).',
+  serverLabel: 'Server',
+  serverDemo: 'Demo (gps.mintplus.co.in)',
+  serverLive: 'Live (app.veetrax.com)',
   mobileLabel: 'Mobile number',
   emailLabel: 'E-mail (required)',
   emailRequired: 'Enter your e-mail address.',
@@ -213,8 +220,9 @@ const en = {
 export type Strings = typeof en;
 export type LanguageCode = 'en' | 'hi' | 'ta';
 
-const BY_CODE: Record<LanguageCode, Strings> = { en, hi, ta };
-let current: Strings = en;
+const forPlatform = (code: LanguageCode, base: Strings): Strings => (Platform.OS === 'ios' ? { ...base, ...IOS_OVERRIDES[code] } : base);
+const BY_CODE: Record<LanguageCode, Strings> = { en: forPlatform('en', en), hi: forPlatform('hi', hi), ta: forPlatform('ta', ta) };
+let current: Strings = BY_CODE.en;
 
 export function setCurrentLanguage(code: LanguageCode): void {
   current = BY_CODE[code];

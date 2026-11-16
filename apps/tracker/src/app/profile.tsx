@@ -4,6 +4,7 @@ import { Row, Section } from '@/components/ui';
 import { APP_VERSION } from '@/lib/device';
 import { store, useStoreVersion } from '@/lib/state';
 import { S } from '@/lib/strings';
+import { isDemo } from '@/lib/server';
 import { useColors } from '@/lib/theme';
 
 const dateOnly = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -34,6 +35,7 @@ export default function ProfileScreen() {
           {session.email ? <Row label={S.email} value={session.email} /> : null}
           {session.accountType ? <Row label={S.accountType} value={S.accountTypes[session.accountType] ?? session.accountType} /> : null}
           <Row label={S.company} value={session.companyName || '—'} />
+          <Row label={S.serverLabel} value={isDemo() ? S.serverDemo : S.serverLive} />
           {session.trialEndsAt ? (
             <Row label={S.freeTrialUntil} value={dateOnly(session.trialEndsAt)} />
           ) : session.licenceEndsAt ? (

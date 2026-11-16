@@ -1,8 +1,9 @@
 import { requireOptionalNativeModule } from 'expo';
 
 /**
- * JS API of the native tracking engine (Android foreground service; see android/…/trackerengine).
- * Tracking, the queue and uploads run natively, also when the JS app is not running.
+ * JS API of the native tracking engine: Android foreground service (android/…/trackerengine) and iOS background
+ * location (ios/Engine.swift), with the same API. Tracking, the queue and uploads run natively, also when the JS app
+ * is not running.
  */
 
 export interface NativeTrackerConfig {
@@ -72,12 +73,12 @@ export interface DeviceInfo {
   sdk: number;
 }
 
-/** Null on platforms without the native module (iOS / web for now). */
+/** Null on platforms without the native module (web). */
 const Native = requireOptionalNativeModule<NativeModuleShape>('VeetraxTracker');
 
 export const isAvailable = Native != null;
 
-const unavailable = () => new Error('VeeTrax tracker engine is only available on Android');
+const unavailable = () => new Error('VeeTrax tracker engine is not available on this platform');
 
 export function start(token: string, serverUrl: string, config?: Partial<NativeTrackerConfig>): Promise<StartResult> {
   return Native ? Native.start(token, serverUrl, config ?? null) : Promise.reject(unavailable());

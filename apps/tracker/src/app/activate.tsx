@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InfoSteps } from '@/components/InfoSteps';
 import { TrackerMark } from '@/components/TrackerLogo';
@@ -8,6 +8,7 @@ import { Body, Button, Card, HeaderBand, Title } from '@/components/ui';
 import { api, ApiError, NetworkError } from '@/lib/api';
 import { APP_VERSION, deviceName } from '@/lib/device';
 import { saveActivation } from '@/lib/control';
+import { isDemo, setServerChoice } from '@/lib/server';
 import { store, useStoreVersion } from '@/lib/state';
 import { LanguagePicker } from '@/components/LanguagePicker';
 import { S, serverText } from '@/lib/strings';
@@ -45,6 +46,13 @@ export default function ActivateScreen() {
   // Registered number: its e-mail / name are filled in (same phone) or the e-mail is shown masked; both editable.
   const [registered, setRegistered] = useState(false);
   const [emailHint, setEmailHint] = useState<string | null>(null);
+  // Demo account → demo server; off → live server. Fixed once the code is sent (the code belongs to that server).
+  const [demo, setDemo] = useState(isDemo());
+  const toggleDemo = (on: boolean) => {
+    setServerChoice(on ? 'demo' : 'live');
+    setDemo(on);
+    setError(null);
+  };
 
   useEffect(() => {
     setRegistered(false);
@@ -65,7 +73,7 @@ export default function ActivateScreen() {
     return () => {
       live = false;
     };
-  }, [digits]);
+  }, [digits, demo]);
 
   const requestCode = async () => {
     if (!/^\d{10}$/.test(digits)) return setError(S.mobileInvalid);
@@ -164,6 +172,13 @@ export default function ActivateScreen() {
                 <Body muted style={{ fontSize: 13 }}>{registered ? (emailHint && !email ? S.emailKeep(emailHint) : S.emailRegisteredHint) : S.emailHint}</Body>
                 <Text style={[styles.label, { color: c.muted }]}>{S.nameLabel}</Text>
                 <TextInput style={input} value={name} onChangeText={setName} placeholder={S.namePlaceholder} placeholderTextColor={c.muted} autoComplete="name" />
+                <View style={[styles.demoRow, { borderColor: c.border }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.demoTitle, { color: c.text }]}>{S.demoAccount}</Text>
+                    <Body muted style={{ fontSize: 13 }}>{S.demoAccountHint}</Body>
+                  </View>
+                  <Switch value={demo} onValueChange={toggleDemo} disabled={busy} accessibilityLabel={S.demoAccount} trackColor={{ true: c.primary }} />
+                </View>
                 <Button title={S.sendCode} onPress={requestCode} busy={busy} />
               </>
             ) : (
@@ -205,6 +220,8 @@ export default function ActivateScreen() {
 }
 
 const styles = StyleSheet.create({
+  demoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12, marginVertical: 4 },
+  demoTitle: { fontSize: 15, fontWeight: '600' },
   scroll: { padding: 16, gap: 14, paddingBottom: 32 },
   hero: { borderRadius: 12, overflow: 'hidden', paddingVertical: 6 },
   label: { fontSize: 14, fontWeight: '600', marginTop: 4 },
