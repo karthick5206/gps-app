@@ -230,6 +230,11 @@ export class HistoryMap {
     this.offBasemap = basemapStore.subscribe(() => this.restyle());
   }
 
+  /** The MapLibre map, for add-on layers (photo-note pins). */
+  get mapInstance(): MlMap {
+    return this.map;
+  }
+
   /** The map as a PNG (read right after a render, so the WebGL buffer still holds the picture). */
   snapshot(): Promise<Blob | null> {
     return new Promise((resolve) => {

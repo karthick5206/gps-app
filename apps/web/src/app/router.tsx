@@ -59,6 +59,7 @@ const PAGES: Record<MenuKey, LazyExoticComponent<ComponentType>> = {
   driver_scores: page(() => import('@/features/driver-scores/DriverScoresPage'), 'DriverScoresPage'),
   attendance: page(() => import('@/features/attendance/AttendancePage'), 'AttendancePage'),
   expenses: page(() => import('@/features/expenses/ExpensesPage'), 'ExpensesPage'),
+  photo_notes: page(() => import('@/features/photo-notes/PhotoNotesPage'), 'PhotoNotesPage'),
   stock: page(() => import('@/features/stock/StockPage'), 'StockPage'),
   geofences: page(() => import('@/features/geofences/GeofencesPage'), 'GeofencesPage'),
   pois: page(() => import('@/features/pois/PoisPage'), 'PoisPage'),

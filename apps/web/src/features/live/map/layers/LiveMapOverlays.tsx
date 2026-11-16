@@ -1,7 +1,7 @@
 import './popup.css';
 import { useQuery } from '@tanstack/react-query';
 import type { AlertDto, Paginated } from '@veetracer/shared';
-import { BellIcon, HexagonIcon, LayersIcon, MapPinIcon } from 'lucide-react';
+import { BellIcon, CameraIcon, HexagonIcon, LayersIcon, MapPinIcon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -12,6 +12,7 @@ import { alertCenter } from '@/features/alerts/alert-center';
 import { useAuth } from '@/features/auth/auth-context';
 import { useAllGeofences } from '@/features/geofences/api';
 import { useAllPois, usePoiCategoryOptions } from '@/features/pois/api';
+import { LivePhotoNotePins } from '@/features/photo-notes/PhotoNotePins';
 import { api } from '@/lib/api';
 import { storage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -30,10 +31,12 @@ interface LayerPrefs {
   alerts: boolean;
   /** Off by default: a company can have thousands of POIs. */
   pois: boolean;
+  /** Photo notes of the last 24 hours; off by default. */
+  photoNotes: boolean;
 }
 
 function readPrefs(): LayerPrefs {
-  return { geofences: true, alerts: true, pois: false, ...storage.getJson<Partial<LayerPrefs>>(PREF_KEY, {}) };
+  return { geofences: true, alerts: true, pois: false, photoNotes: false, ...storage.getJson<Partial<LayerPrefs>>(PREF_KEY, {}) };
 }
 
 function ToggleRow({ icon: Icon, label, hint, checked, onChange }: { icon: typeof HexagonIcon; label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -164,10 +167,13 @@ export function LiveMapOverlays({ controller, onFocusObject, className }: { cont
     });
   }, [focusParam, controller, setParams]);
 
-  const activeCount = Number(showGeofences) + Number(showAlerts) + Number(showPois);
+  const showPhotoNotes = can('photo_notes') && prefs.photoNotes;
+  const activeCount = Number(showGeofences) + Number(showAlerts) + Number(showPois) + Number(showPhotoNotes);
 
   return (
     <Popover>
+      {/* Camera pins + lightbox (Radix Root renders its children as is). */}
+      <LivePhotoNotePins map={controller?.mapInstance ?? null} enabled={showPhotoNotes} />
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className={cn('gap-1.5 bg-card shadow-md', className)} aria-label={t('Map layers')}>
           <LayersIcon /> <span className="hidden sm:inline">{t('Layers')}</span>
@@ -180,6 +186,7 @@ export function LiveMapOverlays({ controller, onFocusObject, className }: { cont
         {can('geofences') && <ToggleRow icon={HexagonIcon} label={t('Geofences')} hint={t('Zones with name labels')} checked={prefs.geofences} onChange={(v) => update({ geofences: v })} />}
         {can('pois') && <ToggleRow icon={MapPinIcon} label={t('Points of interest')} hint={t('Pins with names when zoomed in')} checked={prefs.pois} onChange={(v) => update({ pois: v })} />}
         {can('alerts') && <ToggleRow icon={BellIcon} label={t('Alert markers')} hint={t('Alerts of the last 24 hours')} checked={prefs.alerts} onChange={(v) => update({ alerts: v })} />}
+        {can('photo_notes') && <ToggleRow icon={CameraIcon} label={t('Photo notes')} hint={t('Photos with notes of the last 24 hours')} checked={prefs.photoNotes} onChange={(v) => update({ photoNotes: v })} />}
       </PopoverContent>
     </Popover>
   );
