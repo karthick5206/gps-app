@@ -37,7 +37,7 @@ import {
   PartnerCreateDto,
   PartnerUpdateDto,
   PricingDto,
-  PurchaseDto,
+  AdminQuoteDto,
   UpiRejectBody,
 } from './licences.dto';
 import { UpiService } from './upi.service';
@@ -80,13 +80,22 @@ export class LicencesAdminController {
   }
 
   @Post('pools/:kind/:id/quote') @HttpCode(200) @RequirePermission('sa_licences', 'view')
-  async quote(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PurchaseDto) {
-    return this.billing.quote(await this.owner(kind, id), dto);
+  async quote(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminQuoteDto) {
+    return this.billing.quote(await this.owner(kind, id), dto, new Date(), dto.discountPaise ?? 0);
   }
 
+  /** Super Admin: pro-forma invoice PDF (payment due; not a tax invoice), with an optional discount. */
+  @Post('pools/:kind/:id/proforma') @HttpCode(200) @RequirePermission('sa_licences', 'create')
+  async proforma(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminQuoteDto) {
+    const out = await this.billing.proforma(ctx, await this.owner(kind, id), dto, dto.discountPaise ?? 0);
+    const name = `Proforma-${out.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`;
+    return new StreamableFile(out.pdf, { type: 'application/pdf', disposition: `attachment; filename="${name}"` });
+  }
+
+  /** Super Admin: may give a discount (before GST on the invoice). */
   @Post('pools/:kind/:id/payments') @RequirePermission('sa_licences', 'create')
   async payment(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfflinePaymentDto) {
-    return this.billing.recordOffline(ctx, await this.owner(kind, id), dto);
+    return this.billing.recordOffline(ctx, await this.owner(kind, id), dto, { allowDiscount: true });
   }
 
   /** Customers' "I've paid by UPI": check the UTR on the bank statement, then confirm (activates + invoices) or reject. */

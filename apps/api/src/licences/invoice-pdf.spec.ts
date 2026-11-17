@@ -51,3 +51,39 @@ describe('invoice PDF amounts', () => {
     expect(rs(118000)).toBe('₹1,180.00');
   });
 });
+
+describe('invoice PDF with a discount', () => {
+  it('adds Value (excl. GST) and Discount columns and the discount rows in the totals', async () => {
+    const disc: InvoiceSnapshot = {
+      ...snapshot,
+      taxKind: 'CGST_SGST',
+      lines: [{ ...snapshot.lines[0], amountPaise: 200_000, taxablePaise: 169_492, listPaise: 236_000, discountPaise: 30_508 }],
+      taxablePaise: 169_492,
+      cgstPaise: 15_254,
+      sgstPaise: 15_254,
+      igstPaise: 0,
+      totalPaise: 200_000,
+    };
+    const doc = JSON.stringify(invoiceDocument(disc, null));
+    expect(doc).toContain('Value (excl. GST)');
+    expect(doc).toContain('Less: discount');
+    expect(doc).toContain('2,00,000.00'.replace('2,00,000.00', '2,000.00'));
+    const pdf = await renderInvoicePdf(disc, null);
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(JSON.stringify(invoiceDocument(snapshot, null))).not.toContain('Less: discount');
+  });
+});
+
+describe('pro-forma invoice PDF', () => {
+  it('says PRO-FORMA / PAYMENT DUE / valid until and not a tax invoice; a tax invoice says PAID', async () => {
+    const pf: InvoiceSnapshot = { ...snapshot, number: 'VTX/PI/2026-27/1117-1530', proforma: { validUntil: '2026-12-02T10:00:00.000Z' } };
+    const doc = JSON.stringify(invoiceDocument(pf, null));
+    expect(doc).toContain('PRO-FORMA INVOICE');
+    expect(doc).toContain('PAYMENT DUE');
+    expect(doc).toContain('Valid until: 02-Dec-2026');
+    expect(doc).toContain('not a tax invoice');
+    expect(doc).not.toContain('"PAID"');
+    expect(JSON.stringify(invoiceDocument(snapshot, null))).toContain('"PAID"');
+    expect((await renderInvoicePdf(pf, null)).subarray(0, 4).toString()).toBe('%PDF');
+  });
+});

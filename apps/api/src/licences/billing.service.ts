@@ -4,6 +4,7 @@ import {
   addYears,
   BillingProfileDto,
   CheckoutDto,
+  applyDiscount,
   gstBreakdown,
   gstinError,
   isApiPlan,
@@ -144,7 +145,8 @@ export class BillingService {
 
   // ───────────── quotes ─────────────
 
-  async quote(owner: Owner, req: PurchaseRequest, paidAt = new Date()): Promise<QuoteDto> {
+  /** `discountPaise` (GST inclusive): Super Admin quotes / recorded payments only; customers always pay the list price. */
+  async quote(owner: Owner, req: PurchaseRequest, paidAt = new Date(), discountPaise = 0): Promise<QuoteDto> {
     const items = (req.items ?? []).filter((i) => i.quantity > 0);
     const renewIds = [...new Set(req.renewSeatIds ?? [])];
     if (!items.length && !renewIds.length) throw new BadRequestException('Choose licences to buy or seats to renew');
@@ -163,12 +165,20 @@ export class BillingService {
     const priced = (t: (typeof items)[number]['type'], plan?: string | null) => unitPricePaise(prices, plans, t, isApiPlan(plan) ? plan : null) > 0;
     const unpriced = [...items.map((i) => ({ t: i.type, plan: i.plan })), ...renewals.map((r) => ({ t: r.type, plan: r.apiPlan }))].find((x) => !priced(x.t, x.plan));
     if (unpriced) throw new BadRequestException(`The ${LICENCE_TYPE_LABELS[unpriced.t].toLowerCase()} licence price has not been set yet. Please contact support.`);
-    const lines = quoteLines(items, renewals, prices, paidAt, plans);
+    let lines = quoteLines(items, renewals, prices, paidAt, plans);
+    if (discountPaise) {
+      try {
+        lines = applyDiscount(lines, discountPaise);
+      } catch (e) {
+        throw new BadRequestException((e as Error).message);
+      }
+    }
     const s = await this.settings.get();
     const profile = await this.profile(owner);
     const customerState = profile.stateCode || s.stateCode;
     return {
       lines,
+      discountPaise: discountPaise || 0,
       gst: gstBreakdown(lines.map((l) => l.amountPaise), s.gstRatePct, s.stateCode, customerState),
       customerStateCode: customerState,
       supplierStateCode: s.stateCode,
@@ -207,14 +217,33 @@ export class BillingService {
     };
   }
 
+  // ───────────── pro-forma (before payment) ─────────────
+
+  /** Super Admin: pro-forma PDF for the selected licences / renewals (with an optional discount). Audited, not stored. */
+  async proforma(ctx: AuthContext, owner: Owner, req: PurchaseRequest, discountPaise = 0): Promise<{ number: string; pdf: Buffer }> {
+    await this.requireProfile(owner);
+    const q = await this.quote(owner, req, new Date(), discountPaise);
+    const profile = await this.prisma.billingProfile.findUnique({ where: owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id } });
+    if (!profile) throw new BadRequestException('Billing details missing');
+    const out = await this.invoices.proformaPdf(profile, q.lines);
+    await this.audit.record(ctx, {
+      action: 'CREATE',
+      entity: 'licence_proforma',
+      entityId: out.number,
+      details: { owner: `${owner.kind}:${owner.id}`, totalPaise: q.gst.totalPaise, discountPaise: q.discountPaise ?? 0, renewSeatIds: req.renewSeatIds ?? [], items: (req.items ?? []).map((i) => ({ type: i.type, quantity: i.quantity, plan: i.plan ?? null })) },
+    });
+    return out;
+  }
+
   // ───────────── offline payments ─────────────
 
   /** Cash / UPI / bank transfer / cheque received: activates the seats and issues the invoice at once. */
-  async recordOffline(ctx: AuthContext, owner: Owner, dto: OfflinePaymentRequest): Promise<{ orderId: string; invoiceId: string | null }> {
+  async recordOffline(ctx: AuthContext, owner: Owner, dto: OfflinePaymentRequest, opts: { allowDiscount?: boolean } = {}): Promise<{ orderId: string; invoiceId: string | null }> {
     await this.requireProfile(owner);
+    if (dto.discountPaise && !opts.allowDiscount) throw new BadRequestException('Only the Super Admin can give a discount');
     const paidAt = paidOnDate(dto.paidOn);
     if (paidAt.getTime() > Date.now() + 86_400_000) throw new BadRequestException('The payment date cannot be in the future');
-    const q = await this.quote(owner, dto, paidAt);
+    const q = await this.quote(owner, dto, paidAt, opts.allowDiscount ? (dto.discountPaise ?? 0) : 0);
     if (q.gst.totalPaise !== dto.amountPaise) {
       throw new BadRequestException(`The amount must equal the total of ₹${(q.gst.totalPaise / 100).toFixed(2)} (GST inclusive)`);
     }
@@ -234,7 +263,7 @@ export class BillingService {
       action: 'CREATE',
       entity: 'licence_payment',
       entityId: order.id,
-      details: { owner: `${owner.kind}:${owner.id}`, mode: dto.mode, reference: dto.reference ?? null, amountPaise: dto.amountPaise, paidOn: dto.paidOn, invoiceId },
+      details: { owner: `${owner.kind}:${owner.id}`, mode: dto.mode, reference: dto.reference ?? null, amountPaise: dto.amountPaise, discountPaise: q.discountPaise ?? 0, paidOn: dto.paidOn, invoiceId },
     });
     return { orderId: order.id, invoiceId };
   }

@@ -78,7 +78,8 @@ export function planCredit(lines: InvoiceLineSnapshot[], prior: PriorCreditLine[
     seen.add(r.lineIndex);
     if (!Number.isInteger(r.quantity) || r.quantity < 0) throw new BadRequestException('Quantity must be a whole number');
     if (r.quantity > line.remainingQuantity) throw new BadRequestException(`Line ${r.lineIndex + 1}: only ${line.remainingQuantity} licence(s) left to credit`);
-    const amount = r.amountPaise ?? line.unitPaise * r.quantity;
+    // Default: the share of what was paid for the line (after any discount), so discounted lines credit what was paid.
+    const amount = r.amountPaise ?? (line.quantity > 0 ? Math.round((line.amountPaise * r.quantity) / line.quantity) : line.unitPaise * r.quantity);
     if (!Number.isInteger(amount) || amount <= 0) throw new BadRequestException(`Line ${r.lineIndex + 1}: enter the amount to credit`);
     if (amount > line.remainingPaise) throw new BadRequestException(`Line ${r.lineIndex + 1}: at most ₹${(line.remainingPaise / 100).toFixed(2)} is left to credit`);
     const g = gstLine(amount, ratePct, taxKind);

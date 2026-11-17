@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CreditNote, Invoice, LicenceOrder, Prisma } from '@prisma/client';
-import { financialYear, formatInr, formatInvoiceNumber, gstBreakdown, InvoiceDto, PaymentMode, QuoteLineDto, stateByCode, TaxKind } from '@veetracer/shared';
+import { discountBeforeTax, financialYear, formatInr, formatInvoiceNumber, gstBreakdown, InvoiceDto, PaymentMode, QuoteLineDto, stateByCode, TaxKind } from '@veetracer/shared';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -102,31 +102,19 @@ export interface InvoiceFilter {
   to?: string;
 }
 
-/** GST tax invoices: issued inside the order's transaction (gap-free numbers), rendered to PDF, e-mailed with the PDF. */
-@Injectable()
-export class InvoicesService {
-  private readonly logger = new Logger('Invoices');
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly settings: LicenceSettingsService,
-    private readonly mailer: MailerService,
-  ) {}
-
-  async issue(tx: Prisma.TransactionClient, order: LicenceOrder, lines: QuoteLineDto[], pay: { paidAt: Date; reference?: string | null; razorpayPaymentId?: string }): Promise<Invoice> {
-    const s = await this.settings.get();
-    const profile = await tx.billingProfile.findUnique({ where: order.companyId ? { companyId: order.companyId } : { partnerId: order.partnerId! } });
-    if (!profile) throw new BadRequestException('Billing details missing');
-    const gst = gstBreakdown(lines.map((l) => l.amountPaise), s.gstRatePct, s.stateCode, profile.stateCode);
-    const issuedAt = new Date();
-    const fy = financialYear(issuedAt);
-    const seq = await nextInvoiceSeq(tx, fy);
-    const number = formatInvoiceNumber(s.invoicePrefix, fy, seq);
-    const ut = gst.kind === 'CGST_UTGST';
-    const reference = pay.razorpayPaymentId ?? pay.reference ?? order.paymentReference ?? null;
-    const snapshot: InvoiceSnapshot = {
-      number,
-      issuedAt: issuedAt.toISOString(),
+/** What is printed on an invoice / pro-forma (stored with a tax invoice so it re-renders identically). */
+export function buildSnapshot(
+  s: Awaited<ReturnType<LicenceSettingsService['get']>>,
+  profile: { billingName: string; address: string; city: string; stateCode: string; pin: string; gstin: string | null; email: string },
+  lines: QuoteLineDto[],
+  meta: { number: string; issuedAt: Date; paymentMode: PaymentMode; paymentReference: string | null; paidAt: Date; proforma?: { validUntil: string } },
+): InvoiceSnapshot {
+  const gst = gstBreakdown(lines.map((l) => l.amountPaise), s.gstRatePct, s.stateCode, profile.stateCode);
+  const ut = gst.kind === 'CGST_UTGST';
+  return {
+      number: meta.number,
+      issuedAt: meta.issuedAt.toISOString(),
       supplier: {
         name: s.legalName,
         addressLines: s.addressLines,
@@ -158,6 +146,9 @@ export class InvoicesService {
         unitPaise: l.unitPaise,
         amountPaise: l.amountPaise,
         taxablePaise: gst.lines[i].taxablePaise,
+        ...(l.discountPaise
+          ? { listPaise: l.amountPaise + l.discountPaise, discountPaise: discountBeforeTax(l.amountPaise + l.discountPaise, l.amountPaise, s.gstRatePct) }
+          : {}),
         ...(l.plan ? { plan: l.plan } : {}),
         seatIds: l.seatIds,
       })),
@@ -169,13 +160,38 @@ export class InvoicesService {
       utgstPaise: ut ? gst.sgstPaise : 0,
       igstPaise: gst.igstPaise,
       totalPaise: gst.totalPaise,
-      paymentMode: order.mode as PaymentMode,
-      paymentReference: reference,
-      paidAt: pay.paidAt.toISOString(),
+      paymentMode: meta.paymentMode,
+      paymentReference: meta.paymentReference,
+      paidAt: meta.paidAt.toISOString(),
+      ...(meta.proforma ? { proforma: meta.proforma } : {}),
       bank: { bankName: s.bankName, bankAccountName: s.bankAccountName, bankAccountNo: s.bankAccountNo, bankIfsc: s.bankIfsc, bankBranch: s.bankBranch, upiId: s.upiId },
       terms: s.terms,
       footerNote: s.footerNote,
-    };
+  };
+}
+
+/** GST tax invoices: issued inside the order's transaction (gap-free numbers), rendered to PDF, e-mailed with the PDF. */
+@Injectable()
+export class InvoicesService {
+  private readonly logger = new Logger('Invoices');
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: LicenceSettingsService,
+    private readonly mailer: MailerService,
+  ) {}
+
+  async issue(tx: Prisma.TransactionClient, order: LicenceOrder, lines: QuoteLineDto[], pay: { paidAt: Date; reference?: string | null; razorpayPaymentId?: string }): Promise<Invoice> {
+    const s = await this.settings.get();
+    const profile = await tx.billingProfile.findUnique({ where: order.companyId ? { companyId: order.companyId } : { partnerId: order.partnerId! } });
+    if (!profile) throw new BadRequestException('Billing details missing');
+    const gst = gstBreakdown(lines.map((l) => l.amountPaise), s.gstRatePct, s.stateCode, profile.stateCode);
+    const issuedAt = new Date();
+    const fy = financialYear(issuedAt);
+    const seq = await nextInvoiceSeq(tx, fy);
+    const number = formatInvoiceNumber(s.invoicePrefix, fy, seq);
+    const reference = pay.razorpayPaymentId ?? pay.reference ?? order.paymentReference ?? null;
+    const snapshot = buildSnapshot(s, profile, lines, { number, issuedAt, paymentMode: order.mode as PaymentMode, paymentReference: reference, paidAt: pay.paidAt });
     return tx.invoice.create({
       data: {
         number,
@@ -212,6 +228,21 @@ export class InvoicesService {
   }
 
   /** The invoice PDF: stored on first render under var/invoices/<fy>/ and served from there afterwards. */
+  /**
+   * Pro-forma invoice (before payment): same layout with "PRO-FORMA INVOICE / PAYMENT DUE", valid `validDays`. Nothing
+   * is stored and no invoice number is used; the reference is PI/<FY>/<MMDD-HHmm> in India time.
+   */
+  async proformaPdf(profile: Parameters<typeof buildSnapshot>[1], lines: QuoteLineDto[], validDays = 15): Promise<{ number: string; pdf: Buffer }> {
+    const s = await this.settings.get();
+    const now = new Date();
+    const ist = new Date(now.getTime() + 330 * 60_000);
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    const number = `${s.invoicePrefix}/PI/${financialYear(now)}/${p2(ist.getUTCMonth() + 1)}${p2(ist.getUTCDate())}-${p2(ist.getUTCHours())}${p2(ist.getUTCMinutes())}`;
+    const validUntil = new Date(now.getTime() + validDays * 86_400_000).toISOString();
+    const snapshot = buildSnapshot(s, profile, lines, { number, issuedAt: now, paymentMode: 'BANK_TRANSFER', paymentReference: null, paidAt: now, proforma: { validUntil } });
+    return { number, pdf: await renderInvoicePdf(snapshot, await this.settings.logo()) };
+  }
+
   async pdf(inv: Invoice): Promise<Buffer> {
     if (inv.pdfFile) {
       const path = join(INVOICE_DIR, inv.pdfFile);

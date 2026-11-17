@@ -25,6 +25,12 @@ export interface InvoiceLineSnapshot {
   unitPaise: number;
   amountPaise: number;
   taxablePaise: number;
+  /**
+   * Discounted lines (Super Admin): the list price of the line (GST inclusive; amountPaise is after the discount) and
+   * the discount before tax (= taxable value of the list price − taxablePaise). Missing / 0 = no discount.
+   */
+  listPaise?: number;
+  discountPaise?: number;
   /** Developer API lines: the plan. */
   plan?: ApiPlan | null;
   /** Seats bought / renewed by this line (credit notes revoke from these). Missing on invoices issued before credit notes. */
@@ -53,6 +59,8 @@ export interface InvoiceSnapshot {
   bank: { bankName: string; bankAccountName: string; bankAccountNo: string; bankIfsc: string; bankBranch: string; upiId: string };
   terms: string;
   footerNote: string;
+  /** Pro-forma (quotation before payment): not a tax invoice, no GST liability; valid until this date (ISO). */
+  proforma?: { validUntil: string };
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,24 +102,44 @@ export interface InvoiceLogo {
 }
 
 export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null): TDocumentDefinitions {
+  const pf = inv.proforma ?? null;
+  const docName = pf ? 'Pro-forma' : 'Invoice';
   const header: Content[] = [];
   if (logo) {
     header.push(logo.mime === 'image/svg+xml' ? { svg: logo.data.toString('utf8'), fit: [140, 56] } : { image: `data:${logo.mime};base64,${logo.data.toString('base64')}`, fit: [140, 56] });
   }
   const th = (text: string, alignment: 'left' | 'right' | 'center' = 'left'): TableCell => ({ text, style: 'th', alignment });
-  const body: TableCell[][] = [
-    [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Amount', 'right'), th('Taxable value', 'right')],
-    ...inv.lines.map((l, i): TableCell[] => [
-      String(i + 1),
-      lineDescription(l),
-      inv.sacCode,
-      { text: String(l.quantity), alignment: 'right' },
-      `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
-      { text: formatInr(l.unitPaise), alignment: 'right' },
-      { text: formatInr(l.amountPaise), alignment: 'right' },
-      { text: formatInr(l.taxablePaise), alignment: 'right' },
-    ]),
-  ];
+  const discountBeforeTaxPaise = inv.lines.reduce((s, l) => s + (l.discountPaise ?? 0), 0);
+  const discounted = discountBeforeTaxPaise > 0;
+  // With a discount: the value before tax, the discount and the taxable value (GST is charged on the discounted value).
+  const body: TableCell[][] = discounted
+    ? [
+        [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Value (excl. GST)', 'right'), th('Discount', 'right'), th('Taxable value', 'right')],
+        ...inv.lines.map((l, i): TableCell[] => [
+          String(i + 1),
+          lineDescription(l),
+          inv.sacCode,
+          { text: String(l.quantity), alignment: 'right' },
+          `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
+          { text: formatInr(l.unitPaise), alignment: 'right' },
+          { text: formatInr(l.taxablePaise + (l.discountPaise ?? 0)), alignment: 'right' },
+          { text: l.discountPaise ? formatInr(l.discountPaise) : '—', alignment: 'right' },
+          { text: formatInr(l.taxablePaise), alignment: 'right' },
+        ]),
+      ]
+    : [
+        [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Amount', 'right'), th('Taxable value', 'right')],
+        ...inv.lines.map((l, i): TableCell[] => [
+          String(i + 1),
+          lineDescription(l),
+          inv.sacCode,
+          { text: String(l.quantity), alignment: 'right' },
+          `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
+          { text: formatInr(l.unitPaise), alignment: 'right' },
+          { text: formatInr(l.amountPaise), alignment: 'right' },
+          { text: formatInr(l.taxablePaise), alignment: 'right' },
+        ]),
+      ];
   const half = inv.gstRatePct / 2;
   const taxRows: [string, number][] =
     inv.taxKind === 'IGST'
@@ -120,6 +148,12 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
         ? [[`CGST @ ${half}%`, inv.cgstPaise], [`UTGST @ ${half}%`, inv.utgstPaise]]
         : [[`CGST @ ${half}%`, inv.cgstPaise], [`SGST @ ${half}%`, inv.sgstPaise]];
   const totals: TableCell[][] = [
+    ...(discounted
+      ? [
+          ['Value before discount (excl. GST)', { text: rs(inv.taxablePaise + discountBeforeTaxPaise), alignment: 'right' }] as TableCell[],
+          ['Less: discount', { text: `-${rs(discountBeforeTaxPaise)}`, alignment: 'right' }] as TableCell[],
+        ]
+      : []),
     ['Taxable value', { text: rs(inv.taxablePaise), alignment: 'right' }],
     ...taxRows.map(([label, v]): TableCell[] => [label, { text: rs(v), alignment: 'right' }]),
     [{ text: 'Total (GST inclusive)', bold: true }, { text: rs(inv.totalPaise), bold: true, alignment: 'right' }],
@@ -140,11 +174,14 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
         {
           width: 190,
           stack: [
-            { text: 'TAX INVOICE', fontSize: 16, bold: true, color: '#0e5e57', alignment: 'right' },
-            { text: `Invoice no: ${inv.number}`, alignment: 'right', bold: true, margin: [0, 6, 0, 0] },
-            { text: `Invoice date: ${invoiceDate(inv.issuedAt)}`, alignment: 'right' },
+            { text: pf ? 'PRO-FORMA INVOICE' : 'TAX INVOICE', fontSize: 16, bold: true, color: '#0e5e57', alignment: 'right' },
+            { text: `${docName} no: ${inv.number}`, alignment: 'right', bold: true, margin: [0, 6, 0, 0] },
+            { text: `${docName} date: ${invoiceDate(inv.issuedAt)}`, alignment: 'right' },
+            ...(pf ? [{ text: `Valid until: ${invoiceDate(pf.validUntil)}`, alignment: 'right' } as Content] : []),
             { text: `Place of supply: ${stateText(inv.buyer.stateCode)}`, alignment: 'right' },
-            { text: 'PAID', alignment: 'right', fontSize: 22, bold: true, color: '#15803d', margin: [0, 10, 0, 0] },
+            pf
+              ? { text: 'PAYMENT DUE', alignment: 'right', fontSize: 18, bold: true, color: '#b45309', margin: [0, 10, 0, 0] }
+              : { text: 'PAID', alignment: 'right', fontSize: 22, bold: true, color: '#15803d', margin: [0, 10, 0, 0] },
           ],
         },
       ],
@@ -153,7 +190,7 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
     partyBlock('Bill to', inv.buyer, false),
     {
       margin: [0, 12, 0, 0],
-      table: { headerRows: 1, widths: [14, '*', 36, 24, 92, 58, 56, 58], body },
+      table: { headerRows: 1, widths: discounted ? [12, '*', 34, 20, 84, 50, 52, 46, 52] : [14, '*', 36, 24, 92, 58, 56, 58], body },
       layout: { fillColor: (row: number) => (row === 0 ? '#0e5e57' : row % 2 === 0 ? '#f1f5f9' : null), hLineColor: () => '#e2e8f0', vLineColor: () => '#e2e8f0' },
     },
     {
@@ -164,27 +201,32 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
             { text: 'Amount in words', style: 'label', margin: [0, 10, 0, 0] },
             { text: amountInWords(inv.totalPaise), bold: true },
             { text: 'Payment', style: 'label', margin: [0, 8, 0, 0] },
-            { text: `${PAYMENT_MODE_LABELS[inv.paymentMode]}${inv.paymentReference ? ` — ref. ${inv.paymentReference}` : ''} on ${invoiceDate(inv.paidAt)}` },
+            pf
+              ? { text: `Amount payable: ${rs(inv.totalPaise)}. Please pay by bank transfer / UPI to the account below and quote ${inv.number}.`, bold: true }
+              : { text: `${PAYMENT_MODE_LABELS[inv.paymentMode]}${inv.paymentReference ? ` — ref. ${inv.paymentReference}` : ''} on ${invoiceDate(inv.paidAt)}` },
             ...(bankBits.length ? [{ text: 'Bank details', style: 'label', margin: [0, 8, 0, 0] } as Content, { text: bankBits.join('  ·  ') } as Content] : []),
           ],
         },
-        { width: 210, margin: [0, 10, 0, 0], table: { widths: ['*', 90], body: totals }, layout: 'lightHorizontalLines' },
+        { width: discounted ? 250 : 210, margin: [0, 10, 0, 0], table: { widths: ['*', 90], body: totals }, layout: 'lightHorizontalLines' },
       ],
     },
     ...(inv.terms ? [{ text: 'Terms', style: 'label', margin: [0, 14, 0, 0] } as Content, { text: inv.terms } as Content] : []),
     ...(inv.footerNote ? [{ text: inv.footerNote, margin: [0, 10, 0, 0], color: '#475569' } as Content] : []),
-    { text: 'This is a computer-generated invoice and does not require a signature.', italics: true, color: '#64748b', margin: [0, 16, 0, 0], alignment: 'center' },
+    ...(pf
+      ? [{ text: 'This is a pro-forma invoice, not a tax invoice. The GST tax invoice is issued when the payment is received.', bold: true, color: '#b45309', margin: [0, 16, 0, 0], alignment: 'center' } as Content]
+      : []),
+    { text: `This is a computer-generated ${pf ? 'document' : 'invoice'} and does not require a signature.`, italics: true, color: '#64748b', margin: [0, pf ? 4 : 16, 0, 0], alignment: 'center' },
   ];
 
   return {
     pageSize: 'A4',
     pageMargins: [28, 28, 28, 34],
-    info: { title: `Invoice ${inv.number}`, creator: 'VeeTrax' },
+    info: { title: `${docName} ${inv.number}`, creator: 'VeeTrax' },
     defaultStyle: { font: 'NotoSans', fontSize: 8.5, color: '#0f172a' },
     styles: { label: { fontSize: 7.5, color: '#64748b', bold: true }, th: { bold: true, color: '#ffffff', fontSize: 8 } },
     footer: (current: number, count: number) => ({
       columns: [
-        { text: `${inv.supplier.name} · Invoice ${inv.number}`, fontSize: 7, color: '#94a3b8' },
+        { text: `${inv.supplier.name} · ${docName} ${inv.number}`, fontSize: 7, color: '#94a3b8' },
         { text: `Page ${current} of ${count}`, alignment: 'right', fontSize: 7, color: '#94a3b8' },
       ],
       margin: [28, 10, 28, 0],

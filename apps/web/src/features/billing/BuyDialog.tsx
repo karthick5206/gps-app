@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import {
   API_PLAN_LABELS,
   API_PLANS,
+  discountBeforeTax,
   LICENCE_TYPE_LABELS,
   OFFLINE_PAYMENT_MODES,
   PAYMENT_MODE_LABELS,
@@ -13,7 +14,7 @@ import {
   SEAT_LICENCE_TYPES,
   type SeatLicenceType,
 } from '@veetracer/shared';
-import { BanknoteIcon, CreditCardIcon, ReceiptIcon } from 'lucide-react';
+import { BanknoteIcon, CreditCardIcon, FileTextIcon, ReceiptIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -24,12 +25,24 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { api, errorMessage } from '@/lib/api';
+import { api, downloadFile, errorMessage } from '@/lib/api';
 import { openCheckout } from './razorpay';
 import { UpiPayBlock } from './UpiPay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
 
 type Quantities = Record<SeatLicenceType, number>;
+type DiscountKind = 'NONE' | 'PERCENT' | 'AMOUNT' | 'FINAL';
+
+/** Discount in paise (GST inclusive) from the form; null = invalid input, 0 = none. */
+function discountFrom(kind: DiscountKind, value: string, listTotalPaise: number): number | null {
+  if (kind === 'NONE' || !value.trim()) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (kind === 'PERCENT') return n > 100 ? null : Math.round((listTotalPaise * n) / 100);
+  const paise = Math.round(n * 100);
+  if (kind === 'AMOUNT') return paise;
+  return paise > listTotalPaise ? null : listTotalPaise - paise;
+}
 const ZERO: Quantities = { GPS_DEVICE: 0, DASHCAM: 0, FUEL_SENSOR: 0, MOBILE_TRACKER: 0 };
 
 const today = () => {
@@ -64,6 +77,18 @@ export function QuoteSummary({ quote }: { quote: QuoteDto }) {
         </div>
       ))}
       <div className="space-y-1 border-t pt-2 text-muted-foreground">
+        {!!quote.discountPaise && (
+          <>
+            <div className="flex justify-between">
+              <span>{t('List price (incl. GST)')}</span>
+              <span className="tabular-nums">{rupees(g.totalPaise + quote.discountPaise)}</span>
+            </div>
+            <div className="flex justify-between text-foreground">
+              <span>{t('Discount (before GST)')}</span>
+              <span className="tabular-nums">−{rupees(quote.lines.reduce((s, l) => s + discountBeforeTax(l.amountPaise + (l.discountPaise ?? 0), l.amountPaise, g.ratePct), 0))}</span>
+            </div>
+          </>
+        )}
         <div className="flex justify-between">
           <span>{t('Taxable value')}</span>
           <span className="tabular-nums">{rupees(g.taxablePaise)}</span>
@@ -118,6 +143,10 @@ export function BuyDialog({
   const [payMode, setPayMode] = useState<OfflinePaymentMode>('BANK_TRANSFER');
   const [reference, setReference] = useState('');
   const [paidOn, setPaidOn] = useState(today());
+  // Super Admin "Record payment": a discount before GST (as %, ₹ off, or the final amount agreed with the customer).
+  const canDiscount = mode === 'record' && basePath.startsWith('/licences/admin/');
+  const [discountKind, setDiscountKind] = useState<DiscountKind>('NONE');
+  const [discountValue, setDiscountValue] = useState('');
   useEffect(() => {
     if (open) {
       setQty(ZERO);
@@ -125,6 +154,8 @@ export function BuyDialog({
       setApiQty(1);
       setReference('');
       setPaidOn(today());
+      setDiscountKind('NONE');
+      setDiscountValue('');
     }
   }, [open]);
 
@@ -147,6 +178,21 @@ export function BuyDialog({
     retry: false,
   });
 
+  // The list-price quote above; with a discount, a second quote computes GST on the discounted amount.
+  const listTotal = quote.data ? quote.data.gst.totalPaise + (quote.data.discountPaise ?? 0) : 0;
+  const discountPaise = canDiscount ? discountFrom(discountKind, discountValue, listTotal) : 0;
+  const discountError =
+    discountPaise === null ? t('Enter a valid discount') : discountPaise && listTotal - discountPaise < 100 ? t('The discount cannot be the whole amount') : null;
+  const discountedBody = useMemo(() => ({ ...body, discountPaise: discountPaise || 0 }), [body, discountPaise]);
+  const discounted = useQuery({
+    queryKey: [basePath, 'quote', discountedBody],
+    queryFn: () => api.post<QuoteDto>(`${basePath}/quote`, discountedBody),
+    enabled: open && hasAny && !!discountPaise && !discountError,
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+  const shown = discountPaise && !discountError ? discounted.data : quote.data;
+
   const pay = useMutation({
     mutationFn: async () => {
       const order = await api.post<CheckoutDto>(`${basePath}/checkout`, body);
@@ -168,12 +214,27 @@ export function BuyDialog({
   });
 
   const record = useMutation({
-    mutationFn: () => api.post(recordPath!, { ...body, mode: payMode, reference: reference.trim() || undefined, paidOn, amountPaise: quote.data?.gst.totalPaise ?? 0 }),
+    mutationFn: () =>
+      api.post(recordPath!, {
+        ...body,
+        mode: payMode,
+        reference: reference.trim() || undefined,
+        paidOn,
+        amountPaise: shown?.gst.totalPaise ?? 0,
+        ...(discountPaise ? { discountPaise } : {}),
+      }),
     onSuccess: () => {
       toast.success(t('Payment recorded. Licences activated and invoice issued.'));
       onOpenChange(false);
       onDone();
     },
+  });
+
+  // Super Admin: pro-forma PDF (payment due) for the same selection and discount; nothing is activated or invoiced.
+  const proforma = useMutation({
+    mutationFn: () => downloadFile(`${basePath}/proforma`, 'Proforma.pdf', { ...body, ...(discountPaise ? { discountPaise } : {}) }),
+    onSuccess: () => toast.success(t('Pro-forma downloaded. Send it to the customer; record the payment when it arrives.')),
+    onError: (e) => toast.error(errorMessage(e)),
   });
 
   const busy = pay.isPending || record.isPending;
@@ -217,7 +278,30 @@ export function BuyDialog({
           )}
           {renewSeatIds.length > 0 && <p className="text-sm text-muted-foreground">{t('{{n}} selected licence(s) will be renewed for 12 months.', { n: renewSeatIds.length })}</p>}
           {quote.isError && <FormError message={errorMessage(quote.error)} />}
-          {hasAny && quote.data && <QuoteSummary quote={quote.data} />}
+          {canDiscount && hasAny && quote.data && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t('Discount')} htmlFor="disc-kind" hint={t('Taken off before GST; GST is charged on the discounted value.')}>
+                <Select value={discountKind} onValueChange={(v) => setDiscountKind(v as DiscountKind)}>
+                  <SelectTrigger id="disc-kind">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">{t('No discount')}</SelectItem>
+                    <SelectItem value="PERCENT">{t('Percent off')}</SelectItem>
+                    <SelectItem value="AMOUNT">{t('Amount off (incl. GST)')}</SelectItem>
+                    <SelectItem value="FINAL">{t('Final amount agreed (incl. GST)')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {discountKind !== 'NONE' && (
+                <Field label={discountKind === 'PERCENT' ? t('Percent') : t('Amount (₹)')} htmlFor="disc-value" error={discountError ?? undefined}>
+                  <Input id="disc-value" type="number" min={0} step="0.01" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} />
+                </Field>
+              )}
+            </div>
+          )}
+          {canDiscount && discounted.isError && <FormError message={errorMessage(discounted.error)} />}
+          {hasAny && shown && <QuoteSummary quote={shown} />}
           {mode === 'record' && (
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label={t('Payment mode')} htmlFor="pay-mode" required>
@@ -285,8 +369,20 @@ export function BuyDialog({
           <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
+          {canDiscount && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!shown || !hasAny || busy || proforma.isPending || !overview.billing.complete || !!discountError || (!!discountPaise && (discounted.isFetching || discounted.isError))}
+              title={t('PDF with the amount due, before payment. Not a tax invoice: the GST invoice is issued when you record the payment.')}
+              onClick={() => proforma.mutate()}
+            >
+              {proforma.isPending ? <Spinner /> : <FileTextIcon />}
+              {t('Pro-forma PDF')}
+            </Button>
+          )}
           {mode === 'record' ? (
-            <Button disabled={!quote.data || !hasAny || busy || !overview.billing.complete} onClick={() => record.mutate()}>
+            <Button disabled={!shown || !hasAny || busy || !overview.billing.complete || !!discountError || (!!discountPaise && (discounted.isFetching || discounted.isError))} onClick={() => record.mutate()}>
               {record.isPending ? <Spinner /> : <ReceiptIcon />}
               {t('Record payment & issue invoice')}
             </Button>
