@@ -65,3 +65,4 @@ export * from './pricing';
 export * from './transport-pooling';
 export * from './object-photo';
 export * from './photo-features';
+export * from './history-import';

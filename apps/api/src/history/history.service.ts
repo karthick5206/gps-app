@@ -72,7 +72,16 @@ export class HistoryService {
    * parts only, outliers skipped when that is switched on). Used to bring an odometer reading taken earlier up to date.
    */
   async distanceSinceKm(ctx: AuthContext, objectId: string, fromMs: number): Promise<number> {
-    const meta = await this.objectMeta(ctx, objectId);
+    return this.distanceSinceKmOf(await this.objectMeta(ctx, objectId), fromMs);
+  }
+
+  /** Internal (no caller scope): km driven since `fromMs`, as distanceSinceKm. Used by the history import. */
+  async distanceSinceKmFor(objectId: string, fromMs: number): Promise<number> {
+    const o = await this.prisma.trackedObject.findUniqueOrThrow({ where: { id: objectId }, select: META_SELECT });
+    return this.distanceSinceKmOf(toMeta(o), fromMs);
+  }
+
+  private async distanceSinceKmOf(meta: ObjectMeta, fromMs: number): Promise<number> {
     const rows = await fetchPositions(this.prisma, meta.id, fromMs - 1, Date.now(), undefined, await this.skipFlags());
     const state = createState(fromMs);
     const out = emptyOutput();

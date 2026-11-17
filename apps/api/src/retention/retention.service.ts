@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Interval, Timeout } from '@nestjs/schedule';
-import { historyArchiveOf, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
+import { heldRetentionDays, historyArchiveOf, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, WEBHOOK_LOG_RETENTION_DAYS } from '@veetracer/shared';
 import { randomUUID } from 'node:crypto';
 import { purgeDriverEvents, sweepIncoming } from '../driver-events/media-retention';
 import { PhotoNotesService } from '../photo-notes/photo-notes.service';
@@ -131,10 +131,12 @@ export class RetentionService {
 
     let complete = true;
     const companies = await this.prisma.company.findMany({ select: { id: true, retentionDays: true, settings: true } });
-    const maxDays = Math.max(RETENTION_MIN_DAYS, ...companies.map((c) => effectiveRetentionDays(c.retentionDays)));
+    // A migration hold (imported old history) stretches a company's retention until the hold ends.
+    const keepDays = (c: { retentionDays: number; settings: unknown }) => effectiveRetentionDays(heldRetentionDays(c.retentionDays, c.settings, now));
+    const maxDays = Math.max(RETENTION_MIN_DAYS, ...companies.map(keepDays));
 
     for (const c of companies) {
-      const cutoff = ago(effectiveRetentionDays(c.retentionDays));
+      const cutoff = ago(keepDays(c));
       // History archiving on: raw points are not deleted here but moved to the archive by the archive job (which only
       // deletes points it has written to a verified file; restored days stay until their keep period ends).
       const archived = historyArchiveOf(c.settings).enabled;
