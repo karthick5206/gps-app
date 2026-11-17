@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { historyArchiveOf, HistoryArchiveSettings, MAX_PLAUSIBLE_SPEED_KPH, ObjectType, POSITION_FLAGS, VehicleType } from '@veetracer/shared';
+import { heldRetentionDays, historyArchiveOf, HistoryArchiveSettings, MAX_PLAUSIBLE_SPEED_KPH, ObjectType, POSITION_FLAGS, VehicleType } from '@veetracer/shared';
 import { effectiveSpeedLimit } from '../tracking/live-object';
 import { companyThresholds } from '../tracking/thresholds';
 import { SegConfig, SegPoint } from './segmenter';
@@ -134,7 +134,8 @@ export function toMeta(o: {
     plateNumber: o.plateNumber,
     branchId: o.branchId,
     tz: o.company.timezone,
-    retentionDays: o.company.retentionDays,
+    // A migration hold (imported old history) stretches retention until it ends.
+    retentionDays: heldRetentionDays(o.company.retentionDays, o.company.settings),
     archive: historyArchiveOf(o.company.settings),
     cfg: {
       tz: o.company.timezone,

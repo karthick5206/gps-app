@@ -24,6 +24,7 @@ import { VehicleSharesModule } from './vehicle-shares/vehicle-shares.module';
 import { LiveModule } from './live/live.module';
 import { GeofencesModule } from './masters/geofences/geofences.module';
 import { MastersModule } from './masters/masters.module';
+import { HistoryImportModule } from './history-import/history-import.module';
 import { ObjectPhotosModule } from './object-photos/object-photos.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -90,6 +91,7 @@ import { PricingModule } from './pricing/pricing.module';
     TransferModule,
     VehicleSharesModule,
     MastersModule,
+    HistoryImportModule,
     ObjectPhotosModule,
     LiveModule,
     AlertsModule,

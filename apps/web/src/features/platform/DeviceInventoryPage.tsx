@@ -1,6 +1,6 @@
 import type { CompanyDto, DeviceDto, DeviceModelDto } from '@veetracer/shared';
 import { useMutation } from '@tanstack/react-query';
-import { CpuIcon, FileSpreadsheetIcon, HardDriveIcon, PackageIcon, TruckIcon } from 'lucide-react';
+import { CpuIcon, FileSpreadsheetIcon, HardDriveIcon, HistoryIcon, PackageIcon, TruckIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +14,7 @@ import type { MasterFilter, MasterFormProps } from '@/features/masters/types';
 import { named, useEntityOptions } from '@/features/masters/use-options';
 import { ShipDialog, ShipmentsSheet } from './Shipments';
 import { VehicleImportDialog } from './VehicleImportDialog';
+import { HistoryImportDialog } from './HistoryImportDialog';
 import { useAuth } from '@/features/auth/auth-context';
 
 const columns = deviceColumns(true);
@@ -27,6 +28,7 @@ export function DeviceInventoryPage() {
   const [shipping, setShipping] = useState<DeviceDto | null>(null);
   const [shipments, setShipments] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [historyImporting, setHistoryImporting] = useState(false);
   const { can } = useAuth();
   const purge = usePurgeAction('device');
   const readInfo = useMutation({
@@ -64,6 +66,11 @@ export function DeviceInventoryPage() {
                 <FileSpreadsheetIcon /> {t('Import vehicles')}
               </Button>
             )}
+            {can('sa_device_inventory', 'create') && (
+              <Button variant="outline" onClick={() => setHistoryImporting(true)}>
+                <HistoryIcon /> {t('Import old history')}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setShipments(true)}>
               <PackageIcon /> {t('Shipments')}
             </Button>
@@ -88,6 +95,7 @@ export function DeviceInventoryPage() {
       <ShipDialog device={shipping} onOpenChange={(o) => !o && setShipping(null)} />
       <ShipmentsSheet open={shipments} onOpenChange={setShipments} />
       <VehicleImportDialog open={importing} onOpenChange={setImporting} />
+      <HistoryImportDialog open={historyImporting} onOpenChange={setHistoryImporting} />
       {purge.dialog}
     </>
   );
