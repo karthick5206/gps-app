@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { LicenceProforma, Prisma } from '@prisma/client';
 import {
   addYears,
   BillingProfileDto,
@@ -9,10 +9,13 @@ import {
   gstinError,
   isApiPlan,
   LICENCE_TYPE_LABELS,
+  financialYear,
   licenceLabel,
   LicenceOverviewDto,
   LicenceOwnerRef,
   OfflinePaymentRequest,
+  ProformaDto,
+  ProformaStatus,
   PurchaseRequest,
   QuoteDto,
   QuoteLineDto,
@@ -25,6 +28,7 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiAccessService } from './api-access.service';
 import { InvoicesService } from './invoices.service';
+import type { InvoiceSnapshot } from './invoice-pdf';
 import { LicencePolicyService } from './licence-policy.service';
 import { LicenceSettingsService } from './licence-settings.service';
 import { RazorpayClient, razorpayConfig, webhookPayment } from './razorpay';
@@ -219,20 +223,123 @@ export class BillingService {
 
   // ───────────── pro-forma (before payment) ─────────────
 
-  /** Super Admin: pro-forma PDF for the selected licences / renewals (with an optional discount). Audited, not stored. */
-  async proforma(ctx: AuthContext, owner: Owner, req: PurchaseRequest, discountPaise = 0): Promise<{ number: string; pdf: Buffer }> {
+  /**
+   * Super Admin: saves a pro-forma for the selected licences / renewals (with an optional discount), numbered
+   * <prefix>/PI/<FY>/<seq> in its own series, valid PROFORMA_VALID_DAYS. Nothing is activated. Audited.
+   */
+  async proforma(ctx: AuthContext, owner: Owner, req: PurchaseRequest, discountPaise = 0): Promise<ProformaDto> {
     await this.requireProfile(owner);
-    const q = await this.quote(owner, req, new Date(), discountPaise);
+    const issuedAt = new Date();
+    const q = await this.quote(owner, req, issuedAt, discountPaise);
     const profile = await this.prisma.billingProfile.findUnique({ where: owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id } });
     if (!profile) throw new BadRequestException('Billing details missing');
-    const out = await this.invoices.proformaPdf(profile, q.lines);
+    const s = await this.settings.get();
+    const fy = financialYear(issuedAt);
+    const validUntil = new Date(issuedAt.getTime() + PROFORMA_VALID_DAYS * 86_400_000);
+    const request = selectionOf(req, q.discountPaise ?? 0);
+    let row: LicenceProforma | null = null;
+    for (let attempt = 0; !row && attempt < 3; attempt++) {
+      const last = await this.prisma.licenceProforma.aggregate({ where: { fy }, _max: { seq: true } });
+      const seq = (last._max.seq ?? 0) + 1;
+      const number = `${s.invoicePrefix}/PI/${fy}/${String(seq).padStart(4, '0')}`;
+      const snapshot = await this.invoices.proformaSnapshot(profile, q.lines, { number, issuedAt, validUntil });
+      try {
+        row = await this.prisma.licenceProforma.create({
+          data: {
+            number,
+            fy,
+            seq,
+            ...(owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id }),
+            buyerName: profile.billingName,
+            issuedAt,
+            validUntil,
+            totalPaise: q.gst.totalPaise,
+            discountPaise: q.discountPaise ?? 0,
+            request: request as unknown as Prisma.InputJsonValue,
+            snapshot: snapshot as unknown as Prisma.InputJsonValue,
+            createdById: ctx.userId,
+          },
+        });
+      } catch (e) {
+        // Two pro-formas at the same moment took the same number: take the next one.
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+      }
+    }
+    if (!row) throw new BadRequestException('Could not number the pro-forma; try again');
     await this.audit.record(ctx, {
       action: 'CREATE',
       entity: 'licence_proforma',
-      entityId: out.number,
-      details: { owner: `${owner.kind}:${owner.id}`, totalPaise: q.gst.totalPaise, discountPaise: q.discountPaise ?? 0, renewSeatIds: req.renewSeatIds ?? [], items: (req.items ?? []).map((i) => ({ type: i.type, quantity: i.quantity, plan: i.plan ?? null })) },
+      entityId: row.id,
+      details: { number: row.number, owner: `${owner.kind}:${owner.id}`, totalPaise: row.totalPaise, ...request },
     });
-    return out;
+    return (await this.proformaDtos([row]))[0];
+  }
+
+  async listProformas(filter: { companyId?: string; partnerId?: string }): Promise<ProformaDto[]> {
+    const rows = await this.prisma.licenceProforma.findMany({
+      where: { ...(filter.companyId ? { companyId: filter.companyId } : {}), ...(filter.partnerId ? { partnerId: filter.partnerId } : {}) },
+      orderBy: { issuedAt: 'desc' },
+      take: 200,
+    });
+    return this.proformaDtos(rows);
+  }
+
+  async proformaPdf(id: string): Promise<{ row: LicenceProforma; pdf: Buffer }> {
+    const row = await this.prisma.licenceProforma.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('Pro-forma not found');
+    return { row, pdf: await this.invoices.proformaPdf(row.snapshot as unknown as InvoiceSnapshot) };
+  }
+
+  async cancelProforma(ctx: AuthContext, id: string): Promise<ProformaDto> {
+    const row = await this.prisma.licenceProforma.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('Pro-forma not found');
+    if (row.status !== 'OPEN') throw new BadRequestException(row.status === 'PAID' ? 'This pro-forma is already paid' : 'This pro-forma is already cancelled');
+    const updated = await this.prisma.licenceProforma.update({ where: { id }, data: { status: 'CANCELLED' } });
+    await this.audit.record(ctx, { action: 'UPDATE', entity: 'licence_proforma', entityId: id, details: { number: row.number, status: 'CANCELLED' } });
+    return (await this.proformaDtos([updated]))[0];
+  }
+
+  private async proformaDtos(rows: LicenceProforma[]): Promise<ProformaDto[]> {
+    const invoiceIds = rows.map((r) => r.invoiceId).filter((x): x is string => !!x);
+    const invoices = invoiceIds.length ? await this.prisma.invoice.findMany({ where: { id: { in: invoiceIds } }, select: { id: true, number: true } }) : [];
+    const num = new Map(invoices.map((i) => [i.id, i.number]));
+    const now = Date.now();
+    return rows.map((r) => {
+      const snap = r.snapshot as unknown as InvoiceSnapshot;
+      const counts = new Map<string, number>();
+      for (const l of snap.lines ?? []) {
+        const label = `${licenceLabel(l.type, l.plan)}${l.kind === 'RENEWAL' ? ' renewal' : ''}`;
+        counts.set(label, (counts.get(label) ?? 0) + l.quantity);
+      }
+      return {
+        id: r.id,
+        number: r.number,
+        issuedAt: r.issuedAt.toISOString(),
+        validUntil: r.validUntil.toISOString(),
+        buyerName: r.buyerName,
+        companyId: r.companyId,
+        partnerId: r.partnerId,
+        totalPaise: r.totalPaise,
+        discountPaise: r.discountPaise,
+        summary: [...counts].map(([label, n]) => `${n} × ${label}`).join(', '),
+        status: r.status === 'OPEN' && r.validUntil.getTime() < now ? 'EXPIRED' : (r.status as ProformaStatus),
+        invoiceId: r.invoiceId,
+        invoiceNumber: r.invoiceId ? (num.get(r.invoiceId) ?? null) : null,
+      };
+    });
+  }
+
+  /** A recorded payment for the same selection settles the newest open pro-forma of that customer. */
+  private async settleProforma(owner: Owner, req: PurchaseRequest, discountPaise: number, invoiceId: string | null): Promise<void> {
+    if (!invoiceId) return;
+    const key = JSON.stringify(selectionOf(req, discountPaise));
+    const open = await this.prisma.licenceProforma.findMany({
+      where: { status: 'OPEN', ...(owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id }) },
+      orderBy: { issuedAt: 'desc' },
+      select: { id: true, request: true },
+    });
+    const match = open.find((p) => JSON.stringify(p.request) === key);
+    if (match) await this.prisma.licenceProforma.update({ where: { id: match.id }, data: { status: 'PAID', invoiceId } });
   }
 
   // ───────────── offline payments ─────────────
@@ -259,6 +366,7 @@ export class BillingService {
       },
     });
     const invoiceId = await this.fulfil(order.id, { paidAt, reference: dto.reference?.trim() || null });
+    await this.settleProforma(owner, dto, q.discountPaise ?? 0, invoiceId).catch((e: Error) => this.logger.warn(`Pro-forma not settled: ${e.message}`));
     await this.audit.record(ctx, {
       action: 'CREATE',
       entity: 'licence_payment',
@@ -428,4 +536,19 @@ export function paidOnDate(ymd: string, now = Date.now()): Date {
   const d = new Date(`${ymd}T12:00:00+05:30`);
   if (Number.isNaN(d.getTime())) throw new BadRequestException('Payment date is invalid');
   return d;
+}
+
+/** Pro-formas are valid this many days. */
+export const PROFORMA_VALID_DAYS = 15;
+
+/** What a pro-forma quoted, in a fixed shape, so the payment for the same selection can be matched to it. */
+export function selectionOf(req: PurchaseRequest, discountPaise: number) {
+  return {
+    renewSeatIds: [...new Set(req.renewSeatIds ?? [])].sort(),
+    items: (req.items ?? [])
+      .filter((i) => i.quantity > 0)
+      .map((i) => ({ type: i.type, quantity: i.quantity, plan: i.plan ?? null }))
+      .sort((a, b) => `${a.type}${a.plan}`.localeCompare(`${b.type}${b.plan}`)),
+    discountPaise: discountPaise || 0,
+  };
 }
