@@ -148,7 +148,7 @@ export function addDaysToDay(day: string, days: number): string {
 
 // ───────────── API shapes ─────────────
 
-export type HistoryImportStatus = 'UPLOADING' | 'SUMMARIZING' | 'DONE' | 'REMOVING' | 'REMOVED' | 'FAILED';
+export type HistoryImportStatus = 'UPLOADING' | 'MATCHING' | 'SUMMARIZING' | 'DONE' | 'REMOVING' | 'REMOVED' | 'FAILED';
 
 export interface HistoryImportPreviewRequest {
   /** Vehicle chosen in the dialog; empty = match `deviceName`. */
@@ -210,6 +210,8 @@ export interface HistoryImportDto {
   importedKm: number | null;
   odometerKm: number | null;
   status: HistoryImportStatus;
+  /** Points added along the roads between the imported ones (road snapping). */
+  snappedPoints: number;
   error: string | null;
   createdAt: string;
   finishedAt: string | null;

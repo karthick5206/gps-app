@@ -35,6 +35,11 @@ export class HistoryImportController {
     return this.imports.finish(ctx, id);
   }
 
+  @Post(':id/road-snap') @HttpCode(200) @RequirePermission('sa_device_inventory', 'create')
+  roadSnap(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.imports.roadSnap(ctx, id);
+  }
+
   @Post(':id/remove') @HttpCode(200) @RequirePermission('sa_device_inventory', 'delete')
   remove(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.imports.remove(ctx, id);

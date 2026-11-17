@@ -102,6 +102,15 @@ export class RoutingService {
    * decodePolyline returns it); null without an engine or route. Cached 60 s on ~110 m rounded ends so a share page
    * polled every few seconds costs one engine call a minute.
    */
+  /**
+   * Road path between two exact points, not cached (history import road snapping: thousands of one-off pairs).
+   * Null without an engine or route; throws when the engine fails.
+   */
+  async roadPath(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<RoadRoute | null> {
+    if (!this.enabled) return null;
+    return this.fetchRoute({ fromLat: from.lat, fromLng: from.lng, toLat: to.lat, toLng: to.lng } as GapEstimateSegment);
+  }
+
   async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<RoadRoute | null> {
     const r = await this.routeStatus(from, to);
     return typeof r === 'string' ? null : r;
