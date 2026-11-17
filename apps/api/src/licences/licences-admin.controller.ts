@@ -84,6 +84,14 @@ export class LicencesAdminController {
     return this.billing.quote(await this.owner(kind, id), dto, new Date(), dto.discountPaise ?? 0);
   }
 
+  /** Super Admin: pro-forma invoice PDF (payment due; not a tax invoice), with an optional discount. */
+  @Post('pools/:kind/:id/proforma') @HttpCode(200) @RequirePermission('sa_licences', 'create')
+  async proforma(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminQuoteDto) {
+    const out = await this.billing.proforma(ctx, await this.owner(kind, id), dto, dto.discountPaise ?? 0);
+    const name = `Proforma-${out.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`;
+    return new StreamableFile(out.pdf, { type: 'application/pdf', disposition: `attachment; filename="${name}"` });
+  }
+
   /** Super Admin: may give a discount (before GST on the invoice). */
   @Post('pools/:kind/:id/payments') @RequirePermission('sa_licences', 'create')
   async payment(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfflinePaymentDto) {

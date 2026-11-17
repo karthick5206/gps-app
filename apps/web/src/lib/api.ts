@@ -242,9 +242,9 @@ export async function fetchBlob(path: string): Promise<Blob> {
   return (await authorizedFetch(path, {})).blob();
 }
 
-/** Downloads a file (GET) through the authorised fetch and saves it via a temporary link. */
-export async function downloadFile(path: string, fallbackName: string): Promise<void> {
-  const res = await authorizedFetch(path, {});
+/** Downloads a file through the authorised fetch (GET, or POST with `body`) and saves it via a temporary link. */
+export async function downloadFile(path: string, fallbackName: string, body?: unknown): Promise<void> {
+  const res = await authorizedFetch(path, body === undefined ? {} : { method: 'POST', body });
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

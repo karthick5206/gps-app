@@ -14,7 +14,7 @@ import {
   SEAT_LICENCE_TYPES,
   type SeatLicenceType,
 } from '@veetracer/shared';
-import { BanknoteIcon, CreditCardIcon, ReceiptIcon } from 'lucide-react';
+import { BanknoteIcon, CreditCardIcon, FileTextIcon, ReceiptIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -25,7 +25,7 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { api, errorMessage } from '@/lib/api';
+import { api, downloadFile, errorMessage } from '@/lib/api';
 import { openCheckout } from './razorpay';
 import { UpiPayBlock } from './UpiPay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
@@ -230,6 +230,13 @@ export function BuyDialog({
     },
   });
 
+  // Super Admin: pro-forma PDF (payment due) for the same selection and discount; nothing is activated or invoiced.
+  const proforma = useMutation({
+    mutationFn: () => downloadFile(`${basePath}/proforma`, 'Proforma.pdf', { ...body, ...(discountPaise ? { discountPaise } : {}) }),
+    onSuccess: () => toast.success(t('Pro-forma downloaded. Send it to the customer; record the payment when it arrives.')),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
   const busy = pay.isPending || record.isPending;
   const p = overview.payOffline;
   return (
@@ -362,6 +369,18 @@ export function BuyDialog({
           <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
+          {canDiscount && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!shown || !hasAny || busy || proforma.isPending || !overview.billing.complete || !!discountError || (!!discountPaise && (discounted.isFetching || discounted.isError))}
+              title={t('PDF with the amount due, before payment. Not a tax invoice: the GST invoice is issued when you record the payment.')}
+              onClick={() => proforma.mutate()}
+            >
+              {proforma.isPending ? <Spinner /> : <FileTextIcon />}
+              {t('Pro-forma PDF')}
+            </Button>
+          )}
           {mode === 'record' ? (
             <Button disabled={!shown || !hasAny || busy || !overview.billing.complete || !!discountError || (!!discountPaise && (discounted.isFetching || discounted.isError))} onClick={() => record.mutate()}>
               {record.isPending ? <Spinner /> : <ReceiptIcon />}

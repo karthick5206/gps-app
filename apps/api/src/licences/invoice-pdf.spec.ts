@@ -73,3 +73,17 @@ describe('invoice PDF with a discount', () => {
     expect(JSON.stringify(invoiceDocument(snapshot, null))).not.toContain('Less: discount');
   });
 });
+
+describe('pro-forma invoice PDF', () => {
+  it('says PRO-FORMA / PAYMENT DUE / valid until and not a tax invoice; a tax invoice says PAID', async () => {
+    const pf: InvoiceSnapshot = { ...snapshot, number: 'VTX/PI/2026-27/1117-1530', proforma: { validUntil: '2026-12-02T10:00:00.000Z' } };
+    const doc = JSON.stringify(invoiceDocument(pf, null));
+    expect(doc).toContain('PRO-FORMA INVOICE');
+    expect(doc).toContain('PAYMENT DUE');
+    expect(doc).toContain('Valid until: 02-Dec-2026');
+    expect(doc).toContain('not a tax invoice');
+    expect(doc).not.toContain('"PAID"');
+    expect(JSON.stringify(invoiceDocument(snapshot, null))).toContain('"PAID"');
+    expect((await renderInvoicePdf(pf, null)).subarray(0, 4).toString()).toBe('%PDF');
+  });
+});

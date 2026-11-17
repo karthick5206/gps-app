@@ -217,6 +217,24 @@ export class BillingService {
     };
   }
 
+  // ───────────── pro-forma (before payment) ─────────────
+
+  /** Super Admin: pro-forma PDF for the selected licences / renewals (with an optional discount). Audited, not stored. */
+  async proforma(ctx: AuthContext, owner: Owner, req: PurchaseRequest, discountPaise = 0): Promise<{ number: string; pdf: Buffer }> {
+    await this.requireProfile(owner);
+    const q = await this.quote(owner, req, new Date(), discountPaise);
+    const profile = await this.prisma.billingProfile.findUnique({ where: owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id } });
+    if (!profile) throw new BadRequestException('Billing details missing');
+    const out = await this.invoices.proformaPdf(profile, q.lines);
+    await this.audit.record(ctx, {
+      action: 'CREATE',
+      entity: 'licence_proforma',
+      entityId: out.number,
+      details: { owner: `${owner.kind}:${owner.id}`, totalPaise: q.gst.totalPaise, discountPaise: q.discountPaise ?? 0, renewSeatIds: req.renewSeatIds ?? [], items: (req.items ?? []).map((i) => ({ type: i.type, quantity: i.quantity, plan: i.plan ?? null })) },
+    });
+    return out;
+  }
+
   // ───────────── offline payments ─────────────
 
   /** Cash / UPI / bank transfer / cheque received: activates the seats and issues the invoice at once. */
