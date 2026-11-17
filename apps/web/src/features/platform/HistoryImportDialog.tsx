@@ -8,7 +8,7 @@ import {
   type HistoryImportStatus,
   type ParsedOldHistory,
 } from '@veetracer/shared';
-import { HistoryIcon, Trash2Icon, UploadIcon } from 'lucide-react';
+import { HistoryIcon, RouteIcon, Trash2Icon, UploadIcon } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -23,6 +23,7 @@ import { api, errorMessage } from '@/lib/api';
 
 const STATUS: Record<HistoryImportStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   UPLOADING: { label: 'Uploading', variant: 'outline' },
+  MATCHING: { label: 'Snapping to roads…', variant: 'default' },
   SUMMARIZING: { label: 'Recalculating trips…', variant: 'default' },
   DONE: { label: 'Imported', variant: 'secondary' },
   REMOVING: { label: 'Removing…', variant: 'default' },
@@ -83,7 +84,7 @@ export function HistoryImportDialog({ open, onOpenChange }: { open: boolean; onO
     queryKey: ['history-import', 'preview', objectId, vehicleName],
     queryFn: () => api.post<HistoryImportPreview>('/admin/history-import/preview', objectId ? { objectId } : { deviceName: vehicleName }),
     enabled: open && !!file && (!!objectId || !!vehicleName.trim()),
-    refetchInterval: (q) => (q.state.data?.imports.some((i) => i.status === 'SUMMARIZING' || i.status === 'REMOVING') ? 10_000 : false),
+    refetchInterval: (q) => (q.state.data?.imports.some((i) => ['MATCHING', 'SUMMARIZING', 'REMOVING'].includes(i.status)) ? 10_000 : false),
   });
   const p = preview.data;
   const tz = p?.vehicle?.timezone ?? 'Asia/Kolkata';
@@ -140,7 +141,7 @@ export function HistoryImportDialog({ open, onOpenChange }: { open: boolean; onO
       return { inserted, done };
     },
     onSuccess: ({ inserted }) => {
-      toast.success(t('{{n}} points imported. VeeTrax is recalculating trips and km; the odometer is set when it finishes (about a minute).', { n: inserted.toLocaleString() }));
+      toast.success(t('{{n}} points imported. VeeTrax now snaps them to the roads and recalculates trips and km; the odometer is set when it finishes (a few minutes).', { n: inserted.toLocaleString() }));
       void queryClient.invalidateQueries({ queryKey: ['history-import'] });
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -156,8 +157,17 @@ export function HistoryImportDialog({ open, onOpenChange }: { open: boolean; onO
     onError: (e) => toast.error(errorMessage(e)),
   });
 
-  const busy = run.isPending || remove.isPending;
-  const running = p?.imports.some((i) => ['UPLOADING', 'SUMMARIZING', 'REMOVING'].includes(i.status));
+  const snap = useMutation({
+    mutationFn: (id: string) => api.post<HistoryImportDto>(`/admin/history-import/${id}/road-snap`, {}),
+    onSuccess: () => {
+      toast.success(t('Snapping to roads. VeeTrax then recalculates the km; the odometer stays as it is.'));
+      void queryClient.invalidateQueries({ queryKey: ['history-import'] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const busy = run.isPending || remove.isPending || snap.isPending;
+  const running = p?.imports.some((i) => ['UPLOADING', 'MATCHING', 'SUMMARIZING', 'REMOVING'].includes(i.status));
   return (
     <Dialog
       open={open}
@@ -308,9 +318,15 @@ export function HistoryImportDialog({ open, onOpenChange }: { open: boolean; onO
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant={STATUS[i.status].variant}>{t(STATUS[i.status].label)}</Badge>
+                          {i.snappedPoints > 0 && <div className="text-xs text-muted-foreground">{t('Snapped to roads ({{n}} points)', { n: i.snappedPoints.toLocaleString() })}</div>}
                           {i.error && <div className="text-xs text-muted-foreground">{i.error}</div>}
                         </td>
                         <td className="px-3 py-2 text-right">
+                          {i.status === 'DONE' && (
+                            <Button size="sm" variant="ghost" disabled={busy || !!running} title={t('Snap to roads (recalculates the km along the roads)')} onClick={() => snap.mutate(i.id)}>
+                              <RouteIcon />
+                            </Button>
+                          )}
                           {(i.status === 'DONE' || i.status === 'FAILED') && (
                             <Button size="sm" variant="ghost" disabled={busy} title={t('Remove import')} onClick={() => window.confirm(t('Remove this import? Only the imported points are deleted; VeeTrax’s own data stays.')) && remove.mutate(i.id)}>
                               <Trash2Icon />

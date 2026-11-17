@@ -4931,28 +4931,30 @@ model LicenceProforma {
 /// points are Position rows with attributes.importId = id (removable as a unit). SUMMARIZING until the summarizer
 /// rebuilt the vehicle's days; then the odometer base is set so the odometer stays at odometerKm (DONE).
 model HistoryImport {
-  id          String    @id @default(uuid()) @db.Uuid
-  companyId   String    @db.Uuid
-  objectId    String    @db.Uuid
-  deviceId    String    @db.Uuid
-  fileName    String
-  fromTime    DateTime? @db.Timestamptz(3)
-  toTime      DateTime? @db.Timestamptz(3)
-  points      Int       @default(0)
-  inserted    Int       @default(0)
-  oldKm       Float?
-  importedKm  Float?
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @db.Uuid
+  objectId      String    @db.Uuid
+  deviceId      String    @db.Uuid
+  fileName      String
+  fromTime      DateTime? @db.Timestamptz(3)
+  toTime        DateTime? @db.Timestamptz(3)
+  points        Int       @default(0)
+  inserted      Int       @default(0)
+  /// Points added along the roads between the imported ones (road snapping; attributes.roadSnapped).
+  snappedPoints Int       @default(0)
+  oldKm         Float?
+  importedKm    Float?
   /// VeeTrax recorded km (sum of daily summaries) when the import / removal started, to work out importedKm.
-  baseKm      Float?
+  baseKm        Float?
   /// Odometer to keep (km) and when it was read.
-  odometerKm  Float?
-  odometerAt  DateTime? @db.Timestamptz(3)
-  status      String    @default("UPLOADING")
-  error       String?
-  createdById String?   @db.Uuid
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
-  finishedAt  DateTime? @db.Timestamptz(3)
+  odometerKm    Float?
+  odometerAt    DateTime? @db.Timestamptz(3)
+  status        String    @default("UPLOADING")
+  error         String?
+  createdById   String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  finishedAt    DateTime? @db.Timestamptz(3)
 
   @@index([objectId, createdAt(sort: Desc)])
   @@index([status])

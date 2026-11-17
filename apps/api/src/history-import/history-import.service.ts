@@ -20,10 +20,14 @@ import { odometers } from '../documents/reminder-logic';
 import { HistoryService } from '../history/history.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { RoutingService } from '../routing/routing.service';
+import { metres, plausibleSnap, pointsAlong, snapCandidate, type SnapPoint } from './road-snap';
 import { localDayKey, tzOffsetMs } from '../summarizer/tz';
 
 /** Busy states: one import / removal at a time per vehicle. */
-const BUSY = ['UPLOADING', 'SUMMARIZING', 'REMOVING'];
+const BUSY = ['UPLOADING', 'MATCHING', 'SUMMARIZING', 'REMOVING'];
+/** Routing requests in flight at once while snapping an import to the roads. */
+const SNAP_CONCURRENCY = 6;
 /** Positions deleted per statement when an import is removed. */
 const DELETE_BATCH = 5_000;
 
@@ -61,6 +65,7 @@ export class HistoryImportService {
     private readonly audit: AuditService,
     private readonly redis: RedisService,
     private readonly history: HistoryService,
+    private readonly routing: RoutingService,
   ) {}
 
   private superAdmin(ctx: AuthContext) {
@@ -231,12 +236,19 @@ export class HistoryImportService {
     const firstDay = localDayKey(imp.fromTime.getTime(), o.company.timezone);
     const hold = this.holdAfter(o, firstDay);
     const settings = { ...((o.company.settings as Record<string, unknown>) ?? {}), [HISTORY_HOLD_SETTING]: { from: hold.from, until: hold.until } };
+    // With a routing engine the points are first snapped to the roads (MATCHING, in the background); the summarizer
+    // rebuild is requested when that is done.
+    const snap = this.routing.enabled;
     await this.prisma.$transaction([
       this.prisma.company.update({ where: { id: o.companyId }, data: { settings: settings as Prisma.InputJsonValue } }),
-      this.prisma.$executeRaw`
-        INSERT INTO "SummaryDirtyDay" ("objectId", day, "createdAt") VALUES (${o.id}::uuid, ${firstDay}::date, now() AT TIME ZONE 'UTC')
-        ON CONFLICT DO NOTHING`,
-      this.prisma.historyImport.update({ where: { id }, data: { status: 'SUMMARIZING' } }),
+      ...(snap
+        ? []
+        : [
+            this.prisma.$executeRaw`
+              INSERT INTO "SummaryDirtyDay" ("objectId", day, "createdAt") VALUES (${o.id}::uuid, ${firstDay}::date, now() AT TIME ZONE 'UTC')
+              ON CONFLICT DO NOTHING`,
+          ]),
+      this.prisma.historyImport.update({ where: { id }, data: { status: snap ? 'MATCHING' : 'SUMMARIZING' } }),
     ]);
     await this.audit.recordFor(ctx, o.companyId, {
       action: 'CREATE',
@@ -281,13 +293,118 @@ export class HistoryImportService {
    */
   @Interval(60_000)
   async finalizePending(): Promise<void> {
-    const pending = await this.prisma.historyImport.findMany({ where: { status: { in: ['SUMMARIZING', 'REMOVING'] } } });
+    const pending = await this.prisma.historyImport.findMany({ where: { status: { in: ['MATCHING', 'SUMMARIZING', 'REMOVING'] } } });
     for (const imp of pending) {
       try {
-        await this.finalize(imp);
+        if (imp.status === 'MATCHING') await this.runSnap(imp);
+        else await this.finalize(imp);
       } catch (e) {
         this.logger.error(`Finalize ${imp.id} failed: ${(e as Error).message}`);
       }
+    }
+  }
+
+  /**
+   * Super Admin: snap a finished import to the roads (again). Earlier snapped points of the import are replaced; the
+   * odometer stays as it is now. Runs in the background (MATCHING → SUMMARIZING → DONE).
+   */
+  async roadSnap(ctx: AuthContext, id: string): Promise<HistoryImportDto> {
+    this.superAdmin(ctx);
+    if (!this.routing.enabled) throw new BadRequestException('No routing engine is configured on this server');
+    const imp = await this.prisma.historyImport.findUnique({ where: { id } });
+    if (!imp) throw new NotFoundException('Import not found');
+    if (imp.status !== 'DONE' || !imp.fromTime || !imp.toTime) throw new BadRequestException('Only a finished import can be snapped to the roads');
+    const odo = (await odometers(this.prisma, [imp.objectId])).get(imp.objectId) ?? imp.odometerKm;
+    const total = await this.recordedKm(imp.objectId);
+    await this.deleteSnapped(imp);
+    await this.prisma.historyImport.update({
+      where: { id },
+      // baseKm such that (total after − baseKm) is the import's km again once rebuilt.
+      data: { status: 'MATCHING', snappedPoints: 0, odometerKm: odo, odometerAt: new Date(), baseKm: Math.round((total - (imp.importedKm ?? 0)) * 10) / 10, error: null },
+    });
+    await this.audit.recordFor(ctx, imp.companyId, { action: 'UPDATE', entity: 'history_import', entityId: id, details: { roadSnap: true, file: imp.fileName } });
+    return this.dto(id);
+  }
+
+  private async deleteSnapped(imp: HistoryImport): Promise<void> {
+    if (!imp.fromTime || !imp.toTime) return;
+    for (;;) {
+      const n = await this.prisma.$executeRaw`
+        DELETE FROM "Position" WHERE ("deviceId", "fixTime") IN (
+          SELECT "deviceId", "fixTime" FROM "Position"
+          WHERE "deviceId" = ${imp.deviceId}::uuid AND "fixTime" >= ${imp.fromTime} AND "fixTime" <= ${imp.toTime}
+            AND attributes->>'importId' = ${imp.id} AND attributes ? 'roadSnapped'
+          LIMIT ${DELETE_BATCH})`;
+      if (n < DELETE_BATCH) break;
+    }
+  }
+
+  private readonly snapping = new Set<string>();
+
+  /** MATCHING: road points between the import's moving pairs, then the summarizer rebuild (SUMMARIZING). */
+  private async runSnap(imp: HistoryImport): Promise<void> {
+    if (this.snapping.has(imp.id) || !imp.fromTime || !imp.toTime) return;
+    this.snapping.add(imp.id);
+    try {
+      const rows = await this.prisma.$queryRaw<{ t: Date; lat: number; lng: number; spd: number }[]>`
+        SELECT "fixTime" AS t, lat, lng, "speedKph"::float8 AS spd FROM "Position"
+        WHERE "deviceId" = ${imp.deviceId}::uuid AND "fixTime" >= ${imp.fromTime} AND "fixTime" <= ${imp.toTime}
+          AND attributes->>'importId' = ${imp.id} AND NOT (attributes ? 'roadSnapped')
+        ORDER BY "fixTime"`;
+      const pts: SnapPoint[] = rows.map((r) => ({ t: r.t.getTime(), lat: r.lat, lng: r.lng, speedKph: r.spd }));
+      const pairs: [SnapPoint, SnapPoint][] = [];
+      for (let i = 1; i < pts.length; i++) if (snapCandidate(pts[i - 1], pts[i])) pairs.push([pts[i - 1], pts[i]]);
+      const added: (SnapPoint & { course: number })[] = [];
+      let used = 0;
+      let failed = 0;
+      let next = 0;
+      const worker = async () => {
+        while (next < pairs.length) {
+          const [a, b] = pairs[next++];
+          try {
+            const road = await this.routing.roadPath(a, b);
+            if (!road) continue;
+            if (!plausibleSnap(metres(a.lat, a.lng, b.lat, b.lng), road.m, (b.t - a.t) / 1000)) continue;
+            added.push(...pointsAlong(a, b, road.shape, road.m));
+            used++;
+          } catch {
+            failed++;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: SNAP_CONCURRENCY }, worker));
+      const attrs = JSON.stringify({ imported: 'old-platform', importId: imp.id, roadSnapped: true });
+      const now = new Date().toISOString();
+      let inserted = 0;
+      for (let i = 0; i < added.length; i += 2000) {
+        const b = added.slice(i, i + 2000);
+        inserted += await this.prisma.$executeRaw`
+          INSERT INTO "Position" ("objectId", "deviceId", "fixTime", "serverTime", "lat", "lng", "speedKph", "course",
+                                  "altitude", "satellites", "valid", "ignition", "flags", "attributes")
+          SELECT ${imp.objectId}::uuid, ${imp.deviceId}::uuid, u.t, ${now}::timestamptz, u.lat, u.lng, u.spd, u.crs, NULL, NULL, true, true, 0, ${attrs}::jsonb
+          FROM unnest(
+            ${b.map((p) => new Date(p.t).toISOString())}::text[]::timestamptz[],
+            ${b.map((p) => String(p.lat))}::text[]::float8[],
+            ${b.map((p) => String(p.lng))}::text[]::float8[],
+            ${b.map((p) => String(p.speedKph))}::text[]::real[],
+            ${b.map((p) => String(p.course))}::text[]::smallint[]
+          ) AS u(t, lat, lng, spd, crs)
+          ON CONFLICT DO NOTHING`;
+      }
+      const o = await this.vehicle(imp.objectId);
+      const firstDay = localDayKey(imp.fromTime.getTime(), o.company.timezone);
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw`
+          INSERT INTO "SummaryDirtyDay" ("objectId", day, "createdAt") VALUES (${imp.objectId}::uuid, ${firstDay}::date, now() AT TIME ZONE 'UTC')
+          ON CONFLICT DO NOTHING`,
+        this.prisma.historyImport.update({
+          where: { id: imp.id },
+          data: { status: 'SUMMARIZING', snappedPoints: inserted, error: failed && !used ? 'Routing engine did not answer: kept straight lines' : null },
+        }),
+      ]);
+      this.logger.log(`Import ${imp.id}: ${used}/${pairs.length} pairs snapped to roads, ${inserted} points added, ${failed} engine errors`);
+    } finally {
+      this.snapping.delete(imp.id);
     }
   }
 
@@ -359,6 +476,7 @@ function toDto(r: HistoryImport, objectName: string): HistoryImportDto {
     importedKm: r.importedKm,
     odometerKm: r.odometerKm,
     status: r.status as HistoryImportDto['status'],
+    snappedPoints: r.snappedPoints,
     error: r.error,
     createdAt: r.createdAt.toISOString(),
     finishedAt: r.finishedAt?.toISOString() ?? null,
