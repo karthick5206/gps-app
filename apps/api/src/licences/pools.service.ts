@@ -73,6 +73,44 @@ export class PoolsService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Super Admin: change the start and / or end date of seats in one pool (with a reason). Days are IST: a seat starts
+   * at 00:00 and ends at 23:59:59.999 of the chosen day. Expiry notices start over for a moved end date; the lock cache
+   * of the company is refreshed. Each seat is audited with its old and new dates.
+   */
+  async setDates(ctx: AuthContext, where: Prisma.LicenceSeatWhereInput, dto: { seatIds: string[]; activatedAt?: string | null; expiresAt?: string | null; reason: string }): Promise<number> {
+    const DAY = /^\d{4}-\d{2}-\d{2}$/;
+    const from = dto.activatedAt?.trim() || null;
+    const until = dto.expiresAt?.trim() || null;
+    if (!from && !until) throw new BadRequestException('Choose a new start date, end date or both');
+    if ((from && !DAY.test(from)) || (until && !DAY.test(until))) throw new BadRequestException('Dates must be YYYY-MM-DD');
+    const start = from ? new Date(`${from}T00:00:00.000+05:30`) : null;
+    const end = until ? new Date(`${until}T23:59:59.999+05:30`) : null;
+    const seats = await this.prisma.licenceSeat.findMany({ where: { AND: [where, { id: { in: dto.seatIds } }] }, select: { id: true, companyId: true, type: true, activatedAt: true, expiresAt: true } });
+    if (seats.length !== new Set(dto.seatIds).size) throw new BadRequestException('Some licences were not found in this pool');
+    for (const s of seats) {
+      if ((end ?? s.expiresAt) <= (start ?? s.activatedAt)) throw new BadRequestException('The end date must be after the start date');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const s of seats) {
+        await tx.licenceSeat.update({
+          where: { id: s.id },
+          data: { ...(start ? { activatedAt: start } : {}), ...(end ? { expiresAt: end, notifiedState: null } : {}) },
+        });
+        const entry = {
+          action: 'UPDATE' as const,
+          entity: 'licence_dates',
+          entityId: s.id,
+          details: { type: s.type, from: s.activatedAt.toISOString(), until: s.expiresAt.toISOString(), newFrom: (start ?? s.activatedAt).toISOString(), newUntil: (end ?? s.expiresAt).toISOString(), reason: dto.reason },
+        };
+        if (s.companyId) await this.audit.recordFor(ctx, s.companyId, entry, tx);
+        else await this.audit.record(ctx, entry, tx);
+      }
+    });
+    for (const id of new Set(seats.map((s) => s.companyId).filter((x): x is string => !!x))) this.policy.invalidate(id);
+    return seats.length;
+  }
+
   async seats(where: Prisma.LicenceSeatWhereInput, now = Date.now()): Promise<{ seats: SeatDto[]; summary: SeatSummaryDto[] }> {
     const rows = await this.prisma.licenceSeat.findMany({ where: { AND: [where, { type: { not: 'USER' } }] }, include: SEAT_INCLUDE, orderBy: [{ type: 'asc' }, { expiresAt: 'asc' }], take: 5000 });
     const grace = await this.settings.graceDays();

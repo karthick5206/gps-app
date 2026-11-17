@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HistoryModule } from '../history/history.module';
 import { AdminDevicesController } from './admin-devices/admin-devices.controller';
 import { AdminDevicesService } from './admin-devices/admin-devices.service';
+import { VehicleImportService } from './admin-devices/vehicle-import.service';
 import { AuditLogsController } from './audit-logs/audit-logs.controller';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
@@ -54,6 +55,7 @@ import { VehicleGroupsService } from './vehicle-groups/vehicle-groups.service';
     LookupsService,
     DeviceModelsService,
     AdminDevicesService,
+    VehicleImportService,
     CompaniesService,
     SettingsService,
   ],

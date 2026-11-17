@@ -1,13 +1,17 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { AuthContext } from '../../access/auth-context';
 import { Auth, RequirePermission } from '../../access/decorators';
 import { BulkActionDto } from '../../common/bulk';
-import { AdminDeviceListQuery, CreateAdminDeviceDto, UpdateAdminDeviceDto } from './admin-devices.dto';
+import { AdminDeviceListQuery, CreateAdminDeviceDto, UpdateAdminDeviceDto, VehicleImportDto } from './admin-devices.dto';
 import { AdminDevicesService } from './admin-devices.service';
+import { VehicleImportService } from './vehicle-import.service';
 
 @Controller('admin/devices')
 export class AdminDevicesController {
-  constructor(private readonly service: AdminDevicesService) {}
+  constructor(
+    private readonly service: AdminDevicesService,
+    private readonly importer: VehicleImportService,
+  ) {}
 
   @Get() @RequirePermission('sa_device_inventory', 'view')
   list(@Query() query: AdminDeviceListQuery) {
@@ -27,6 +31,24 @@ export class AdminDevicesController {
   @Post() @RequirePermission('sa_device_inventory', 'create')
   create(@Auth() ctx: AuthContext, @Body() dto: CreateAdminDeviceDto) {
     return this.service.create(ctx, dto);
+  }
+
+  /** Import vehicles dialog: the branches of a company. */
+  @Get('import/branches') @RequirePermission('sa_device_inventory', 'create')
+  importBranches(@Query('companyId', ParseUUIDPipe) companyId: string) {
+    return this.importer.branches(companyId);
+  }
+
+  /** Import vehicles sheet: dry run (nothing written). */
+  @Post('import/preview') @HttpCode(200) @RequirePermission('sa_device_inventory', 'create')
+  importPreview(@Auth() ctx: AuthContext, @Body() dto: VehicleImportDto) {
+    return this.importer.run(ctx, dto, false);
+  }
+
+  /** Import vehicles sheet: devices + vehicles + links + licences + vendors in one transaction. */
+  @Post('import/commit') @HttpCode(200) @RequirePermission('sa_device_inventory', 'create')
+  importCommit(@Auth() ctx: AuthContext, @Body() dto: VehicleImportDto) {
+    return this.importer.run(ctx, dto, true);
   }
 
   @Post('bulk') @RequirePermission('sa_device_inventory', 'edit')
