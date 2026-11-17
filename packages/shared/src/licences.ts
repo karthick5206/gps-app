@@ -631,6 +631,27 @@ export interface InvoiceDto {
   creditedPaise: number;
 }
 
+/** Pro-forma invoice (before payment). EXPIRED = still open but past its validity date. */
+export type ProformaStatus = 'OPEN' | 'EXPIRED' | 'PAID' | 'CANCELLED';
+
+export interface ProformaDto {
+  id: string;
+  number: string;
+  issuedAt: string;
+  validUntil: string;
+  buyerName: string;
+  companyId: string | null;
+  partnerId: string | null;
+  totalPaise: number;
+  discountPaise: number;
+  /** Licences / renewals on it (e.g. "7 × GPS device renewal"). */
+  summary: string;
+  status: ProformaStatus;
+  /** The tax invoice issued when it was paid. */
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+}
+
 export interface OfflinePaymentRequest extends PurchaseRequest {
   mode: OfflinePaymentMode;
   reference?: string;

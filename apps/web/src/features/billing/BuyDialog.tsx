@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   API_PLAN_LABELS,
   API_PLANS,
@@ -10,6 +10,7 @@ import {
   type CheckoutDto,
   type LicenceOverviewDto,
   type OfflinePaymentMode,
+  type ProformaDto,
   type QuoteDto,
   SEAT_LICENCE_TYPES,
   type SeatLicenceType,
@@ -25,7 +26,8 @@ import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { api, downloadFile, errorMessage } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
+import { PdfPreviewDialog } from './PdfPreviewDialog';
 import { openCheckout } from './razorpay';
 import { UpiPayBlock } from './UpiPay';
 import { formatDay, rupees, TYPE_ICONS } from './shared';
@@ -230,10 +232,17 @@ export function BuyDialog({
     },
   });
 
-  // Super Admin: pro-forma PDF (payment due) for the same selection and discount; nothing is activated or invoiced.
+  // Super Admin: saves a pro-forma (payment due) for the same selection and discount and shows it on screen; nothing is
+  // activated or invoiced. It is listed under Invoices → Pro-forma invoices.
+  const queryClient = useQueryClient();
+  const [proformaShown, setProformaShown] = useState<ProformaDto | null>(null);
   const proforma = useMutation({
-    mutationFn: () => downloadFile(`${basePath}/proforma`, 'Proforma.pdf', { ...body, ...(discountPaise ? { discountPaise } : {}) }),
-    onSuccess: () => toast.success(t('Pro-forma downloaded. Send it to the customer; record the payment when it arrives.')),
+    mutationFn: () => api.post<ProformaDto>(`${basePath}/proforma`, { ...body, ...(discountPaise ? { discountPaise } : {}) }),
+    onSuccess: (pf) => {
+      toast.success(t('Pro-forma {{number}} saved.', { number: pf.number }));
+      setProformaShown(pf);
+      void queryClient.invalidateQueries({ queryKey: ['licences', 'admin', 'proformas'] });
+    },
     onError: (e) => toast.error(errorMessage(e)),
   });
 
@@ -399,6 +408,15 @@ export function BuyDialog({
           )}
         </DialogFooter>
       </DialogContent>
+      {proformaShown && (
+        <PdfPreviewDialog
+          path={`/licences/admin/proformas/${proformaShown.id}/pdf`}
+          title={t('Pro-forma {{number}}', { number: proformaShown.number })}
+          description={t('Saved under Invoices → Pro-forma invoices. Send it to the customer; record the payment when it arrives.')}
+          fileName={`Proforma-${proformaShown.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`}
+          onClose={() => setProformaShown(null)}
+        />
+      )}
     </Dialog>
   );
 }

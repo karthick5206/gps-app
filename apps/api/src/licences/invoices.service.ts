@@ -227,22 +227,25 @@ export class InvoicesService {
     return `Invoice-${inv.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`;
   }
 
-  /** The invoice PDF: stored on first render under var/invoices/<fy>/ and served from there afterwards. */
-  /**
-   * Pro-forma invoice (before payment): same layout with "PRO-FORMA INVOICE / PAYMENT DUE", valid `validDays`. Nothing
-   * is stored and no invoice number is used; the reference is PI/<FY>/<MMDD-HHmm> in India time.
-   */
-  async proformaPdf(profile: Parameters<typeof buildSnapshot>[1], lines: QuoteLineDto[], validDays = 15): Promise<{ number: string; pdf: Buffer }> {
+  /** Printed snapshot of a pro-forma (stored with it so it re-renders identically). */
+  async proformaSnapshot(profile: Parameters<typeof buildSnapshot>[1], lines: QuoteLineDto[], meta: { number: string; issuedAt: Date; validUntil: Date }): Promise<InvoiceSnapshot> {
     const s = await this.settings.get();
-    const now = new Date();
-    const ist = new Date(now.getTime() + 330 * 60_000);
-    const p2 = (n: number) => String(n).padStart(2, '0');
-    const number = `${s.invoicePrefix}/PI/${financialYear(now)}/${p2(ist.getUTCMonth() + 1)}${p2(ist.getUTCDate())}-${p2(ist.getUTCHours())}${p2(ist.getUTCMinutes())}`;
-    const validUntil = new Date(now.getTime() + validDays * 86_400_000).toISOString();
-    const snapshot = buildSnapshot(s, profile, lines, { number, issuedAt: now, paymentMode: 'BANK_TRANSFER', paymentReference: null, paidAt: now, proforma: { validUntil } });
-    return { number, pdf: await renderInvoicePdf(snapshot, await this.settings.logo()) };
+    return buildSnapshot(s, profile, lines, {
+      number: meta.number,
+      issuedAt: meta.issuedAt,
+      paymentMode: 'BANK_TRANSFER',
+      paymentReference: null,
+      paidAt: meta.issuedAt,
+      proforma: { validUntil: meta.validUntil.toISOString() },
+    });
   }
 
+  /** Pro-forma PDF from its stored snapshot (rendered on demand). */
+  async proformaPdf(snapshot: InvoiceSnapshot): Promise<Buffer> {
+    return renderInvoicePdf(snapshot, await this.settings.logo());
+  }
+
+  /** The invoice PDF: stored on first render under var/invoices/<fy>/ and served from there afterwards. */
   async pdf(inv: Invoice): Promise<Buffer> {
     if (inv.pdfFile) {
       const path = join(INVOICE_DIR, inv.pdfFile);

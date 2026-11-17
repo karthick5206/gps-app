@@ -4897,3 +4897,32 @@ model ArchivedDay {
   @@index([companyId, day])
   @@index([status, keepUntil])
 }
+
+/// Pro-forma invoice (Super Admin, before payment): not a tax invoice, no GST liability. Numbered <prefix>/PI/<FY>/<seq>
+/// in its own series; the printed snapshot is stored so it re-renders identically. OPEN until a payment for the same
+/// selection is recorded (PAID, with the tax invoice) or the Super Admin cancels it; past validUntil it shows Expired.
+model LicenceProforma {
+  id            String   @id @default(uuid()) @db.Uuid
+  number        String   @unique
+  fy            String
+  seq           Int
+  companyId     String?  @db.Uuid
+  partnerId     String?  @db.Uuid
+  buyerName     String
+  issuedAt      DateTime @db.Timestamptz(3)
+  validUntil    DateTime @db.Timestamptz(3)
+  totalPaise    Int
+  discountPaise Int      @default(0)
+  /// What was quoted: { items, renewSeatIds, discountPaise } (to match the payment that settles it).
+  request       Json
+  snapshot      Json
+  status        String   @default("OPEN")
+  invoiceId     String?  @db.Uuid
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([fy, seq])
+  @@index([companyId, issuedAt(sort: Desc)])
+  @@index([partnerId, issuedAt(sort: Desc)])
+}

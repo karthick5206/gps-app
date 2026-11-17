@@ -85,12 +85,28 @@ export class LicencesAdminController {
     return this.billing.quote(await this.owner(kind, id), dto, new Date(), dto.discountPaise ?? 0);
   }
 
-  /** Super Admin: pro-forma invoice PDF (payment due; not a tax invoice), with an optional discount. */
-  @Post('pools/:kind/:id/proforma') @HttpCode(200) @RequirePermission('sa_licences', 'create')
+  /** Super Admin: saves a pro-forma invoice (payment due; not a tax invoice), with an optional discount. */
+  @Post('pools/:kind/:id/proforma') @RequirePermission('sa_licences', 'create')
   async proforma(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminQuoteDto) {
-    const out = await this.billing.proforma(ctx, await this.owner(kind, id), dto, dto.discountPaise ?? 0);
-    const name = `Proforma-${out.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`;
-    return new StreamableFile(out.pdf, { type: 'application/pdf', disposition: `attachment; filename="${name}"` });
+    return this.billing.proforma(ctx, await this.owner(kind, id), dto, dto.discountPaise ?? 0);
+  }
+
+  @Get('proformas') @RequirePermission('sa_licences', 'view')
+  proformas(@Query('companyId') companyId?: string, @Query('partnerId') partnerId?: string) {
+    return this.billing.listProformas({ companyId: companyId || undefined, partnerId: partnerId || undefined });
+  }
+
+  /** Inline, so the browser shows it; the download button saves the same file. */
+  @Get('proformas/:id/pdf') @RequirePermission('sa_licences', 'view')
+  async proformaPdf(@Param('id', ParseUUIDPipe) id: string) {
+    const { row, pdf } = await this.billing.proformaPdf(id);
+    const name = `Proforma-${row.number.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`;
+    return new StreamableFile(pdf, { type: 'application/pdf', disposition: `inline; filename="${name}"` });
+  }
+
+  @Post('proformas/:id/cancel') @HttpCode(200) @RequirePermission('sa_licences', 'edit')
+  cancelProforma(@Auth() ctx: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.billing.cancelProforma(ctx, id);
   }
 
   /** Super Admin: may give a discount (before GST on the invoice). */
