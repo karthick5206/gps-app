@@ -1,4 +1,4 @@
-import { headerKey, type VehicleImportAction, type VehicleImportRowInput, type VehicleImportRowResult } from '@veetracer/shared';
+import { headerKey, parseVehicleType, type VehicleImportAction, type VehicleImportRowInput, type VehicleImportRowResult } from '@veetracer/shared';
 
 /**
  * Pure part of the Super Admin vehicle import: model matching, plate keys, IST day bounds and the per-row plan.
@@ -119,6 +119,11 @@ export function planRows(rows: ScopedRow[], l: PlanLookups): RowPlan[] {
     model ??= l.defaultModel;
     if (!model && !clean(r.model)) errors.push('No model: fill the Model column or choose a default model');
     if (!vehicleName) errors.push('Vehicle name is empty');
+    let vehicleType = parseVehicleType(r.vehicleType);
+    if (!vehicleType) {
+      warnings.push(`Vehicle type "${clean(r.vehicleType, 30)}" not recognised: using Car`);
+      vehicleType = 'CAR';
+    }
     let imei = rawImei;
     if (!rawImei) errors.push('IMEI is empty');
     else if (model) {
@@ -179,6 +184,7 @@ export function planRows(rows: ScopedRow[], l: PlanLookups): RowPlan[] {
         branchName: r.branchName,
         vendorName: clean(r.vendor) || null,
         driverName: clean(r.driverName) || (clean(r.driverMobile, 30) || null),
+        vehicleType,
         licenceFrom,
         licenceUntil,
         action: errors.length ? 'ERROR' : action,

@@ -30,6 +30,7 @@ export class VehicleImportRowDto {
   @IsOptional() @IsString() @MaxLength(30) driverMobile?: string | null;
   @IsOptional() @IsString() @MaxLength(20) licenceFrom?: string | null;
   @IsOptional() @IsString() @MaxLength(20) licenceUntil?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) vehicleType?: string | null;
 }
 
 export class VehicleImportDto {

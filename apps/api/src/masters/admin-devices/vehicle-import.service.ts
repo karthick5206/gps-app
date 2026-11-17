@@ -11,6 +11,7 @@ import {
   type VehicleImportRequest,
   type VehicleImportResult,
 } from '@veetracer/shared';
+import type { VehicleType } from '@prisma/client';
 import { AuthContext } from '../../access/auth-context';
 import { AuditService } from '../../audit/audit.service';
 import { randomToken } from '../../common/secrets';
@@ -292,8 +293,12 @@ export class VehicleImportService {
             } else {
               deviceId = (await tx.device.create({ data: { companyId, modelId: p.model!.id, uniqueId: r.imei, simNumber: r.sim, ingestToken: randomToken(24), isActive: true }, select: { id: true } })).id;
             }
+            const vehicleType = r.vehicleType as VehicleType;
             if (!objectId) {
-              objectId = (await tx.trackedObject.create({ data: { companyId, branchId: s.branchId, type: 'VEHICLE', name: r.vehicleName, plateNumber: r.plate }, select: { id: true } })).id;
+              objectId = (await tx.trackedObject.create({ data: { companyId, branchId: s.branchId, type: 'VEHICLE', vehicleType, name: r.vehicleName, plateNumber: r.plate }, select: { id: true } })).id;
+            } else {
+              // An existing vehicle keeps its type; one without a type gets the sheet's (map icon).
+              await tx.trackedObject.updateMany({ where: { id: objectId, vehicleType: null }, data: { vehicleType } });
             }
             await tx.deviceAssignment.create({ data: { deviceId, objectId, fromTime: now } });
             const had = await tx.licenceSeat.findUnique({ where: { deviceId }, select: { id: true } });

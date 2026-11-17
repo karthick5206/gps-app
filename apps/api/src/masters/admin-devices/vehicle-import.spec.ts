@@ -1,4 +1,4 @@
-import { mapVehicleImportHeaders } from '@veetracer/shared';
+import { mapVehicleImportHeaders, parseVehicleType } from '@veetracer/shared';
 import { istDay, istDayEnd, istDayStart, matchModel, planRows, type ModelRef, type PlanLookups, type ScopedRow } from './vehicle-import';
 
 const V5: ModelRef = { id: 'm1', brand: 'Concox', model: 'V5', protocol: 'GT06', capabilities: [] };
@@ -60,7 +60,20 @@ describe('IST days', () => {
 describe('planRows', () => {
   it('plans a new device + vehicle with the default licence dates; plate = name', () => {
     const [p] = planRows([row({ row: 2 })], lookups());
-    expect(p.result).toMatchObject({ action: 'NEW', plate: 'TN 02 BM 2227', modelLabel: 'Concox V5', licenceFrom: '2026-11-17', licenceUntil: '2026-12-17', errors: [] });
+    expect(p.result).toMatchObject({ action: 'NEW', plate: 'TN 02 BM 2227', modelLabel: 'Concox V5', vehicleType: 'CAR', licenceFrom: '2026-11-17', licenceUntil: '2026-12-17', errors: [] });
+  });
+
+  it('reads the vehicle type (map icon): words, plurals, unknown = Car with a warning', () => {
+    expect(parseVehicleType('')).toBe('CAR');
+    expect(parseVehicleType('School Bus')).toBe('SCHOOL_BUS');
+    expect(parseVehicleType('Tempo Traveller')).toBe('VAN');
+    expect(parseVehicleType('lorries')).toBeNull();
+    expect(parseVehicleType('Buses')).toBe('BUS');
+    expect(parseVehicleType('two-wheeler')).toBe('BIKE');
+    const [p] = planRows([row({ row: 2, vehicleType: 'Spaceship' })], lookups());
+    expect(p.result.vehicleType).toBe('CAR');
+    expect(p.result.warnings[0]).toMatch(/Vehicle type "Spaceship" not recognised/);
+    expect(mapVehicleImportHeaders(['Vehicle name', 'Vehicle type', 'IMEI', 'Model'])).toEqual({ vehicleName: 0, vehicleType: 1, imei: 2, model: 3 });
   });
 
   it('flags duplicates in the sheet, unknown models and bad licence dates', () => {

@@ -22,7 +22,27 @@ export const VEHICLE_IMPORT_HEADERS = {
   driverName: ['drivername', 'driver'],
   driverMobile: ['drivermobile', 'driverphone', 'drivercontact', 'drivermobileno', 'drivernumber', 'driverno', 'drivercell'],
   vendor: ['vendor', 'vendorname', 'transporter', 'operator', 'supplier', 'cabvendor', 'travels'],
+  vehicleType: ['vehicletype', 'vehiclecategory', 'category', 'bodytype', 'vehiclekind'],
 } as const;
+
+/** Sheet words for each vehicle type (compared like headers: lower-case, no spaces / dots / dashes). */
+const VEHICLE_TYPE_WORDS: Record<string, string> = {
+  car: 'CAR', cab: 'CAR', taxi: 'CAR', sedan: 'CAR', suv: 'CAR', hatchback: 'CAR', muv: 'CAR', jeep: 'CAR',
+  bike: 'BIKE', motorbike: 'BIKE', motorcycle: 'BIKE', scooter: 'BIKE', twowheeler: 'BIKE', '2wheeler': 'BIKE',
+  truck: 'TRUCK', lorry: 'TRUCK', tipper: 'TRUCK', trailer: 'TRUCK', tanker: 'TRUCK', container: 'TRUCK',
+  bus: 'BUS', minibus: 'BUS', coach: 'BUS', staffbus: 'BUS',
+  schoolbus: 'SCHOOL_BUS', schoolvan: 'SCHOOL_BUS',
+  van: 'VAN', tempo: 'VAN', traveller: 'VAN', tempotraveller: 'VAN', minivan: 'VAN', pickup: 'VAN',
+  auto: 'AUTO', autorickshaw: 'AUTO', rickshaw: 'AUTO', threewheeler: 'AUTO', '3wheeler': 'AUTO',
+  other: 'OTHER',
+};
+
+/** Vehicle type (VEHICLE_TYPES value) from a sheet value: CAR when empty, null when not recognised. */
+export function parseVehicleType(v: unknown): string | null {
+  const k = headerKey(v);
+  if (!k) return 'CAR';
+  return VEHICLE_TYPE_WORDS[k] ?? VEHICLE_TYPE_WORDS[k.replace(/es$/, '')] ?? VEHICLE_TYPE_WORDS[k.replace(/s$/, '')] ?? null;
+}
 
 export type VehicleImportField = keyof typeof VEHICLE_IMPORT_HEADERS;
 
@@ -64,6 +84,8 @@ export interface VehicleImportRowInput {
   /** Complimentary licence of this device: from / until (YYYY-MM-DD); empty = the dialog's dates. */
   licenceFrom?: string | null;
   licenceUntil?: string | null;
+  /** Car, Bus, Bike, Truck, Van, Auto… (sets the map icon); empty = Car. */
+  vehicleType?: string | null;
 }
 
 export interface VehicleImportRequest {
@@ -99,6 +121,8 @@ export interface VehicleImportRowResult {
   branchName: string | null;
   vendorName: string | null;
   driverName: string | null;
+  /** VEHICLE_TYPES value the vehicle gets (CAR when the sheet has none). */
+  vehicleType: string;
   /** Dates a complimentary licence of this row gets (a free paid seat keeps its own dates). */
   licenceFrom: string | null;
   licenceUntil: string | null;

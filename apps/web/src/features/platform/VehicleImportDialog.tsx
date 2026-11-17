@@ -34,6 +34,7 @@ const TEMPLATE: { field: VehicleImportField; header: string; sample: string }[] 
   { field: 'imei', header: 'IMEI', sample: '355172106796574' },
   { field: 'model', header: 'Model', sample: 'Concox V5' },
   { field: 'sim', header: 'SIM number', sample: '5754180515393' },
+  { field: 'vehicleType', header: 'Vehicle type', sample: 'Car' },
   { field: 'plate', header: 'Plate number', sample: '' },
   { field: 'company', header: 'Company', sample: '' },
   { field: 'branch', header: 'Branch', sample: 'Head Office' },
@@ -43,6 +44,8 @@ const TEMPLATE: { field: VehicleImportField; header: string; sample: string }[] 
   { field: 'licenceFrom', header: 'Licence from', sample: '' },
   { field: 'licenceUntil', header: 'Licence until', sample: '' },
 ];
+
+const VEHICLE_TYPE_LABEL: Record<string, string> = { CAR: 'Car', BIKE: 'Bike', TRUCK: 'Truck', BUS: 'Bus', SCHOOL_BUS: 'School bus', VAN: 'Van', AUTO: 'Auto', OTHER: 'Other' };
 
 const ACTION_LABEL: Record<VehicleImportAction, string> = { NEW: 'New', LINK: 'Fit to existing vehicle', STOCK: 'From stock', SKIP: 'Already there', ERROR: 'Error' };
 const ACTION_VARIANT: Record<VehicleImportAction, 'default' | 'secondary' | 'destructive' | 'outline'> = { NEW: 'default', LINK: 'secondary', STOCK: 'secondary', SKIP: 'outline', ERROR: 'destructive' };
@@ -110,6 +113,7 @@ async function readSheet(file: File): Promise<Parsed> {
       vendor: get(row, 'vendor') || null,
       driverName: get(row, 'driverName') || null,
       driverMobile: get(row, 'driverMobile') || null,
+      vehicleType: get(row, 'vehicleType') || null,
       licenceFrom: map.licenceFrom === undefined ? null : dayText(row[map.licenceFrom]) || null,
       licenceUntil: map.licenceUntil === undefined ? null : dayText(row[map.licenceUntil]) || null,
     });
@@ -375,7 +379,10 @@ export function VehicleImportDialog({ open, onOpenChange }: { open: boolean; onO
                           {r.plate !== r.vehicleName && <div className="text-xs text-muted-foreground">{r.plate}</div>}
                         </TableCell>
                         <TableCell className="font-mono text-xs">{r.imei}</TableCell>
-                        <TableCell className="text-xs">{r.modelLabel ?? '—'}</TableCell>
+                        <TableCell className="text-xs">
+                          {r.modelLabel ?? '—'}
+                          <div className="text-muted-foreground">{t(VEHICLE_TYPE_LABEL[r.vehicleType] ?? r.vehicleType)}</div>
+                        </TableCell>
                         <TableCell className="font-mono text-xs">{r.sim ?? '—'}</TableCell>
                         <TableCell className="text-xs">
                           {r.companyName ?? '—'}
