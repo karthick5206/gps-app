@@ -40,7 +40,7 @@ export function CreditNoteDialog({ invoice, onClose, onIssued }: { invoice: Invo
         .map((l) => {
           const v = inputs[l.lineIndex];
           if (!v) return null;
-          const amountPaise = v.amount.trim() ? toPaise(Number(v.amount)) : l.unitPaise * v.quantity;
+          const amountPaise = v.amount.trim() ? toPaise(Number(v.amount)) : Math.round((l.amountPaise * v.quantity) / Math.max(1, l.quantity));
           return amountPaise > 0 ? { lineIndex: l.lineIndex, quantity: v.quantity, amountPaise } : null;
         })
         .filter((x): x is { lineIndex: number; quantity: number; amountPaise: number } => !!x),
@@ -123,7 +123,7 @@ export function CreditNoteDialog({ invoice, onClose, onIssued }: { invoice: Invo
                           aria-label={t('Amount (₹)')}
                           disabled={l.remainingPaise <= 0}
                           value={inputs[l.lineIndex]?.amount ?? ''}
-                          placeholder={inputs[l.lineIndex]?.quantity ? String((l.unitPaise * inputs[l.lineIndex].quantity) / 100) : '0'}
+                          placeholder={inputs[l.lineIndex]?.quantity ? String(Math.round((l.amountPaise * inputs[l.lineIndex].quantity) / Math.max(1, l.quantity)) / 100) : '0'}
                           onChange={(e) => set(l.lineIndex, { amount: e.target.value.replace(/[^\d.]/g, '') })}
                         />
                       </TableCell>

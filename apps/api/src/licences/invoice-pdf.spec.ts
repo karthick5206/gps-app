@@ -51,3 +51,25 @@ describe('invoice PDF amounts', () => {
     expect(rs(118000)).toBe('₹1,180.00');
   });
 });
+
+describe('invoice PDF with a discount', () => {
+  it('adds Value (excl. GST) and Discount columns and the discount rows in the totals', async () => {
+    const disc: InvoiceSnapshot = {
+      ...snapshot,
+      taxKind: 'CGST_SGST',
+      lines: [{ ...snapshot.lines[0], amountPaise: 200_000, taxablePaise: 169_492, listPaise: 236_000, discountPaise: 30_508 }],
+      taxablePaise: 169_492,
+      cgstPaise: 15_254,
+      sgstPaise: 15_254,
+      igstPaise: 0,
+      totalPaise: 200_000,
+    };
+    const doc = JSON.stringify(invoiceDocument(disc, null));
+    expect(doc).toContain('Value (excl. GST)');
+    expect(doc).toContain('Less: discount');
+    expect(doc).toContain('2,00,000.00'.replace('2,00,000.00', '2,000.00'));
+    const pdf = await renderInvoicePdf(disc, null);
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(JSON.stringify(invoiceDocument(snapshot, null))).not.toContain('Less: discount');
+  });
+});

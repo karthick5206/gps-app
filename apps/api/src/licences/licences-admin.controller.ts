@@ -37,7 +37,7 @@ import {
   PartnerCreateDto,
   PartnerUpdateDto,
   PricingDto,
-  PurchaseDto,
+  AdminQuoteDto,
   UpiRejectBody,
 } from './licences.dto';
 import { UpiService } from './upi.service';
@@ -80,13 +80,14 @@ export class LicencesAdminController {
   }
 
   @Post('pools/:kind/:id/quote') @HttpCode(200) @RequirePermission('sa_licences', 'view')
-  async quote(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PurchaseDto) {
-    return this.billing.quote(await this.owner(kind, id), dto);
+  async quote(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminQuoteDto) {
+    return this.billing.quote(await this.owner(kind, id), dto, new Date(), dto.discountPaise ?? 0);
   }
 
+  /** Super Admin: may give a discount (before GST on the invoice). */
   @Post('pools/:kind/:id/payments') @RequirePermission('sa_licences', 'create')
   async payment(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: OfflinePaymentDto) {
-    return this.billing.recordOffline(ctx, await this.owner(kind, id), dto);
+    return this.billing.recordOffline(ctx, await this.owner(kind, id), dto, { allowDiscount: true });
   }
 
   /** Customers' "I've paid by UPI": check the UTR on the bank statement, then confirm (activates + invoices) or reject. */

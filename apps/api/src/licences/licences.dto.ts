@@ -37,6 +37,13 @@ export class OfflinePaymentDto extends PurchaseDto {
   @IsOptional() @IsString() @MaxLength(120) reference?: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/) paidOn!: string;
   @Type(() => Number) @IsInt() @Min(1) amountPaise!: number;
+  /** Super Admin only (refused elsewhere): discount on the whole invoice, GST inclusive. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) discountPaise?: number;
+}
+
+/** Super Admin quote with an optional discount (GST inclusive, paise). */
+export class AdminQuoteDto extends PurchaseDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) discountPaise?: number;
 }
 
 /** "I've paid by UPI": the purchase plus the UTR from the customer's UPI app. */

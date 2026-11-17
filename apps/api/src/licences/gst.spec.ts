@@ -1,5 +1,7 @@
 import {
   addYears,
+  applyDiscount,
+  discountBeforeTax,
   amountInWords,
   financialYear,
   formatInr,
@@ -120,5 +122,33 @@ describe('seat dates', () => {
     expect(seatLocked(new Date(now - 10 * DAY), now, 15)).toBe(false);
     expect(seatLocked(new Date(now - 16 * DAY), now, 15)).toBe(true);
     expect(seatLocked(null, now, 15)).toBe(true);
+  });
+});
+
+describe('invoice discount (before GST)', () => {
+  // Ameirtha renewal: 7 × ₹1,850 (GST inclusive); ₹950 off the total → ₹12,000.
+  const seven: { amountPaise: number; discountPaise?: number }[] = Array.from({ length: 7 }, () => ({ amountPaise: 185_000 }));
+
+  it('spreads the discount over the lines exactly and keeps GST on the discounted value', () => {
+    const lines = applyDiscount(seven, 95_000);
+    expect(lines.reduce((s, l) => s + (l.discountPaise ?? 0), 0)).toBe(95_000);
+    expect(lines.reduce((s, l) => s + l.amountPaise, 0)).toBe(1_200_000);
+    expect(Math.max(...lines.map((l) => l.discountPaise!)) - Math.min(...lines.map((l) => l.discountPaise!))).toBeLessThanOrEqual(1);
+    const g = gstBreakdown(lines.map((l) => l.amountPaise), 18, '33', '33');
+    expect(g.totalPaise).toBe(1_200_000);
+    expect(g.taxablePaise + g.cgstPaise + g.sgstPaise).toBe(1_200_000);
+  });
+
+  it('shows the discount before tax = taxable value of the list price − taxable value paid', () => {
+    expect(discountBeforeTax(185_000, 171_429, 18)) .toBe(Math.round(18_500_000 / 118) - Math.round(17_142_900 / 118));
+    expect(discountBeforeTax(118_000, 118_000, 18)).toBe(0);
+  });
+
+  it('weights by line value and refuses bad discounts', () => {
+    const [a, b] = applyDiscount<{ amountPaise: number; discountPaise?: number }>([{ amountPaise: 300_000 }, { amountPaise: 100_000 }], 40_000);
+    expect([a.discountPaise, b.discountPaise]).toEqual([30_000, 10_000]);
+    expect(applyDiscount(seven, 0)).toBe(seven);
+    expect(() => applyDiscount(seven, -1)).toThrow(/positive/);
+    expect(() => applyDiscount(seven, 1_295_000 - 50)).toThrow(/whole amount/);
   });
 });

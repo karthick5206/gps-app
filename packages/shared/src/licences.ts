@@ -322,6 +322,37 @@ export function gstBreakdown(linePaise: number[], ratePct: number, supplierState
   };
 }
 
+/**
+ * Spread an invoice discount (GST inclusive, paise) over the lines in proportion to their amounts (largest remainder,
+ * so the parts add up exactly). Each line's amountPaise becomes the discounted amount and discountPaise records the cut.
+ * Throws when the discount is not a whole number of paise, negative, or leaves less than ₹1 to pay.
+ */
+export function applyDiscount<L extends { amountPaise: number; discountPaise?: number }>(lines: L[], discountPaise: number): L[] {
+  if (!discountPaise) return lines;
+  if (!Number.isInteger(discountPaise) || discountPaise < 0) throw new Error('The discount must be a positive amount');
+  const gross = lines.reduce((s, l) => s + l.amountPaise, 0);
+  if (gross - discountPaise < 100) throw new Error('The discount cannot be the whole amount (at least ₹1 must remain)');
+  const exact = lines.map((l) => (l.amountPaise * discountPaise) / gross);
+  const parts = exact.map(Math.floor);
+  let left = discountPaise - parts.reduce((s, p) => s + p, 0);
+  const order = exact.map((e, i) => [e - Math.floor(e), i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (const [, i] of order) {
+    if (left <= 0) break;
+    parts[i]++;
+    left--;
+  }
+  return lines.map((l, i) => ({ ...l, amountPaise: l.amountPaise - parts[i], discountPaise: parts[i] }));
+}
+
+/**
+ * Discount shown before tax on the invoice: taxable value of the list price minus taxable value of the discounted
+ * amount (prices are GST inclusive, so GST is charged on the discounted value).
+ */
+export function discountBeforeTax(listPaise: number, netPaise: number, ratePct: number): number {
+  const taxable = (p: number) => Math.round((p * 100) / (100 + ratePct));
+  return taxable(listPaise) - taxable(netPaise);
+}
+
 /** 123456.7 → 12345670 paise (rounded). */
 export function toPaise(rupees: number): number {
   return Math.round(rupees * 100);
@@ -549,11 +580,18 @@ export interface QuoteLineDto {
   seatIds: string[];
   /** API_ACCESS lines: the plan bought / renewed. */
   plan?: ApiPlan | null;
+  /**
+   * Discount on this line, GST inclusive (Super Admin "Record payment" only). `amountPaise` is already after it;
+   * the list price of the line is amountPaise + discountPaise.
+   */
+  discountPaise?: number;
 }
 
 export interface QuoteDto {
   lines: QuoteLineDto[];
   gst: GstBreakdown;
+  /** Total discount, GST inclusive (0 = none); `gst` is computed on the discounted amounts. */
+  discountPaise?: number;
   customerStateCode: string;
   supplierStateCode: string;
 }
@@ -598,8 +636,10 @@ export interface OfflinePaymentRequest extends PurchaseRequest {
   reference?: string;
   /** YYYY-MM-DD. */
   paidOn: string;
-  /** Must equal the quoted total (GST-inclusive, paise). */
+  /** Must equal the quoted total (GST-inclusive, paise), after the discount. */
   amountPaise: number;
+  /** Super Admin only: discount on the whole invoice, GST inclusive (paise). Spread over the lines by value. */
+  discountPaise?: number;
 }
 
 /** Banner data for the signed-in user's company. */

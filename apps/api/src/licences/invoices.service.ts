@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CreditNote, Invoice, LicenceOrder, Prisma } from '@prisma/client';
-import { financialYear, formatInr, formatInvoiceNumber, gstBreakdown, InvoiceDto, PaymentMode, QuoteLineDto, stateByCode, TaxKind } from '@veetracer/shared';
+import { discountBeforeTax, financialYear, formatInr, formatInvoiceNumber, gstBreakdown, InvoiceDto, PaymentMode, QuoteLineDto, stateByCode, TaxKind } from '@veetracer/shared';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -158,6 +158,9 @@ export class InvoicesService {
         unitPaise: l.unitPaise,
         amountPaise: l.amountPaise,
         taxablePaise: gst.lines[i].taxablePaise,
+        ...(l.discountPaise
+          ? { listPaise: l.amountPaise + l.discountPaise, discountPaise: discountBeforeTax(l.amountPaise + l.discountPaise, l.amountPaise, s.gstRatePct) }
+          : {}),
         ...(l.plan ? { plan: l.plan } : {}),
         seatIds: l.seatIds,
       })),

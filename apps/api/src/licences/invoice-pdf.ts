@@ -25,6 +25,12 @@ export interface InvoiceLineSnapshot {
   unitPaise: number;
   amountPaise: number;
   taxablePaise: number;
+  /**
+   * Discounted lines (Super Admin): the list price of the line (GST inclusive; amountPaise is after the discount) and
+   * the discount before tax (= taxable value of the list price − taxablePaise). Missing / 0 = no discount.
+   */
+  listPaise?: number;
+  discountPaise?: number;
   /** Developer API lines: the plan. */
   plan?: ApiPlan | null;
   /** Seats bought / renewed by this line (credit notes revoke from these). Missing on invoices issued before credit notes. */
@@ -99,19 +105,37 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
     header.push(logo.mime === 'image/svg+xml' ? { svg: logo.data.toString('utf8'), fit: [140, 56] } : { image: `data:${logo.mime};base64,${logo.data.toString('base64')}`, fit: [140, 56] });
   }
   const th = (text: string, alignment: 'left' | 'right' | 'center' = 'left'): TableCell => ({ text, style: 'th', alignment });
-  const body: TableCell[][] = [
-    [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Amount', 'right'), th('Taxable value', 'right')],
-    ...inv.lines.map((l, i): TableCell[] => [
-      String(i + 1),
-      lineDescription(l),
-      inv.sacCode,
-      { text: String(l.quantity), alignment: 'right' },
-      `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
-      { text: formatInr(l.unitPaise), alignment: 'right' },
-      { text: formatInr(l.amountPaise), alignment: 'right' },
-      { text: formatInr(l.taxablePaise), alignment: 'right' },
-    ]),
-  ];
+  const discountBeforeTaxPaise = inv.lines.reduce((s, l) => s + (l.discountPaise ?? 0), 0);
+  const discounted = discountBeforeTaxPaise > 0;
+  // With a discount: the value before tax, the discount and the taxable value (GST is charged on the discounted value).
+  const body: TableCell[][] = discounted
+    ? [
+        [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Value (excl. GST)', 'right'), th('Discount', 'right'), th('Taxable value', 'right')],
+        ...inv.lines.map((l, i): TableCell[] => [
+          String(i + 1),
+          lineDescription(l),
+          inv.sacCode,
+          { text: String(l.quantity), alignment: 'right' },
+          `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
+          { text: formatInr(l.unitPaise), alignment: 'right' },
+          { text: formatInr(l.taxablePaise + (l.discountPaise ?? 0)), alignment: 'right' },
+          { text: l.discountPaise ? formatInr(l.discountPaise) : '—', alignment: 'right' },
+          { text: formatInr(l.taxablePaise), alignment: 'right' },
+        ]),
+      ]
+    : [
+        [th('#'), th('Description'), th('SAC'), th('Qty', 'right'), th('Period'), th('Rate (incl. GST)', 'right'), th('Amount', 'right'), th('Taxable value', 'right')],
+        ...inv.lines.map((l, i): TableCell[] => [
+          String(i + 1),
+          lineDescription(l),
+          inv.sacCode,
+          { text: String(l.quantity), alignment: 'right' },
+          `${invoiceDate(l.periodFrom)} to ${invoiceDate(l.periodTo)}`,
+          { text: formatInr(l.unitPaise), alignment: 'right' },
+          { text: formatInr(l.amountPaise), alignment: 'right' },
+          { text: formatInr(l.taxablePaise), alignment: 'right' },
+        ]),
+      ];
   const half = inv.gstRatePct / 2;
   const taxRows: [string, number][] =
     inv.taxKind === 'IGST'
@@ -120,6 +144,12 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
         ? [[`CGST @ ${half}%`, inv.cgstPaise], [`UTGST @ ${half}%`, inv.utgstPaise]]
         : [[`CGST @ ${half}%`, inv.cgstPaise], [`SGST @ ${half}%`, inv.sgstPaise]];
   const totals: TableCell[][] = [
+    ...(discounted
+      ? [
+          ['Value before discount (excl. GST)', { text: rs(inv.taxablePaise + discountBeforeTaxPaise), alignment: 'right' }] as TableCell[],
+          ['Less: discount', { text: `-${rs(discountBeforeTaxPaise)}`, alignment: 'right' }] as TableCell[],
+        ]
+      : []),
     ['Taxable value', { text: rs(inv.taxablePaise), alignment: 'right' }],
     ...taxRows.map(([label, v]): TableCell[] => [label, { text: rs(v), alignment: 'right' }]),
     [{ text: 'Total (GST inclusive)', bold: true }, { text: rs(inv.totalPaise), bold: true, alignment: 'right' }],
@@ -153,7 +183,7 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
     partyBlock('Bill to', inv.buyer, false),
     {
       margin: [0, 12, 0, 0],
-      table: { headerRows: 1, widths: [14, '*', 36, 24, 92, 58, 56, 58], body },
+      table: { headerRows: 1, widths: discounted ? [12, '*', 34, 20, 84, 50, 52, 46, 52] : [14, '*', 36, 24, 92, 58, 56, 58], body },
       layout: { fillColor: (row: number) => (row === 0 ? '#0e5e57' : row % 2 === 0 ? '#f1f5f9' : null), hLineColor: () => '#e2e8f0', vLineColor: () => '#e2e8f0' },
     },
     {
@@ -168,7 +198,7 @@ export function invoiceDocument(inv: InvoiceSnapshot, logo: InvoiceLogo | null):
             ...(bankBits.length ? [{ text: 'Bank details', style: 'label', margin: [0, 8, 0, 0] } as Content, { text: bankBits.join('  ·  ') } as Content] : []),
           ],
         },
-        { width: 210, margin: [0, 10, 0, 0], table: { widths: ['*', 90], body: totals }, layout: 'lightHorizontalLines' },
+        { width: discounted ? 250 : 210, margin: [0, 10, 0, 0], table: { widths: ['*', 90], body: totals }, layout: 'lightHorizontalLines' },
       ],
     },
     ...(inv.terms ? [{ text: 'Terms', style: 'label', margin: [0, 14, 0, 0] } as Content, { text: inv.terms } as Content] : []),
