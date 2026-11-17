@@ -50,6 +50,7 @@ export * from './transport-compliance';
 export * from './transport-insights';
 export * from './transport-safety';
 export * from './transport-vendors';
+export * from './vehicle-import';
 export * from './transport-driver';
 export * from './transport-self';
 export * from './transport-provider';

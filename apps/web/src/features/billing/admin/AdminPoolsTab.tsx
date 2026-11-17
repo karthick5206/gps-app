@@ -133,6 +133,7 @@ export function AdminPoolDialog({ pool, onClose, onOpenPool, onChanged }: { pool
             recordPath={can('sa_licences', 'create') ? `${base}/payments` : undefined}
             canBuy={false}
             canEditProfile={can('sa_licences', 'edit')}
+            datesPath={can('sa_licences', 'edit') ? `${base}/seat-dates` : undefined}
             onChanged={refresh}
             extraActions={
               can('sa_licences', 'create') && (

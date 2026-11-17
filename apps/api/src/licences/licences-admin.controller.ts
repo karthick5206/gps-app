@@ -38,6 +38,7 @@ import {
   PartnerUpdateDto,
   PricingDto,
   PurchaseDto,
+  SeatDatesDto,
   UpiRejectBody,
 } from './licences.dto';
 import { UpiService } from './upi.service';
@@ -110,6 +111,13 @@ export class LicencesAdminController {
   async grant(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: GrantDto) {
     const owner = await this.owner(kind, id);
     return { granted: await this.pools.grant(ctx, owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id }, dto.type, dto.quantity, dto.days, dto.reason, dto.plan) };
+  }
+
+  /** Change the start / end date of selected licences of this pool (reason required, audited per seat). */
+  @Patch('pools/:kind/:id/seat-dates') @HttpCode(200) @RequirePermission('sa_licences', 'edit')
+  async seatDates(@Auth() ctx: AuthContext, @Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SeatDatesDto) {
+    const owner = await this.owner(kind, id);
+    return { updated: await this.pools.setDates(ctx, owner.kind === 'COMPANY' ? { companyId: owner.id } : { partnerId: owner.id, companyId: null }, dto) };
   }
 
   @Post('partners/:id/allocate') @HttpCode(200) @RequirePermission('sa_licences', 'edit')

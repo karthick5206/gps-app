@@ -76,6 +76,14 @@ export class AllocateDto {
   @Type(() => Number) @IsInt() @Min(1) @Max(1000) quantity!: number;
 }
 
+/** Super Admin: change the start / end date of licences (YYYY-MM-DD, IST days); empty keeps each seat's date. */
+export class SeatDatesDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5000) @IsUUID('all', { each: true }) seatIds!: string[];
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) activatedAt?: string | null;
+  @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) expiresAt?: string | null;
+  @IsString() @Length(3, 200) reason!: string;
+}
+
 export class GrantDto {
   @IsIn(LICENCE_TYPES) type!: LicenceType;
   @Type(() => Number) @IsInt() @Min(1) @Max(1000) quantity!: number;
