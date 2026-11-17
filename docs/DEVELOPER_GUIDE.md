@@ -248,6 +248,13 @@ Good practice when fixing a bug: write a test that replays the real case first (
 2. `NotificationLog` for that alert: `SENT` = accepted by the provider; `FAILED` with "Mobile app not signed in" = the recipient has no VeeTrax app signed in on any phone.
 3. Recipient lists: Alert Settings → recipients.
 
+**Low device battery (LOW_BATTERY) rules** (`processor/rules/evaluate.ts`, `battery()` / `onVehiclePower()`, since v1.18.1)
+- Never raised while the tracker is on vehicle power: it reports `charging: true`, or a supply voltage (`extVoltage`) of at least 9 V (`ON_POWER_VOLTAGE`). This includes the tracker's own `lowBattery` alarm.
+  - Reason: the Concox V5 (GT06) reports a coarse 0–6 level that `batteryFromVoltageLevel` turns into 0–100 %. It dips for seconds (100 → 17 → 100 %) when the vehicle voltage jumps at engine start, so one reading alerted falsely.
+- Off vehicle power, the battery must stay below the threshold (`thresholdPct`, default 20 %) for `afterMin` (default 5 min, editable in Alert settings) before the alert is raised. The state is kept in `AlertState.batLowEp`.
+- After an alert, it is raised again only once the battery has recovered to the threshold + 5 %.
+- Running on the backup battery after the wire is cut is still reported straight away by POWER_CUT.
+
 **SOS rang without sound**
 - Android: one siren everywhere – the native `AlarmService` (`modules/veetrax-alarm`) on the alarm volume, raised to maximum. With the app closed the push starts it (`AlarmMessagingService`); with the app open or after tapping the alert, the SOS screen keeps it running through `useSiren` (`features/notifications/siren.ts`) and stops it on Silence / Acknowledge / leaving the screen. Up to 0.6.7 the SOS screen swapped it for a media-volume player, which was silent when the media volume was low.
 - If Android refuses to start the alarm service (Google can downgrade a push's priority), `AlarmMessagingService` posts an **insistent** notification on the `sos_insistent` channel (alarm volume, siren sound) that repeats until opened. Log tag `VeetraxAlarm` ("Alarm not started, insistent notification instead") shows when this happened (`adb logcat -s VeetraxAlarm`).
@@ -490,6 +497,13 @@ Good practice when fixing a bug: write a test that replays the real case first (
 1. Was the alert created? (`Alert` table / Alerts page). If not: alert setting off, snoozed, or rule not met (`processor/rules/`).
 2. `NotificationLog` for that alert: `SENT` = accepted by the provider; `FAILED` with "Mobile app not signed in" = the recipient has no VeeTrax app signed in on any phone.
 3. Recipient lists: Alert Settings → recipients.
+
+**Low device battery (LOW_BATTERY) rules** (`processor/rules/evaluate.ts`, `battery()` / `onVehiclePower()`, since v1.18.1)
+- Never raised while the tracker is on vehicle power: it reports `charging: true`, or a supply voltage (`extVoltage`) of at least 9 V (`ON_POWER_VOLTAGE`). This includes the tracker's own `lowBattery` alarm.
+  - Reason: the Concox V5 (GT06) reports a coarse 0–6 level that `batteryFromVoltageLevel` turns into 0–100 %. It dips for seconds (100 → 17 → 100 %) when the vehicle voltage jumps at engine start, so one reading alerted falsely.
+- Off vehicle power, the battery must stay below the threshold (`thresholdPct`, default 20 %) for `afterMin` (default 5 min, editable in Alert settings) before the alert is raised. The state is kept in `AlertState.batLowEp`.
+- After an alert, it is raised again only once the battery has recovered to the threshold + 5 %.
+- Running on the backup battery after the wire is cut is still reported straight away by POWER_CUT.
 
 **SOS rang without sound**
 - Android: one siren everywhere – the native `AlarmService` (`modules/veetrax-alarm`) on the alarm volume, raised to maximum. With the app closed the push starts it (`AlarmMessagingService`); with the app open or after tapping the alert, the SOS screen keeps it running through `useSiren` (`features/notifications/siren.ts`) and stops it on Silence / Acknowledge / leaving the screen. Up to 0.6.7 the SOS screen swapped it for a media-volume player, which was silent when the media volume was low.

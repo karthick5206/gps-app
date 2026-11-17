@@ -154,7 +154,11 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'SOS', label: 'SOS / panic', category: 'Safety', capability: 'sos', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: true, params: [], placeholders: [] },
   {
     code: 'LOW_BATTERY', label: 'Low device battery', category: 'Device', capability: 'battery', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false,
-    params: [{ key: 'thresholdPct', label: 'Alert below', type: 'number', unit: '%', default: 20, min: 5, max: 80 }],
+    // Never while the tracker is on vehicle power (charging / supply ≥ 9 V); off power it must stay low for afterMin.
+    params: [
+      { key: 'thresholdPct', label: 'Alert below', type: 'number', unit: '%', default: 20, min: 5, max: 80 },
+      { key: 'afterMin', label: 'For at least', type: 'number', unit: 'min', default: 5, min: 0, max: 1440 },
+    ],
     placeholders: ['battery'],
   },
   {

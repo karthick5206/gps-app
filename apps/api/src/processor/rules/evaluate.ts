@@ -9,6 +9,8 @@ export const EPISODE_GAP_MS = 5 * 60_000;
 /** Engine considered running without an ignition wire above this external voltage. */
 export const ENGINE_ON_VOLTAGE = 13.2;
 const LOW_BATTERY_HYSTERESIS_PCT = 5;
+/** Vehicle supply above this = the tracker runs on vehicle power (its backup battery is being charged). */
+export const ON_POWER_VOLTAGE = 9;
 const COOLDOWN_PRUNE_MS = 24 * 3600_000;
 
 export interface GeofenceMembership {
@@ -48,6 +50,8 @@ export interface AlertState {
   idle?: IdleEpisode;
   ign?: boolean | null;
   batLow?: boolean;
+  /** Battery below the threshold off vehicle power: since when (server clock); LOW_BATTERY waits for afterMin. */
+  batLowEp?: { since: number; alerted: boolean };
   /** Device health episodes: start time (server clock) and whether the alert was raised. */
   gpsLost?: { since: number; alerted: boolean };
   gsmWeak?: { since: number; alerted: boolean };
@@ -662,6 +666,8 @@ class Evaluator {
     else if (alarm === 'lowBattery') {
       // The tracker's own low-battery alarm, for trackers that report no battery %. With a %, battery() decides.
       const level = num(this.input.attributes.batteryLevel);
+      // On vehicle power the backup battery is charging: a low reading then is a measuring glitch, not a warning.
+      if (this.onVehiclePower()) return;
       if (level === null) raise('LOW_BATTERY', 'Tracker battery low');
       else if (!this.state.batLow) {
         this.state.batLow = true;
@@ -734,12 +740,37 @@ class Evaluator {
     const level = num(this.input.attributes.batteryLevel);
     if (level === null) return;
     const threshold = num(this.ctx.settings.get('LOW_BATTERY')?.params.thresholdPct, 20)!;
-    if (level < threshold && !this.state.batLow) {
+    // On vehicle power the backup battery is charging. Trackers such as the Concox V5 report a coarse 0–6 level that
+    // dips for seconds when the supply jumps (engine start / alternator), e.g. 100% → 17% → 100%: never alert then.
+    if (this.onVehiclePower()) {
+      delete this.state.batLowEp;
+      if (level >= threshold + LOW_BATTERY_HYSTERESIS_PCT) this.state.batLow = false;
+      return;
+    }
+    if (level >= threshold + LOW_BATTERY_HYSTERESIS_PCT) {
+      this.state.batLow = false;
+      delete this.state.batLowEp;
+      return;
+    }
+    if (level >= threshold) {
+      delete this.state.batLowEp; // between the threshold and the hysteresis band: not low, keep batLow as it is
+      return;
+    }
+    if (this.state.batLow) return;
+    // Off vehicle power and low: it must stay low for afterMin (one stray reading is not enough).
+    const ep = (this.state.batLowEp ??= { since: this.now, alerted: false });
+    if (this.now - ep.since >= this.param('LOW_BATTERY', 'afterMin', 5) * 60_000) {
+      ep.alerted = true;
       this.state.batLow = true;
       this.emit('LOW_BATTERY', { message: `Tracker battery at ${Math.round(level)}%`, data: { batteryPct: Math.round(level), thresholdPct: threshold } });
-    } else if (level >= threshold + LOW_BATTERY_HYSTERESIS_PCT && this.state.batLow) {
-      this.state.batLow = false;
     }
+  }
+
+  /** The tracker says it is charging, or reports a vehicle supply voltage: it is not running on its own battery. */
+  private onVehiclePower(): boolean {
+    if (this.input.attributes.charging === true) return true;
+    const v = this.batteryVoltage();
+    return v !== null && v >= ON_POWER_VOLTAGE;
   }
 
   // ───────────── fuel refill / drain (detected by the processor's fuel detector) ─────────────

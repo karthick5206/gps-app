@@ -291,12 +291,33 @@ describe('other rules', () => {
   });
 
   it('low battery alerts once until it recovers above threshold + 5', () => {
-    const c = ctx(settings({ LOW_BATTERY: { params: { thresholdPct: 20 } } }));
+    const c = ctx(settings({ LOW_BATTERY: { params: { thresholdPct: 20, afterMin: 0 } } }));
     const r = run(
       [15, 10, 22, 26, 18].map((b, i) => at(sec(i * 4000), { attributes: { batteryLevel: b } })),
       c,
     );
     expect(r.alerts.map((a) => a.data.batteryPct)).toEqual([15, 18]);
+  });
+
+  it('low battery off vehicle power must last afterMin (default 5 min); a short dip does not alert', () => {
+    const c = ctx(settings({ LOW_BATTERY: { params: { thresholdPct: 20 } } }));
+    const dip = run([100, 17, 17, 100].map((b, i) => at(sec(i * 60), { attributes: { batteryLevel: b } })), c);
+    expect(dip.alerts).toEqual([]);
+    const real = run([18, 17, 16, 15, 14, 13, 12].map((b, i) => at(sec(i * 60), { attributes: { batteryLevel: b } })), ctx(settings({ LOW_BATTERY: { params: { thresholdPct: 20 } } })));
+    expect(real.alerts.map((a) => [a.data.batteryPct, (a.occurredAt - T0) / 1000])).toEqual([[13, 300]]);
+  });
+
+  it('never alerts low battery while the tracker is on vehicle power (Concox V5 dips 100 → 17 → 100 %)', () => {
+    const settingsNow = () => ctx(settings({ LOW_BATTERY: { params: { thresholdPct: 20, afterMin: 0 } } }));
+    const charging = run([100, 17, 17, 17, 100].map((b, i) => at(sec(i * 120), { attributes: { batteryLevel: b, charging: true, extVoltage: 13.78 } })), settingsNow());
+    expect(charging.alerts.filter((a) => a.type === 'LOW_BATTERY')).toEqual([]);
+    const supply = run([at(sec(0), { attributes: { batteryLevel: 10, extVoltage: 12.4 } })], settingsNow());
+    expect(supply.alerts.filter((a) => a.type === 'LOW_BATTERY')).toEqual([]);
+    const ownAlarm = run([at(sec(0), { attributes: { alarm: 'lowBattery', batteryLevel: 17, charging: true } })], settingsNow());
+    expect(ownAlarm.alerts.filter((a) => a.type === 'LOW_BATTERY')).toEqual([]);
+    // Unplugged (no supply, not charging): alerts as before.
+    const unplugged = run([at(sec(0), { attributes: { batteryLevel: 10, charging: false, extVoltage: 0 } })], settingsNow());
+    expect(unplugged.alerts.filter((a) => a.type === 'LOW_BATTERY').map((a) => a.data.batteryPct)).toEqual([10]);
   });
 
   it('unsupported capabilities never alert from rules, but an alarm the tracker raised itself always does', () => {
