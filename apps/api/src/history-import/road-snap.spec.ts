@@ -20,6 +20,10 @@ describe('road snapping', () => {
     expect(plausibleSnap(straight, straight * 0.5, 70)).toBe(false); // shorter than the straight line
     expect(plausibleSnap(2000, 2200, 30)).toBe(false); // 264 km/h
     expect(plausibleSnap(150, 500, 60)).toBe(true); // short hop: +400 m allowed
+    // A gap in the old data: stopped at both ends, 4.5 km of road in 3 min (90 km/h) → stays a straight line.
+    expect(plausibleSnap(3200, 4500, 181, 1)).toBe(false);
+    expect(plausibleSnap(3200, 3600, 181, 60)).toBe(true); // 71.6 km/h, device reported 60 → fine
+    expect(plausibleSnap(3200, 3600, 181, 40)).toBe(false); // more than 25 km/h above both ends
   });
 
   it('adds points along the road, timed by distance and strictly between the ends', () => {
