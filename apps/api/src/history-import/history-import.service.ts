@@ -364,7 +364,7 @@ export class HistoryImportService {
           try {
             const road = await this.routing.roadPath(a, b);
             if (!road) continue;
-            if (!plausibleSnap(metres(a.lat, a.lng, b.lat, b.lng), road.m, (b.t - a.t) / 1000)) continue;
+            if (!plausibleSnap(metres(a.lat, a.lng, b.lat, b.lng), road.m, (b.t - a.t) / 1000, Math.max(a.speedKph, b.speedKph))) continue;
             added.push(...pointsAlong(a, b, road.shape, road.m));
             used++;
           } catch {

@@ -47,14 +47,20 @@ export function snapCandidate(a: SnapPoint, b: SnapPoint): boolean {
   return a.speedKph > 2 || b.speedKph > 2 || straight / dt > 2;
 }
 
+/** The road average may exceed the faster of the two reported end speeds by at most this (km/h). */
+export const SNAP_SPEED_MARGIN_KPH = 25;
+
 /**
  * The road is believable for this pair: not a detour (at most 1.6 × the straight line, or +400 m on short hops),
- * not shorter than the straight line, and drivable in the time between the points.
+ * not shorter than the straight line, and drivable in the time between the points: at most SNAP_MAX_KPH and at most
+ * the faster reported end speed + SNAP_SPEED_MARGIN_KPH. The second rule leaves gaps in the old platform's data
+ * (stopped at both ends, ground covered in too little time) as a straight line instead of inventing a fast drive.
  */
-export function plausibleSnap(straightM: number, roadM: number, seconds: number): boolean {
+export function plausibleSnap(straightM: number, roadM: number, seconds: number, endSpeedKph = Infinity): boolean {
   if (roadM < straightM * 0.98) return false;
   if (roadM > Math.max(straightM * 1.6, straightM + 400)) return false;
-  return (roadM / Math.max(1, seconds)) * 3.6 <= SNAP_MAX_KPH;
+  const kph = (roadM / Math.max(1, seconds)) * 3.6;
+  return kph <= SNAP_MAX_KPH && kph <= endSpeedKph + SNAP_SPEED_MARGIN_KPH;
 }
 
 /**
