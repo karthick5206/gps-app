@@ -227,7 +227,7 @@ Good practice when fixing a bug: write a test that replays the real case first (
 ### 6.2 Common problems
 
 **A device is not showing on the map**
-1. Is it listed under Platform → Unknown devices (Super Admin)? Then it connects but is not registered (wrong IMEI on the device record).
+1. Is it listed under Platform → Unknown devices (Super Admin)? Then it connects but is not registered (wrong IMEI on the device record). JT808 terminals (dashcams) report their 12-digit id without leading zeros (014800018486 → 14800018486); since v1.23.2 a JT808 device is saved that way whatever is typed (`masters/device-unique-id.ts`, also used by Import vehicles and Purchases & sales).
 2. System Health → is its port listening and does the connection count rise?
 3. Turn on `GATEWAY_CAPTURE` for its IMEI and check `RawPacket`: packets arriving but no positions = decoder issue (`gateway/<protocol>/`).
 4. Positions in the table but not on the map: check the object is active, the device assignment is open (`DeviceAssignment.toTime` empty), and the company is ACTIVE.
@@ -477,7 +477,7 @@ Good practice when fixing a bug: write a test that replays the real case first (
 ### 6.2 Common problems
 
 **A device is not showing on the map**
-1. Is it listed under Platform → Unknown devices (Super Admin)? Then it connects but is not registered (wrong IMEI on the device record).
+1. Is it listed under Platform → Unknown devices (Super Admin)? Then it connects but is not registered (wrong IMEI on the device record). JT808 terminals (dashcams) report their 12-digit id without leading zeros (014800018486 → 14800018486); since v1.23.2 a JT808 device is saved that way whatever is typed (`masters/device-unique-id.ts`, also used by Import vehicles and Purchases & sales).
 2. System Health → is its port listening and does the connection count rise?
 3. Turn on `GATEWAY_CAPTURE` for its IMEI and check `RawPacket`: packets arriving but no positions = decoder issue (`gateway/<protocol>/`).
 4. Positions in the table but not on the map: check the object is active, the device assignment is open (`DeviceAssignment.toTime` empty), and the company is ACTIVE.
