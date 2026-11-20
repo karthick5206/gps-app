@@ -21,6 +21,7 @@ import { SeatsService } from '../../licences/seats.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { switchDriverTx } from '../../drivers/driver-sessions';
+import { stripJt808LeadingZeros } from '../device-unique-id';
 import { istDay, istDayEnd, istDayStart, plateKey, planRows, type ExistingDevice, type ExistingVehicle, type ModelRef, type ScopedRow } from './vehicle-import';
 
 const DAY_MS = 86_400_000;
@@ -99,7 +100,7 @@ export class VehicleImportService {
     const defaultModel = dto.defaultModelId ? (models.find((m) => m.id === dto.defaultModelId) ?? null) : null;
     if (dto.defaultModelId && !defaultModel) throw new BadRequestException('Unknown default model');
     const rawImeis = dto.rows.map((r) => String(r.imei ?? '').replace(/\s/g, '')).filter(Boolean);
-    const imeis = [...new Set([...rawImeis, ...rawImeis.map((i) => normalizeMobile(i)).filter((x): x is string => !!x)])];
+    const imeis = [...new Set([...rawImeis, ...rawImeis.map((i) => normalizeMobile(i)).filter((x): x is string => !!x), ...rawImeis.map((i) => stripJt808LeadingZeros('jt808', i))])];
     const sims = [...new Set(dto.rows.map((r) => String(r.sim ?? '').replace(/\s/g, '')).filter(Boolean))];
     const [devices, simDevices, vehicles, vendors, drivers] = await Promise.all([
       this.prisma.device.findMany({
@@ -140,7 +141,7 @@ export class VehicleImportService {
       defaultUntil,
       now,
       normalise: (model, imei) => {
-        if (model.protocol !== MOBILE_TRACKER_PROTOCOL) return imei;
+        if (model.protocol !== MOBILE_TRACKER_PROTOCOL) return stripJt808LeadingZeros(model.protocol, imei);
         const mobile = normalizeMobile(imei);
         if (!mobile) throw new Error('Enter the mobile number of the phone (10 digits, or with country code)');
         return mobile;
