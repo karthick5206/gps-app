@@ -53,11 +53,69 @@ export interface Gt06Session extends BaseSession {
   /** Latest 0x94 / 0x05 door / input flags and when they arrived (ms); merged into positions while fresh. */
   inputs?: { door: boolean; in1: boolean; in2: boolean } | null;
   inputsAt?: number;
+  /** Jimi dashcam firmware version / UUID (0x94 sub-types 0x08 / 0x07). */
+  firmware?: string | null;
   /** Last fix coordinates, for event positions from packets without GPS (RFID card, OBD). */
   lastFix: { lat: number; lng: number; course: number } | null;
 }
 
 export const alarmName = (code: number): string => GT06_ALARMS[code] ?? `alarm_${code}`;
+
+/**
+ * Jimi dashcam (JC400 / JC261) 0x95 alarm type → attributes. Names match the JT/T 808 decoder (alarm / adas / dms /
+ * event) so the same alert rules apply. Per the JC400 / JC261 protocol V1.2.8 (5.4).
+ */
+export const DVR_ALARMS: Record<number, Record<string, unknown>> = {
+  0x01: { alarm: 'sos' },
+  0x80: { alarm: 'vibration' },
+  0x87: { alarm: 'overspeed' },
+  0x88: { alarm: 'powerCut' },
+  0x90: { alarm: 'harshAcceleration' },
+  0x91: { alarm: 'harshBraking' },
+  0x92: { alarm: 'harshCornering' },
+  0x93: { alarm: 'crash' },
+  0x47: { alarm: 'fatigue' }, // continuous driving time exceeded
+  0x0e: { alarm: 'powerLow' }, // vehicle battery low
+  0x86: { videoAlarm: 'storageFault', event: 'sdCardError' },
+  0xa4: { event: 'sdCardFull' },
+  0x70: { event: 'sdCardMount' },
+  0x69: { event: 'fileUpload' },
+  0x8a: { oilCut: false, event: 'relayRestored' },
+  0x8b: { oilCut: true, event: 'relayCut' },
+  0x53: { event: 'fuelTheft' },
+  0x73: { event: 'fuelSensorTimeout' },
+  0x76: { event: 'temperatureSensorTimeout' },
+  0xa5: { event: 'rfid' },
+  0xa6: { seatbelt: true, event: 'seatbeltOn' },
+  0xa7: { seatbelt: false, event: 'seatbeltOff' },
+  0x50: { door: false, event: 'io' },
+  0x51: { door: true, event: 'io' },
+  // DMS (driver camera)
+  0x8c: { dms: 'fatigue', event: 'fatigue' }, // eyes closed
+  0xa0: { dms: 'yawn', event: 'yawn' },
+  0x8f: { dms: 'distraction', event: 'distraction' },
+  0xa3: { dms: 'lookDown', event: 'lookDown' },
+  0x9a: { dms: 'smoking', event: 'smoking' },
+  0x97: { dms: 'phone', event: 'phone' },
+  0x94: { dms: 'driverAbsent', event: 'driverAbsent' },
+  0xa1: { dms: 'cameraBlocked', event: 'cameraBlocked' },
+  0xa2: { dms: 'calibrationFail', event: 'calibrationFail' },
+  // ADAS (road camera)
+  0xcc: { adas: 'fcw', event: 'fcw' },
+  0xcd: { adas: 'ldw', event: 'ldw' },
+  0xce: { adas: 'hmw', event: 'hmw' },
+};
+
+/** Attributes for a 0x95 alarm (unknown types → `alarm_<code>`), with the clip names the camera uploads. */
+export function dvrAlarmAttributes(alarm: number, alarmValue: number, files: string[]): Record<string, unknown> {
+  const mapped = DVR_ALARMS[alarm] ?? { alarm: `alarm_${alarm}` };
+  return {
+    ...mapped,
+    dvrAlarm: `0x${alarm.toString(16).padStart(2, '0')}`,
+    ...(alarm === 0x87 && alarmValue > 0 ? { overspeedKph: alarmValue } : {}),
+    ...(files.length ? { mediaFiles: files.join(',') } : {}),
+  };
+}
 
 function mergeStatus(prev: Gt06Status, s: Gt06TerminalStatus): Gt06Status {
   return {
@@ -138,6 +196,12 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         }
         if (message.fuelSensorRaw !== undefined) session.sensors.fuelSensorRaw = message.fuelSensorRaw;
         if (message.fuelSensorTemp !== undefined) session.sensors.fuelSensorTemp = message.fuelSensorTemp;
+        if (message.dvrFuel) {
+          // Percent → fuelLevelPct; height → raw sensor units (calibrated like an LLS sensor); voltage → analog input.
+          const key = message.dvrFuel.unit === 'percent' ? 'fuelLevelPct' : message.dvrFuel.unit === 'voltage' ? 'adc1' : 'fuelSensorRaw';
+          session.sensors[key] = message.dvrFuel.value;
+        }
+        if (message.infoType === 0x08 && message.text) session.firmware = message.text;
         if (message.inputs) {
           const prev = session.inputs;
           const changed = !prev || prev.door !== message.inputs.door || prev.in1 !== message.inputs.in1 || prev.in2 !== message.inputs.in2;
@@ -177,6 +241,27 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
         result.positions.push(this.position(session, message.fix, fixTime, message.lbs, null, frame, ctx, { alarm: alarmName(message.alarm) }));
         break;
       }
+      case 'dvrAlarm': {
+        session.status.extVoltage = message.extVoltage;
+        if (!session.uniqueId) break;
+        const fixTime = this.fixTime(session, message.fix, false, ctx);
+        const attrs = dvrAlarmAttributes(message.alarm, message.alarmValue, message.files);
+        result.positions.push(this.position(session, message.fix, fixTime, null, null, frame, ctx, attrs));
+        break;
+      }
+      case 'module':
+        if (!message.known) {
+          ctx.unparsed(`unknown module 0x${message.protocol.toString(16)}/0x${message.moduleType.toString(16).padStart(2, '0')}`, frame, session.uniqueId);
+          break;
+        }
+        if (message.temperature !== undefined) session.sensors.temp1 = message.temperature;
+        if (message.card && session.uniqueId) {
+          // Card login sets the driver (DriverIdentification); logout / illegal cards are recorded as events only.
+          const login = message.card.status === 1;
+          const event = login ? 'rfid' : message.card.status === 0 ? 'driverCardLogout' : 'driverCardIllegal';
+          result.positions.push(this.eventPosition(session, frame, ctx, { ...(login ? { driverId: message.card.text, rfid: message.card.text } : {}), driverCard: message.card.text, event }));
+        }
+        break;
       case 'lbs':
         break;
       case 'unknown':

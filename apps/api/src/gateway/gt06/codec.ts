@@ -24,11 +24,19 @@ export const Gt06Protocol = {
   ALARM_MULTI_FENCE: 0x27,
   LBS_EXTEND: 0x28,
   WIFI: 0x2c,
+  /** Jimi 4G dashcams (JC400 / JC261): 0x22 layout, MNC may be 2 bytes (bit 15 of the MCC word). */
+  LOCATION_EXT: 0x37,
   SERVER_COMMAND: 0x80,
   TIME_REQUEST: 0x8a,
   /** OBD data (Concox OBD trackers, GT800-OBD / X3 / OB22 class). Per public spec; verify with a device capture. */
   OBD: 0x8c,
   INFO: 0x94,
+  /** Jimi dashcam (JC400 / JC261) alarm: own fix layout, alarm type, uploaded clip names. */
+  DVR_ALARM: 0x95,
+  /** Jimi dashcam external module data: 0x03 temperature sensor, 0x05 driver card reader. */
+  EXT_MODULE: 0x9b,
+  /** Jimi dashcam QCVN31 (Vietnam) transparent data: acknowledged, not decoded. */
+  EXT_MODULE_QCVN: 0x9c,
   GPS_4G: 0xa0,
   LBS_4G: 0xa1,
   ALARM_4G: 0xa4,
@@ -76,6 +84,12 @@ export const Gt06InfoType = {
   FUEL_SENSOR: 0x0d,
   /** RFID card reader (driver card). Per public spec (Traccar); verify with a device capture. */
   RFID: 0x1b,
+  /** Jimi dashcam: device UUID (ASCII). */
+  DVR_UUID: 0x07,
+  /** Jimi dashcam: firmware version (ASCII). */
+  DVR_VERSION: 0x08,
+  /** Jimi dashcam fuel sensor: kind(1, 00 = fuel) · sensor id(1) · value(2, /100) · unit(1: 01 height, 02 %, 03 V). */
+  DVR_FUEL: 0x0e,
 } as const;
 const KNOWN_INFO_TYPES = new Set<number>(Object.values(Gt06InfoType));
 
@@ -180,6 +194,8 @@ export type Gt06Message =
       /** Serial fuel sensor: raw level (calibrate as an LLS sensor) and temperature °C. */
       fuelSensorRaw?: number;
       fuelSensorTemp?: number;
+      /** Jimi dashcam fuel sensor (0x0E): value and unit (height, %, V). */
+      dvrFuel?: { sensorId: number; value: number; unit: 'height' | 'percent' | 'voltage' | 'unknown' };
       /** 0x05 door / IO status: bit 0 door, bit 2 input 1 (per Traccar), bit 1 input 2 (unverified). */
       inputs?: { door: boolean; in1: boolean; in2: boolean };
       content: Buffer;
@@ -195,6 +211,32 @@ export type Gt06Message =
       values: Record<string, number>;
       /** Pairs with keys we don't map, as `obd_<key>` → raw value text. */
       other: Record<string, string>;
+    }
+  | {
+      /** Jimi dashcam alarm (0x95). */
+      type: 'dvrAlarm';
+      protocol: number;
+      serial: number;
+      fix: Gt06Fix;
+      /** Vehicle supply, V. */
+      extVoltage: number;
+      alarm: number;
+      /** Speed for the over-speed alarm (0x87), else 0. */
+      alarmValue: number;
+      /** Clip / photo names the camera uploads for this alarm (ASCII, comma separated in the packet). */
+      files: string[];
+    }
+  | {
+      /** Jimi dashcam external module (0x9B / 0x9C). */
+      type: 'module';
+      protocol: number;
+      serial: number;
+      moduleType: number;
+      /** Temperature sensor (0x03), °C. */
+      temperature?: number;
+      /** Driver card reader (0x05): 0 logout, 1 login, 2 illegal card; card text as read. */
+      card?: { status: number; text: string };
+      known: boolean;
     }
   | { type: 'commandResponse'; protocol: number; serial: number; serverFlag: number; text: string }
   | { type: 'lbs'; protocol: number; serial: number }
@@ -402,6 +444,14 @@ function decodeInfo(protocol: number, serial: number, content: Buffer): Gt06Mess
       const rfid = readRfid(data);
       return rfid ? { ...base, rfid } : { ...base, known: false };
     }
+    case Gt06InfoType.DVR_UUID:
+    case Gt06InfoType.DVR_VERSION:
+      return { ...base, text: data.toString('latin1').replace(/[^ -~]/g, '').trim() };
+    case Gt06InfoType.DVR_FUEL: {
+      if (data.length < 5 || data[0] !== 0x00) return { ...base, known: false };
+      const unit = ({ 1: 'height', 2: 'percent', 3: 'voltage' } as const)[data[4] as 1 | 2 | 3] ?? 'unknown';
+      return { ...base, dvrFuel: { sensorId: data[1], value: data.readUInt16BE(2) / 100, unit } };
+    }
     default:
       return base;
   }
@@ -457,6 +507,66 @@ function decodeObd(protocol: number, serial: number, content: Buffer): Gt06Messa
   return { type: 'obd', protocol, serial, time, ignition: content[6] > 0, values, other };
 }
 
+/**
+ * Jimi dashcam alarm 0x95: marker(2, FFFF) · version(1) · date(6) · gps length/satellites(1) · lat(4) · lng(4) ·
+ * course/status(2) · speed(2) · supply voltage(2, /10 V) · alarm type(1) · alarm value(2) · clip names (ASCII).
+ * The order differs from 0x22 (course before a 2-byte speed). Per the JC400 / JC261 protocol V1.2.8.
+ */
+function decodeDvrAlarm(protocol: number, serial: number, content: Buffer): Gt06Message {
+  requireLength(content, 3 + 6 + 1 + 8 + 2 + 2 + 2 + 1 + 2, protocol);
+  let i = 3; // marker 0xFFFF + version
+  const time = new Date(Date.UTC(2000 + content[i], content[i + 1] - 1, content[i + 2], content[i + 3], content[i + 4], content[i + 5]));
+  i += 6;
+  const gpsByte = content[i++];
+  const rawLat = content.readUInt32BE(i);
+  const rawLng = content.readUInt32BE(i + 4);
+  i += 8;
+  const courseStatus = content.readUInt16BE(i);
+  i += 2;
+  const speedKph = content.readUInt16BE(i);
+  i += 2;
+  const extVoltage = content.readUInt16BE(i) / 10;
+  i += 2;
+  const alarm = content[i++];
+  const alarmValue = content.readUInt16BE(i);
+  i += 2;
+  const names = content.subarray(i).toString('latin1');
+  const files = names.split(',').map((n) => n.replace(/[^ -~]/g, '').trim()).filter(Boolean);
+  const north = (courseStatus & 0x0400) !== 0;
+  const west = (courseStatus & 0x0800) !== 0;
+  const fix: Gt06Fix = {
+    time,
+    gpsInfoLength: gpsByte >> 4,
+    satellites: gpsByte & 0x0f,
+    lat: (rawLat / COORD_SCALE) * (north ? 1 : -1),
+    lng: (rawLng / COORD_SCALE) * (west ? -1 : 1),
+    speedKph,
+    course: courseStatus & 0x03ff,
+    positioned: (courseStatus & 0x1000) !== 0,
+  };
+  return { type: 'dvrAlarm', protocol, serial, fix, extVoltage, alarm, alarmValue, files };
+}
+
+/** Jimi dashcam external module 0x9B: module type(1) · data. 0x03 temperature (ASCII "28.3" or 3C-framed), 0x05 card. */
+function decodeModule(protocol: number, serial: number, content: Buffer): Gt06Message {
+  requireLength(content, 1, protocol);
+  const moduleType = content[0];
+  const data = content.subarray(1);
+  const base = { type: 'module' as const, protocol, serial, moduleType };
+  if (protocol === Gt06Protocol.EXT_MODULE && moduleType === 0x03) {
+    // Framed: 3C · length · status · value(2, /10) · BCC · 0D; else ASCII text such as "28.3".
+    if (data.length >= 6 && data[0] === 0x3c) return { ...base, known: true, temperature: data.readInt16BE(3) / 10 };
+    const m = /-?d+(.d+)?/.exec(data.toString('latin1'));
+    return m ? { ...base, known: true, temperature: Number(m[0]) } : { ...base, known: false };
+  }
+  if (protocol === Gt06Protocol.EXT_MODULE && moduleType === 0x05 && data.length >= 7) {
+    // date(6, UTC) · status(1) · card text (magnetic track data, often padded)
+    const text = data.subarray(7).toString('latin1').replace(/[^ -~]/g, '').replace(/s+/g, ' ').trim();
+    return { ...base, known: true, card: { status: data[6], text } };
+  }
+  return { ...base, known: false };
+}
+
 function decodeCommandResponse(protocol: number, serial: number, content: Buffer): Gt06Message {
   if (protocol === Gt06Protocol.COMMAND_RESPONSE) {
     // length(1) · server flag(4) · ASCII · language(2)
@@ -496,6 +606,7 @@ export function decodeMessage(frame: Buffer): Gt06Message {
     case Gt06Protocol.GPS_ONLY:
     case Gt06Protocol.GPS:
     case Gt06Protocol.GPS_LBS_STATUS:
+    case Gt06Protocol.LOCATION_EXT:
       return decodeGpsLbs(protocol, serial, content, false);
     case Gt06Protocol.GPS_4G:
       return decodeGpsLbs(protocol, serial, content, true);
@@ -531,6 +642,11 @@ export function decodeMessage(frame: Buffer): Gt06Message {
       return { type: 'timeRequest', protocol, serial };
     case Gt06Protocol.INFO:
       return decodeInfo(protocol, serial, content);
+    case Gt06Protocol.DVR_ALARM:
+      return decodeDvrAlarm(protocol, serial, content);
+    case Gt06Protocol.EXT_MODULE:
+    case Gt06Protocol.EXT_MODULE_QCVN:
+      return decodeModule(protocol, serial, content);
     case Gt06Protocol.OBD:
       return decodeObd(protocol, serial, content);
     case Gt06Protocol.COMMAND_RESPONSE:
@@ -616,7 +732,7 @@ export function requiresAck(message: Gt06Message): boolean {
   // OBD (0x8C) is echoed like other device-initiated Concox packets (harmless if the firmware does not expect it).
   // Unknown device packets are echoed too: Concox firmware resends a packet until it is acknowledged (seen: 0x1F every
   // 30 s from an ID card tracker), and an echo is the generic Concox acknowledgement.
-  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd' || message.type === 'unknown';
+  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd' || message.type === 'unknown' || message.type === 'dvrAlarm' || message.type === 'module';
 }
 
 /** Server → device text command (0x80), e.g. `RELAY,1#`. */

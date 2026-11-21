@@ -202,7 +202,7 @@ export interface EvalOutput {
   dataUpdates: { alertId: string; data: Record<string, unknown> }[];
 }
 
-/** Dashcam event attribute (JT/T 808 decoder `dms` / `adas`) → alert type and message. */
+/** Dashcam event attribute (JT/T 808 and GT06 / Jimi decoders `dms` / `adas`) → alert type and message. */
 const DMS_ALERTS: Record<string, [AlertTypeCode, string]> = {
   fatigue: ['DRIVER_FATIGUE', 'Driver fatigue detected'],
   phone: ['DRIVER_PHONE', 'Driver using a phone'],
@@ -210,6 +210,10 @@ const DMS_ALERTS: Record<string, [AlertTypeCode, string]> = {
   distraction: ['DRIVER_DISTRACTED', 'Driver distracted'],
   driverAbsent: ['DRIVER_ABSENT', 'Driver not detected in the seat'],
   cameraBlocked: ['CAMERA_FAULT', 'Driver camera blocked'],
+  // Jimi dashcams (JC400 / JC261, GT06 decoder 0x95)
+  yawn: ['DRIVER_FATIGUE', 'Driver yawning'],
+  lookDown: ['DRIVER_DISTRACTED', 'Driver looking down'],
+  calibrationFail: ['CAMERA_FAULT', 'Driver camera calibration failed'],
 };
 const ADAS_ALERTS: Record<string, [AlertTypeCode, string]> = {
   fcw: ['FORWARD_COLLISION_WARNING', 'Forward collision warning'],
