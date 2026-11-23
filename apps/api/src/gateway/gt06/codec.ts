@@ -17,6 +17,12 @@ export const Gt06Protocol = {
   COMMAND_RESPONSE: 0x15,
   ALARM: 0x16,
   LBS_MULTIPLE: 0x17,
+  /** GK309E: LBS extension (serving + neighbour cells). No GPS fix; acknowledged, not located. */
+  LBS_EXTENSION: 0x18,
+  /** GK309E (ID card trackers): LBS + status, the alarm packet when there is no GPS fix (e.g. SOS indoors). */
+  LBS_STATUS: 0x19,
+  /** GK309E: GPS fix + the phone number that asked for the location (call / SMS "where"). */
+  GPS_PHONE: 0x1a,
   COMMAND_RESPONSE_EXT: 0x21,
   GPS_LBS_STATUS: 0x22,
   HEARTBEAT: 0x23,
@@ -240,6 +246,15 @@ export type Gt06Message =
     }
   | { type: 'commandResponse'; protocol: number; serial: number; serverFlag: number; text: string }
   | { type: 'lbs'; protocol: number; serial: number }
+  | {
+      /** 0x19: no GPS fix; the alarm (if any) is in the terminal-information bits. */
+      type: 'lbsAlarm';
+      protocol: number;
+      serial: number;
+      lbs: Gt06Lbs;
+      status: Gt06TerminalStatus;
+      alarm: number;
+    }
   | { type: 'unknown'; protocol: number; serial: number; content: Buffer };
 
 export interface DecodedFrames {
@@ -580,6 +595,14 @@ function decodeCommandResponse(protocol: number, serial: number, content: Buffer
   return { type: 'commandResponse', protocol, serial, serverFlag: content.readUInt32BE(0), text: content.subarray(5).toString('latin1') };
 }
 
+/** GK309E 0x19: LBS(8–9) · terminal info(1) · voltage level(1) · gsm(1) · extension(2). */
+function decodeLbsStatus(protocol: number, serial: number, content: Buffer): Gt06Message {
+  const { lbs, length } = readLbs(content, 0, false);
+  requireLength(content, length + 3, protocol);
+  const info = content[length];
+  return { type: 'lbsAlarm', protocol, serial, lbs, status: readTerminalStatus(info, content[length + 1], content[length + 2]), alarm: terminalInfoAlarm(info) };
+}
+
 /** Decode one complete frame produced by `decodeFrames`. */
 export function decodeMessage(frame: Buffer): Gt06Message {
   const long = frame[0] === 0x79;
@@ -610,6 +633,12 @@ export function decodeMessage(frame: Buffer): Gt06Message {
       return decodeGpsLbs(protocol, serial, content, false);
     case Gt06Protocol.GPS_4G:
       return decodeGpsLbs(protocol, serial, content, true);
+    case Gt06Protocol.GPS_PHONE:
+      // fix(18) · phone number(21, ASCII) · extension(2): the fix only.
+      requireLength(content, FIX_LENGTH, protocol);
+      return { type: 'gps', protocol, serial, fix: readFix(content, 0), lbs: null, acc: null, uploadMode: null, reupload: null, mileage: null };
+    case Gt06Protocol.LBS_STATUS:
+      return decodeLbsStatus(protocol, serial, content);
     case Gt06Protocol.STATUS: {
       requireLength(content, 5, protocol);
       return {
@@ -654,6 +683,7 @@ export function decodeMessage(frame: Buffer): Gt06Message {
       return decodeCommandResponse(protocol, serial, content);
     case Gt06Protocol.LBS_ONLY:
     case Gt06Protocol.LBS_MULTIPLE:
+    case Gt06Protocol.LBS_EXTENSION:
     case Gt06Protocol.LBS_EXTEND:
     case Gt06Protocol.WIFI:
     case Gt06Protocol.LBS_4G:
@@ -732,7 +762,7 @@ export function requiresAck(message: Gt06Message): boolean {
   // OBD (0x8C) is echoed like other device-initiated Concox packets (harmless if the firmware does not expect it).
   // Unknown device packets are echoed too: Concox firmware resends a packet until it is acknowledged (seen: 0x1F every
   // 30 s from an ID card tracker), and an echo is the generic Concox acknowledgement.
-  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd' || message.type === 'unknown' || message.type === 'dvrAlarm' || message.type === 'module';
+  return message.type === 'login' || message.type === 'heartbeat' || message.type === 'alarm' || message.type === 'obd' || message.type === 'unknown' || message.type === 'dvrAlarm' || message.type === 'module' || message.type === 'lbsAlarm';
 }
 
 /** Server → device text command (0x80), e.g. `RELAY,1#`. */

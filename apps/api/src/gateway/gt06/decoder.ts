@@ -262,6 +262,14 @@ export class Gt06Decoder implements ProtocolDecoder<Gt06Session> {
           result.positions.push(this.eventPosition(session, frame, ctx, { ...(login ? { driverId: message.card.text, rfid: message.card.text } : {}), driverCard: message.card.text, event }));
         }
         break;
+      case 'lbsAlarm':
+        session.status = mergeStatus(session.status, message.status);
+        // No GPS fix (e.g. SOS pressed indoors): the alarm is raised at the last known position.
+        if (message.alarm && session.uniqueId) {
+          const { mcc, mnc, lac, cellId } = message.lbs;
+          result.positions.push(this.eventPosition(session, frame, ctx, { alarm: alarmName(message.alarm), mcc, mnc, lac, cellId, noGpsFix: true }));
+        }
+        break;
       case 'lbs':
         break;
       case 'unknown':
