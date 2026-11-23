@@ -106,6 +106,22 @@ const PROFILES: Record<string, ModelProfile> = {
     ],
     commands: [],
   },
+  // Jimi 4G dashcams (JC400 / JC261) on the GT06 port: 0x95 alarms carry ADAS / DMS / seat belt / harsh events and the
+  // uploaded clip names (gateway/gt06 DVR_ALARMS); 0x9B temperature sensor and driver card reader.
+  JIMI_DVR: {
+    capabilities: ['ignition', 'sos', 'power_cut', 'crash', 'harsh_events', 'adas', 'dms', 'video', 'rfid', 'temperature', 'fuel'],
+    fields: [
+      ...GT06_FIELDS,
+      EXT_VOLTAGE_FIELD,
+      { key: 'adas', label: 'ADAS event', type: 'string' },
+      { key: 'dms', label: 'Driver monitoring event', type: 'string' },
+      { key: 'seatbelt', label: 'Seat belt fastened', type: 'boolean' },
+      { key: 'driverId', label: 'Driver (card)', type: 'string' },
+      { key: 'temp1', label: 'Temperature', unit: '°C', type: 'number' },
+      FUEL_FIELD,
+    ],
+    commands: [],
+  },
   PHONE: { capabilities: ['battery'], fields: [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }], commands: [] },
   // VeeTrax Tracker app: the device's uniqueId is the phone's mobile number (91XXXXXXXXXX), activated by OTP.
   MOBILE: {
@@ -216,6 +232,7 @@ async function main() {
     ['Teltonika', 'FMC130', 'TELTONIKA', 'TELTONIKA'],
     ['iTriangle', 'TS101', 'AIS140', 'AIS140'],
     ['Mettax', 'MC202', 'JT808', 'JT808'],
+    ['Jimi', 'JC400 / JC261 dashcam', 'GT06', 'JIMI_DVR'],
     ['Generic', 'JT808 terminal', 'JT808', 'JT808'],
     ['Generic', 'Phone', 'PHONE', 'PHONE'],
     ['VeeTrax', 'Mobile tracker (Android)', 'MOBILE', 'MOBILE'],
