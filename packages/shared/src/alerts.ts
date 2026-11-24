@@ -30,7 +30,7 @@ export interface AlertParamDef {
 export interface AlertTypeDef {
   code: AlertTypeCode;
   label: string;
-  category: 'Driving' | 'Driver safety' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance' | 'Sensors' | 'Trips';
+  category: 'Driving' | 'ADAS (road camera)' | 'DMS (driver camera)' | 'Location' | 'Device' | 'Device health' | 'Vehicle' | 'Safety' | 'Compliance' | 'Sensors' | 'Trips';
   /** Device-model capability required; null = any GPS device. */
   capability: string | null;
   defaultSeverity: AlertSeverity;
@@ -75,6 +75,7 @@ export const ALERT_TYPE_CODES = [
   'DRIVER_SMOKING',
   'DRIVER_DISTRACTED',
   'DRIVER_ABSENT',
+  'SEATBELT_OFF',
   'FORWARD_COLLISION_WARNING',
   'LANE_DEPARTURE',
   'TAILGATING',
@@ -219,15 +220,17 @@ export const ALERT_TYPES: readonly AlertTypeDef[] = [
   { code: 'GPS_FAULT', label: 'GPS antenna / module fault', category: 'Device health', capability: null, defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Shock sensor (Concox 0x03). Off by default: parked vehicles get bumped, so it is noisy unless the customer wants it.
   { code: 'VIBRATION', label: 'Vibration / shock', category: 'Device', capability: null, defaultSeverity: 'WARNING', defaultEnabled: false, mandatory: false, params: [], placeholders: [] },
-  // ── Driver safety (dashcam DMS = driver camera, ADAS = road camera) ──
-  { code: 'DRIVER_FATIGUE', label: 'Driver fatigue', category: 'Driver safety', capability: 'dms', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'DRIVER_PHONE', label: 'Driver using phone', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'DRIVER_SMOKING', label: 'Driver smoking', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'DRIVER_DISTRACTED', label: 'Driver distracted', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'DRIVER_ABSENT', label: 'Driver not in seat', category: 'Driver safety', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'FORWARD_COLLISION_WARNING', label: 'Forward collision warning', category: 'Driver safety', capability: 'adas', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'LANE_DEPARTURE', label: 'Lane departure', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
-  { code: 'TAILGATING', label: 'Following too close', category: 'Driver safety', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  // ── Dashcam: DMS = driver camera, ADAS = road camera ──
+  { code: 'DRIVER_FATIGUE', label: 'Driver fatigue', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_PHONE', label: 'Driver using phone', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_SMOKING', label: 'Driver smoking', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_DISTRACTED', label: 'Driver distracted', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'DRIVER_ABSENT', label: 'Driver not in seat', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  // Seat belt unplugged while driving (driver camera; Jimi JC400 / JC261 alarm 0xA7).
+  { code: 'SEATBELT_OFF', label: 'Seat belt not worn', category: 'DMS (driver camera)', capability: 'dms', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
+  { code: 'FORWARD_COLLISION_WARNING', label: 'Forward collision warning', category: 'ADAS (road camera)', capability: 'adas', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'LANE_DEPARTURE', label: 'Lane departure', category: 'ADAS (road camera)', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
+  { code: 'TAILGATING', label: 'Following too close', category: 'ADAS (road camera)', capability: 'adas', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [DASHCAM_LEVEL_PARAM], placeholders: [] },
   { code: 'CAMERA_FAULT', label: 'Dashcam camera fault', category: 'Device health', capability: 'video', defaultSeverity: 'WARNING', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   { code: 'CRASH', label: 'Crash / rollover', category: 'Safety', capability: 'crash', defaultSeverity: 'CRITICAL', defaultEnabled: true, mandatory: false, params: [], placeholders: [] },
   // Anti-theft alarms from the tracker: moved with the engine off (towing), ignition or door without authorisation.
@@ -320,6 +323,7 @@ export const DEFAULT_COOLDOWN_MIN: Record<AlertTypeCode, number> = {
   DRIVER_SMOKING: 2,
   DRIVER_DISTRACTED: 2,
   DRIVER_ABSENT: 2,
+  SEATBELT_OFF: 2,
   FORWARD_COLLISION_WARNING: 2,
   LANE_DEPARTURE: 2,
   TAILGATING: 2,

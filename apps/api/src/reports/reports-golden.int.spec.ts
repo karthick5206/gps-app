@@ -10,7 +10,7 @@ import { ReportDataService } from './report-data.service';
 import { renderReport } from './report-files';
 
 /**
- * Golden test: every one of the 33 report types returns exactly the same rows, totals and CSV export for a fixed
+ * Golden test: every one of the 34 report types returns exactly the same rows, totals and CSV export for a fixed
  * fixture database before and after a change. The golden file (__golden__/reports-golden.json) was written on the
  * unchanged code (production v1.3.0 @ 07077b6) with REPORTS_GOLDEN_UPDATE=1; later runs compare against it.
  *
@@ -97,7 +97,7 @@ function stable(type: ReportType, rows: unknown[], totals: Record<string, number
   return { rows: out, totals: { visits: totals?.visits ?? 0, closedInsideSec } };
 }
 
-d('reports golden: 33 types return identical rows/totals/exports', () => {
+d('reports golden: 34 types return identical rows/totals/exports', () => {
   jest.setTimeout(10 * 60_000);
   const prisma = new PrismaClient({ datasourceUrl: URL_ });
   const redis = { client: { set: async () => 'OK', eval: async () => 0 } };
@@ -141,7 +141,7 @@ d('reports golden: 33 types return identical rows/totals/exports', () => {
         };
       }
     }
-    expect(Object.keys(actual).filter((k) => REPORT_TYPES.includes(k.split(' · ')[0] as ReportType)).map((k) => k.split(' · ')[0]).filter((v, i, a) => a.indexOf(v) === i)).toHaveLength(33);
+    expect(Object.keys(actual).filter((k) => REPORT_TYPES.includes(k.split(' · ')[0] as ReportType)).map((k) => k.split(' · ')[0]).filter((v, i, a) => a.indexOf(v) === i)).toHaveLength(34);
 
     if (process.env.REPORTS_GOLDEN_UPDATE === '1' || !existsSync(GOLDEN)) {
       mkdirSync(join(__dirname, '__golden__'), { recursive: true });

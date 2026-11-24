@@ -124,11 +124,19 @@ describe('DriverEventWorkerService', () => {
     expect(redis.client.publish).toHaveBeenCalledWith(RedisKeys.snapshotChannel('gw-1'), JSON.stringify({ uniqueId: '13912345678', eventId: 'ev-1', channel: 3 }));
   });
 
+  it('records overspeed / harsh driving / SOS only for vehicles with a dashcam (evidence clips)', async () => {
+    const { prisma, worker } = workerHarness();
+    await expect(worker.onAlert(alert('OVERSPEED'))).resolves.toBe('ev-1');
+    prisma.device.findUnique.mockResolvedValueOnce({ uniqueId: '868120000000001', model: { protocol: 'GT06', capabilities: ['ignition'] } });
+    await expect(worker.onAlert(alert('HARSH_BRAKING'))).resolves.toBeNull();
+    expect(prisma.driverEvent.create).toHaveBeenCalledTimes(1);
+  });
+
   it('uses the road camera for ADAS events, skips other alert types and is idempotent', async () => {
     const { prisma, redis, worker } = workerHarness();
     await worker.onAlert(alert('TAILGATING'));
     expect(JSON.parse(redis.client.publish.mock.calls[0][1]).channel).toBe(1);
-    await expect(worker.onAlert(alert('OVERSPEED'))).resolves.toBeNull();
+    await expect(worker.onAlert(alert('GEOFENCE_ENTER'))).resolves.toBeNull();
     prisma.driverEvent.findUnique.mockResolvedValueOnce({ id: 'ev-old' });
     await expect(worker.onAlert(alert('CRASH'))).resolves.toBe('ev-old');
     expect(prisma.driverEvent.create).toHaveBeenCalledTimes(1);

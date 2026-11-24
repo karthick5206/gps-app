@@ -87,7 +87,7 @@ export const DVR_ALARMS: Record<number, Record<string, unknown>> = {
   0x76: { event: 'temperatureSensorTimeout' },
   0xa5: { event: 'rfid' },
   0xa6: { seatbelt: true, event: 'seatbeltOn' },
-  0xa7: { seatbelt: false, event: 'seatbeltOff' },
+  0xa7: { seatbelt: false, dms: 'seatbelt', event: 'seatbeltOff' },
   0x50: { door: false, event: 'io' },
   0x51: { door: true, event: 'io' },
   // DMS (driver camera)

@@ -11,15 +11,25 @@ export const DRIVER_EVENT_TYPES = [
   'DRIVER_SMOKING',
   'DRIVER_DISTRACTED',
   'DRIVER_ABSENT',
+  'SEATBELT_OFF',
   'FORWARD_COLLISION_WARNING',
   'LANE_DEPARTURE',
   'TAILGATING',
   'CRASH',
+  // Recorded only for vehicles with a dashcam (video / ADAS / DMS), so their clips can be reviewed as evidence.
+  'HARSH_ACCELERATION',
+  'HARSH_BRAKING',
+  'HARSH_CORNERING',
+  'OVERSPEED',
+  'SOS',
 ] as const satisfies readonly AlertTypeCode[];
 export type DriverEventType = (typeof DRIVER_EVENT_TYPES)[number];
 
 /** DMS (driver-facing) types: the snapshot comes from the cabin camera; the others from the road camera. */
-export const CABIN_EVENT_TYPES: readonly DriverEventType[] = ['DRIVER_FATIGUE', 'DRIVER_PHONE', 'DRIVER_SMOKING', 'DRIVER_DISTRACTED', 'DRIVER_ABSENT'];
+export const CABIN_EVENT_TYPES: readonly DriverEventType[] = ['DRIVER_FATIGUE', 'DRIVER_PHONE', 'DRIVER_SMOKING', 'DRIVER_DISTRACTED', 'DRIVER_ABSENT', 'SEATBELT_OFF'];
+
+/** Types that make a driver event only when the vehicle has a dashcam (plain GPS trackers raise them too). */
+export const CAMERA_ONLY_EVENT_TYPES: readonly DriverEventType[] = ['HARSH_ACCELERATION', 'HARSH_BRAKING', 'HARSH_CORNERING', 'OVERSPEED', 'SOS'];
 
 export const isDriverEventType = (type: string): type is DriverEventType => (DRIVER_EVENT_TYPES as readonly string[]).includes(type);
 
@@ -159,6 +169,12 @@ export const DRIVER_EVENT_WEIGHTS: Record<DriverEventType, number> = {
   LANE_DEPARTURE: 2,
   TAILGATING: 3,
   CRASH: 10,
+  SEATBELT_OFF: 3,
+  HARSH_ACCELERATION: 2,
+  HARSH_BRAKING: 2,
+  HARSH_CORNERING: 2,
+  OVERSPEED: 2,
+  SOS: 0,
 };
 
 /** Simple safety score 0–100: 100 minus the weighted penalties (dismissed events don't count). */

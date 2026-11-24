@@ -19,6 +19,12 @@ export class DriverEventsController {
     return this.service.list(ctx, q);
   }
 
+  /** Video evidence gallery (menu `video_evidence`): events with a photo or clip, same filters as the list. */
+  @Get('evidence') @RequirePermission('video_evidence', 'view')
+  evidence(@Auth() ctx: AuthContext, @Query() q: DriverEventQuery) {
+    return this.service.list(ctx, { ...q, hasMedia: q.hasMedia ?? 'any', format: undefined });
+  }
+
   @Get('stats') @RequirePermission('driver_events', 'view')
   stats(@Auth() ctx: AuthContext, @Query() q: DriverEventQuery) {
     return this.service.stats(ctx, q);

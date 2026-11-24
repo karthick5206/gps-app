@@ -84,7 +84,7 @@ describe('Jimi JC400 / JC261 dashcam (vendor document examples)', () => {
     expect(attrs(0x97)).toMatchObject({ dms: 'phone' });
     expect(attrs(0x94)).toMatchObject({ dms: 'driverAbsent' });
     expect(attrs(0xa1)).toMatchObject({ dms: 'cameraBlocked' });
-    expect(attrs(0xa7)).toMatchObject({ seatbelt: false, event: 'seatbeltOff' });
+    expect(attrs(0xa7)).toMatchObject({ seatbelt: false, dms: 'seatbelt', event: 'seatbeltOff' });
     expect(attrs(0x51)).toMatchObject({ door: true });
     expect(attrs(0x91)).toMatchObject({ alarm: 'harshBraking' });
     expect(attrs(0x87, 92)).toMatchObject({ alarm: 'overspeed', overspeedKph: 92 });

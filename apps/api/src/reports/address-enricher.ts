@@ -46,7 +46,7 @@ const missing = (v: string | null | undefined) => v === null || v === undefined 
 const finite = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
 type Located = { lat?: number | null; lng?: number | null; address?: string | null };
-const pointField = <T extends Located>(): AddressField<T> => ({
+export const pointField = <T extends Located>(): AddressField<T> => ({
   lat: (r) => r.lat,
   lng: (r) => r.lng,
   get: (r) => r.address,
@@ -71,6 +71,7 @@ export function addressFieldsFor(type: ReportType): AddressField<never>[] | null
     case 'ALERTS':
       return [pointField() as AddressField<never>];
     case 'TRIPS':
+    case 'TRIP_SAFETY':
     case 'CONTINUOUS_DRIVING':
     case 'AC_DOOR':
       return [startField() as AddressField<never>, endField() as AddressField<never>];
@@ -173,7 +174,7 @@ export class AddressEnricher {
     const budget = type === 'POSITIONS' ? POSITIONS_ADDRESS_BUDGET : DEFAULT_ADDRESS_BUDGET;
     const before = rows.map((r) => fields.map((f) => missing(f.get(r as never))));
     const stats = await this.enrich(rows as never[], fields, { budget });
-    if (stats.filled && (type === 'TRIPS' || type === 'STOPS' || type === 'IDLE' || type === 'HALT' || type === 'ALERTS')) {
+    if (stats.filled && (type === 'TRIPS' || type === 'TRIP_SAFETY' || type === 'STOPS' || type === 'IDLE' || type === 'HALT' || type === 'ALERTS')) {
       const changed = rows.filter((r, i) => fields.some((f, j) => before[i][j] && !missing(f.get(r as never))));
       await this.persist(type, changed);
     }
@@ -185,7 +186,7 @@ export class AddressEnricher {
     try {
       for (let i = 0; i < rows.length; i += CACHE_CHUNK) {
         const chunk = rows.slice(i, i + CACHE_CHUNK);
-        if (type === 'TRIPS') {
+        if (type === 'TRIPS' || type === 'TRIP_SAFETY') {
           const trips = chunk as TripDto[];
           await this.prisma.$executeRaw`
             UPDATE "Trip" t SET "startAddress" = coalesce(t."startAddress", v.s), "endAddress" = coalesce(t."endAddress", v.e)

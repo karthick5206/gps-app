@@ -28,6 +28,7 @@ export function optionsFor(type: ReportType, o: ReportOptions): ReportOptions | 
       return o.minDurationMin ? { minDurationMin: o.minDurationMin } : undefined;
     case 'ALERTS':
     case 'EVENT_SUMMARY':
+    case 'TRIP_SAFETY':
       return o.alertTypes?.length ? { alertTypes: o.alertTypes } : undefined;
     case 'CONTINUOUS_DRIVING':
       return { drivingMin: o.drivingMin ?? OPTION_DEFAULTS.drivingMin, breakMin: o.breakMin ?? OPTION_DEFAULTS.breakMin };
@@ -104,6 +105,7 @@ export function ReportOptionsFields({ type, value, onChange, idPrefix = 'r' }: {
       );
     case 'ALERTS':
     case 'EVENT_SUMMARY':
+    case 'TRIP_SAFETY':
       return (
         <Field label={t('Event types')} className="sm:w-80">
           <MultiSelect value={value.alertTypes ?? []} onChange={(alertTypes) => set({ alertTypes })} options={alertOptions} placeholder={t('All event types')} />

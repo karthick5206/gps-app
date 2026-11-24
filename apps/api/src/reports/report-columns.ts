@@ -27,6 +27,9 @@ import {
   StopDto,
   SummaryReportRow,
   TripDto,
+  TRIP_SAFETY_TYPES,
+  TripSafetyReportRow,
+  TripSafetyType,
   TripPerformanceGroupBy,
   TripPerformanceReportRow,
   utilisationPct,
@@ -51,6 +54,7 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   DISTANCE: 'Distance report',
   ENGINE_HOURS: 'Engine hours report',
   TRIPS: 'Trips report',
+  TRIP_SAFETY: 'Trip safety & violations report',
   STOPS: 'Stops report',
   IDLE: 'Idle report',
   HALT: 'Halt / long stoppage report',
@@ -228,6 +232,48 @@ const TRIPS: ReportColumn[] = [
   col<TripDto>({ header: 'Avg km/h', width: 9, numeric: true, value: (r) => num(r.avgSpeedKph, 1) }),
   col<TripDto>({ header: 'From', width: 36, value: (r) => place(r.startAddress, r.startLat, r.startLng) }),
   col<TripDto>({ header: 'To', width: 36, value: (r) => place(r.endAddress, r.endLat, r.endLng) }),
+];
+
+/** Short column headers for the violation counts (TRIP_SAFETY_TYPES order). */
+export const TRIP_SAFETY_HEADERS: Record<TripSafetyType, string> = {
+  SEATBELT_OFF: 'Seat belt',
+  DRIVER_PHONE: 'Phone',
+  DRIVER_FATIGUE: 'Fatigue',
+  DRIVER_DISTRACTED: 'Distracted',
+  DRIVER_SMOKING: 'Smoking',
+  DRIVER_ABSENT: 'No driver',
+  FORWARD_COLLISION_WARNING: 'Collision warning',
+  LANE_DEPARTURE: 'Lane departure',
+  TAILGATING: 'Too close',
+  OVERSPEED: 'Overspeed',
+  HARSH_BRAKING: 'Harsh braking',
+  HARSH_ACCELERATION: 'Harsh accel.',
+  HARSH_CORNERING: 'Harsh turn',
+  SOS: 'SOS',
+  CRASH: 'Crash',
+};
+
+const TRIP_SAFETY: ReportColumn[] = [
+  col<TripSafetyReportRow>({ header: 'Vehicle', width: 22, value: (r) => r.objectName, total: (t) => `Total (${t.count ?? 0} trips)` }),
+  col<TripSafetyReportRow>({ header: 'Driver', width: 18, value: (r) => r.driverName ?? '' }),
+  col<TripSafetyReportRow>({ header: 'Start', width: 19, value: (r, tz) => localTime(r.startTime, tz) }),
+  col<TripSafetyReportRow>({ header: 'End', width: 19, value: (r, tz) => localTime(r.endTime, tz) }),
+  col<TripSafetyReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2), total: (t) => num(t.distanceKm ?? 0, 2) }),
+  col<TripSafetyReportRow>({ header: 'From', width: 32, value: (r) => place(r.startAddress, r.startLat, r.startLng) }),
+  col<TripSafetyReportRow>({ header: 'To', width: 32, value: (r) => place(r.endAddress, r.endLat, r.endLng) }),
+  ...TRIP_SAFETY_TYPES.map((type) =>
+    col<TripSafetyReportRow>({ header: TRIP_SAFETY_HEADERS[type], width: 9, numeric: true, value: (r) => r.counts[type] ?? 0, total: (t) => t[type] ?? 0 }),
+  ),
+  col<TripSafetyReportRow>({ header: 'Violations', width: 10, numeric: true, value: (r) => r.total, total: (t) => t.violations ?? 0 }),
+  col<TripSafetyReportRow>({ header: 'Score', width: 7, numeric: true, value: (r) => r.score }),
+  col<TripSafetyReportRow>({
+    header: 'Occurrences (time, violation, place, speed)',
+    width: 70,
+    value: (r, tz) =>
+      r.occurrences
+        .map((o) => `${localTime(o.occurredAt, tz)} ${TRIP_SAFETY_HEADERS[o.type]} at ${place(o.address, o.lat, o.lng)}${o.speedKph !== null ? ` (${o.speedKph} km/h)` : ''}`)
+        .join('; '),
+  }),
 ];
 
 const stopColumns = (label: string): ReportColumn[] => [
@@ -598,6 +644,8 @@ export function columnsFor(type: ReportType, groupBy?: TripPerformanceGroupBy): 
       return ENGINE_HOURS;
     case 'TRIPS':
       return TRIPS;
+    case 'TRIP_SAFETY':
+      return TRIP_SAFETY;
     case 'STOPS':
       return stopColumns('stops');
     case 'IDLE':

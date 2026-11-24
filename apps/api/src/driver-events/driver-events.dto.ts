@@ -7,7 +7,11 @@ const list = ({ value }: { value: unknown }) =>
 
 export class DriverEventQuery {
   @IsOptional() @IsUUID() objectId?: string;
+  /** Comma-separated vehicle ids (video evidence gallery); combined with objectId when both are given. */
+  @IsOptional() @Transform(list) @IsUUID('all', { each: true }) objectIds?: string[];
   @IsOptional() @IsUUID() driverId?: string;
+  /** Only events with at least one photo or clip (`any`) / a clip (`video`): the video evidence gallery. */
+  @IsOptional() @IsIn(['any', 'video']) hasMedia?: 'any' | 'video';
   /** Comma-separated alert types. */
   @IsOptional() @Transform(list) @IsString({ each: true }) type?: string[];
   @IsOptional() @Transform(list) @IsIn(DRIVER_EVENT_STATUSES, { each: true }) status?: DriverEventStatus[];

@@ -22,6 +22,14 @@ app.veetrax.com {
 
 	# Self-hosted map: vector tiles from Martin (/tiles/india/{z}/{x}/{y} -> martin /india/{z}/{x}/{y}); USA tiles as
 	# source "us" and the composite "india,us" the styles use (make-styles.sh TILE_SOURCES)
+	# The demo server (gps.mintplus.co.in) loads these map files too: allow only that site cross-origin.
+	@tilecors path /tiles/*
+	# defer: replaces (not duplicates) the header Martin itself sends on tiles
+	header @tilecors {
+		Access-Control-Allow-Origin "https://gps.mintplus.co.in"
+		defer
+	}
+
 	@martin path /tiles/india/* /tiles/us/* /tiles/india,us/*
 	handle @martin {
 		uri strip_prefix /tiles

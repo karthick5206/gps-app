@@ -90,6 +90,7 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   DRIVER_SMOKING: CigaretteIcon,
   DRIVER_DISTRACTED: ScanEyeIcon,
   DRIVER_ABSENT: UserXIcon,
+  SEATBELT_OFF: UserXIcon,
   FORWARD_COLLISION_WARNING: CarFrontIcon,
   LANE_DEPARTURE: MoveHorizontalIcon,
   TAILGATING: ArrowDownToDotIcon,

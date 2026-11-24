@@ -17,6 +17,7 @@ export const REPORT_KEYWORDS: Record<string, string[]> = {
   DISTANCE: ['km', 'kilometres', 'mileage', 'odometer', 'travelled', 'offline'],
   ENGINE_HOURS: ['engine', 'hours', 'idle', 'idling', 'usage', 'runtime', 'utilisation'],
   TRIPS: ['journey', 'route', 'start', 'end', 'from', 'to', 'drive'],
+  TRIP_SAFETY: ['seat belt', 'seatbelt', 'violation', 'safety', 'adas', 'dms', 'dashcam', 'phone', 'fatigue', 'distraction', 'harsh', 'score', 'trip'],
   STOPS: ['parked', 'parking', 'stoppage', 'idle', 'stand'],
   HALT: ['halt', 'parked', 'parking', 'stoppage', 'engine off', 'long stop'],
   POSITIONS: ['raw', 'gps', 'points', 'track', 'log', 'packets', 'voltage', 'battery'],

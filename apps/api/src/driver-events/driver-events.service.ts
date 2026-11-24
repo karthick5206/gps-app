@@ -64,7 +64,10 @@ export class DriverEventsService {
   async where(ctx: AuthContext, q: DriverEventQuery): Promise<Prisma.DriverEventWhereInput> {
     const and: Prisma.DriverEventWhereInput[] = [await this.scope(ctx)];
     if (q.objectId) and.push({ objectId: q.objectId });
+    if (q.objectIds?.length) and.push({ objectId: { in: q.objectIds.slice(0, 500) } });
     if (q.driverId) and.push({ driverId: q.driverId });
+    if (q.hasMedia === 'any') and.push({ media: { some: {} } });
+    if (q.hasMedia === 'video') and.push({ media: { some: { kind: 'VIDEO' } } });
     const types = (q.type ?? []).filter((t) => (DRIVER_EVENT_TYPES as readonly string[]).includes(t));
     if (q.type?.length) and.push({ type: { in: types } });
     if (q.status?.length) and.push({ status: { in: q.status } });
