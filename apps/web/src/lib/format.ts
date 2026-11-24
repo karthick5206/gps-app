@@ -68,6 +68,14 @@ export function formatDateTime(iso: string | null | undefined): string {
   });
 }
 
+/** Clock time only, 24-hour (timelines): "14:05". */
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
 export function formatNumber(n: number): string {
   return n.toLocaleString(locale);
 }

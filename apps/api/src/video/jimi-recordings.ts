@@ -56,6 +56,17 @@ export function jimiRecordings(files: JimiRecordingFile[], channel: number, from
     }));
 }
 
+/** Camera wall clock `YYYY-MM-DDTHH:mm:ss` (+ seconds) → Jimi command time `yyyy_mm_dd_hh_mi_ss`. */
+export function jimiStamp(local: string, plusSec = 0): string {
+  const d = new Date(new Date(`${local}Z`).getTime() + plusSec * 1000);
+  return d.toISOString().slice(0, 19).replace(/[-T:]/g, '_');
+}
+
+/** The `yyyy_mm_dd_hh_mi` minute in an uploaded file name (HVIDEO downloads), or null. */
+export function nameMinute(name: string): string | null {
+  return /(\d{4}_\d{2}_\d{2}_\d{2}_\d{2})_\d{2}/.exec(name)?.[1] ?? null;
+}
+
 /** At most `max` consecutive files of a channel covering [start, end] (REPLAYLIST takes several names). */
 export function filesForPlayback(files: JimiRecordingFile[], channel: number, start: Date, end: Date, toUtc: (local: string) => Date, max = 5): string[] {
   return jimiRecordings(files, channel, start, end, toUtc)

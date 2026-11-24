@@ -6,6 +6,9 @@ import {
   VideoCaptureDto,
   VideoCaptureRequest,
   VideoChannelsDto,
+  VIDEO_DOWNLOAD_MAX_FILES,
+  VideoDownloadDto,
+  VideoDownloadRequest,
   VideoExtendDto,
   VideoRecordingDto,
   VideoSessionDto,
@@ -13,7 +16,7 @@ import {
   VideoStreamType,
 } from '@veetracer/shared';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { Request, Response } from 'express';
 import { get as httpGet } from 'node:http';
 import { AuthContext } from '../access/auth-context';
@@ -44,6 +47,10 @@ class CaptureDto implements VideoCaptureRequest {
   @Type(() => Number) @IsInt() @Min(1) @Max(16) channel!: number;
   @IsIn(['photo', 'video']) kind!: 'photo' | 'video';
   @IsOptional() @Type(() => Number) @IsInt() @Min(3) @Max(10) seconds?: number;
+}
+
+class DownloadDto implements VideoDownloadRequest {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(VIDEO_DOWNLOAD_MAX_FILES) @IsString({ each: true }) @Matches(/^\d{4}(_\d{2}){5}_\d{2,3}\.(mp4|ts|avi)$/i, { each: true }) fileNames!: string[];
 }
 
 class RecordingsQuery {
@@ -89,6 +96,11 @@ export class VideoController {
   @Post(':objectId/capture') @HttpCode(200) @RequirePermission('video', 'view') @Throttle({ default: { ttl: 60_000, limit: 10 } })
   capture(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() body: CaptureDto): Promise<VideoCaptureDto> {
     return this.video.capture(ctx, objectId, body);
+  }
+
+  @Post(':objectId/recordings/download') @HttpCode(200) @RequirePermission('video', 'view') @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  downloadRecording(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() body: DownloadDto): Promise<VideoDownloadDto> {
+    return this.video.downloadRecording(ctx, objectId, body);
   }
 
   @Get(':objectId/recordings') @RequirePermission('video', 'view')

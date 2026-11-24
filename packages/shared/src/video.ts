@@ -54,6 +54,22 @@ export interface VideoCaptureRequest {
   seconds?: number;
 }
 
+/** `POST /video/:objectId/recordings/download` (Jimi): the camera uploads that SD-card minute (`HVIDEO`); it appears in
+ * Video evidence as a manual capture (`VideoCaptureDto.eventId`). */
+export interface VideoDownloadRequest {
+  /** SD-card files (one minute each), oldest first; at most VIDEO_DOWNLOAD_MAX_FILES. */
+  fileNames: string[];
+}
+
+export const VIDEO_DOWNLOAD_MAX_FILES = 15;
+
+export interface VideoDownloadDto {
+  /** One Video evidence entry (manual capture) per minute the camera accepted. */
+  eventIds: string[];
+  /** Why the rest were not requested (the camera's reply), or null when all were. */
+  stoppedBecause: string | null;
+}
+
 export interface VideoCaptureDto {
   /** Driver event (type MANUAL_CAPTURE) the photo / clip will be attached to (Video evidence). */
   eventId: string;

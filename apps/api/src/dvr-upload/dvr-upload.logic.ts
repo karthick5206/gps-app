@@ -41,7 +41,7 @@ export function parseJimiFileName(name: string): JimiFileName | null {
   return { imei, localTime: `${y}-${mo}-${d}T${h}:${mi}:${s}`, channel };
 }
 
-const MIME: Record<string, string> = { mp4: 'video/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', h264: 'video/h264', avi: 'video/x-msvideo' };
+const MIME: Record<string, string> = { ts: 'video/mp2t', mp4: 'video/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', h264: 'video/h264', avi: 'video/x-msvideo' };
 
 export function jimiMime(name: string): string | null {
   return MIME[name.split('.').pop()?.toLowerCase() ?? ''] ?? null;

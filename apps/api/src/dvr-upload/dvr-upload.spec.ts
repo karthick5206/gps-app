@@ -39,11 +39,13 @@ describe('Jimi file names', () => {
 });
 
 describe('DvrUploadService', () => {
-  function service(device: unknown, alarm: unknown[] = []) {
+  function service(device: unknown, alarm: unknown[] = [], pending: Record<string, string> = {}) {
     const xadd = jest.fn(async () => '1-0');
+    const hgetall = jest.fn(async () => pending);
+    const hdel = jest.fn(async () => 1);
     const prisma = { device: { findUnique: jest.fn(async () => device) }, $queryRaw: jest.fn(async () => alarm) };
-    const svc = new DvrUploadService(prisma as never, { client: { xadd } } as never);
-    return { svc, xadd, prisma };
+    const svc = new DvrUploadService(prisma as never, { client: { xadd, hgetall, hdel } } as never);
+    return { svc, xadd, prisma, hgetall, hdel };
   }
   const file = { buffer: Buffer.from('mp4data'), originalname: NAME };
   const signed = (ts = '1700000000000') => ({ file, filename: NAME, timestamp: ts, sign: jimiSign(NAME, ts, KEY) });
@@ -74,5 +76,17 @@ describe('DvrUploadService', () => {
     const { svc, xadd } = service({ id: 'd1', uniqueId: '357730090564767', company: { timezone: 'Asia/Kolkata' } }, []);
     await svc.upload(signed(), KEY);
     expect(JSON.parse((xadd.mock.calls[0] as unknown as string[])[6]).capturedAt).toBe('2026-11-24T04:45:30.000Z');
+  });
+
+  it('links an HVIDEO download (name without IMEI) to the event that asked for it', async () => {
+    const name = '2026_11_24_13_35_55_02.ts';
+    const pending = { '864993060658300': JSON.stringify({ eventId: 'ev1', at: '2026-11-24T08:05:55.000Z', channel: 2 }) };
+    const { svc, xadd, hdel } = service({ id: 'd1', uniqueId: '864993060658300', company: { timezone: 'Asia/Kolkata' } }, [], pending);
+    const ts = '1700000000000';
+    const res = await svc.upload({ file: { buffer: Buffer.from('tsdata'), originalname: name }, filename: name, timestamp: ts, sign: jimiSign(name, ts, KEY) }, KEY);
+    expect(res.code).toBe(200);
+    const msg = JSON.parse((xadd.mock.calls[0] as unknown as string[])[6]);
+    expect(msg).toMatchObject({ uniqueId: '864993060658300', eventId: 'ev1', channel: 2, mime: 'video/mp2t', kind: 'VIDEO', capturedAt: '2026-11-24T08:05:55.000Z' });
+    expect(hdel).toHaveBeenCalledWith('vt:video:jimi:hv:2026_11_24_13_35', '864993060658300');
   });
 });

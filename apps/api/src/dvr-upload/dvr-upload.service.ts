@@ -4,7 +4,7 @@ import { DriverMediaMessage, writeIncoming } from '../driver-events/media-store'
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
-import { parseJimiFileList } from '../video/jimi-recordings';
+import { nameMinute, parseJimiFileList } from '../video/jimi-recordings';
 import { jimiMime, parseJimiFileName, verifyJimiSign, zonedToUtc } from './dvr-upload.logic';
 
 /** Reply format the Jimi firmware expects (it retries on anything but code 200). */
@@ -61,7 +61,10 @@ export class DvrUploadService {
     const size = input.file.buffer.length;
     if (size > (kind === 'PHOTO' ? DRIVER_MEDIA_MAX_PHOTO_BYTES : DRIVER_MEDIA_MAX_VIDEO_BYTES)) return { code: 400, message: 'File too large' };
 
-    const parsed = parseJimiFileName(filename);
+    // HVIDEO downloads (Video → Recordings → Download): the name may lack the IMEI; the request remembered the minute.
+    const named = parseJimiFileName(filename);
+    const pending = await this.pendingDownload(filename, named?.imei ?? null);
+    const parsed = named ?? (pending ? { imei: pending.imei, localTime: null, channel: pending.channel } : null);
     const device = parsed
       ? await this.prisma.device.findUnique({ where: { uniqueId: parsed.imei }, select: { id: true, uniqueId: true, company: { select: { timezone: true } } } })
       : null;
@@ -71,8 +74,8 @@ export class DvrUploadService {
       return { code: 200, message: 'success', data: filename };
     }
 
-    const alarm = await this.alarmFor(device.id, filename);
-    const capturedAt = alarm?.fixTime ?? (parsed.localTime ? zonedToUtc(parsed.localTime, device.company?.timezone ?? 'Asia/Kolkata') : new Date());
+    const alarm = pending ? null : await this.alarmFor(device.id, filename);
+    const capturedAt = pending ? new Date(pending.at) : alarm?.fixTime ?? (parsed.localTime ? zonedToUtc(parsed.localTime, device.company?.timezone ?? 'Asia/Kolkata') : new Date());
     const path = await writeIncoming(input.file.buffer, mime);
     const msg: DriverMediaMessage = {
       path,
@@ -81,11 +84,11 @@ export class DvrUploadService {
       kind,
       mime,
       size,
-      channel: parsed.channel,
+      channel: parsed.channel ?? pending?.channel ?? null,
       capturedAt: capturedAt.toISOString(),
       lat: alarm?.lat ?? null,
       lng: alarm?.lng ?? null,
-      eventId: null,
+      eventId: pending?.eventId ?? null,
       ref: filename,
     };
     await this.redis.client.xadd(RedisKeys.driverMediaStream, 'MAXLEN', '~', 20_000, '*', 'data', JSON.stringify(msg));
@@ -109,6 +112,18 @@ export class DvrUploadService {
     await this.redis.client.set(RedisKeys.jimiFileList(imei), JSON.stringify({ at: Date.now(), names }), 'EX', JIMI_FILE_LIST_TTL_SEC);
     this.logger.log(`File list from ${imei}: ${names.length} recordings`);
     return { code: 0, ok: true };
+  }
+
+  /** A download this file answers: same camera minute (and IMEI when the name has one). */
+  private async pendingDownload(filename: string, imei: string | null): Promise<{ imei: string; eventId: string; at: string; channel: number } | null> {
+    const minute = nameMinute(filename);
+    if (!minute) return null;
+    const all = await this.redis.client.hgetall(RedisKeys.jimiDownload(minute));
+    const entries = Object.entries(all ?? {}).filter(([k]) => !imei || k === imei);
+    if (entries.length !== 1) return null;
+    const [key, raw] = entries[0];
+    await this.redis.client.hdel(RedisKeys.jimiDownload(minute), key);
+    return { imei: key, ...(JSON.parse(raw) as { eventId: string; at: string; channel: number }) };
   }
 
   /** The 0x95 alarm position (last 2 days) whose clip list names this file. */

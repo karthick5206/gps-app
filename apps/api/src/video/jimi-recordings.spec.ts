@@ -51,3 +51,14 @@ describe('Jimi recorded playback stream and name-list endpoint', () => {
     await expect(svc.fileList({})).resolves.toMatchObject({ ok: false });
   });
 });
+
+describe('Jimi HVIDEO download times', () => {
+  it('formats the command time and reads the minute back from an uploaded name', () => {
+    const { jimiStamp, nameMinute } = jest.requireActual<typeof import('./jimi-recordings')>('./jimi-recordings');
+    expect(jimiStamp('2026-11-24T13:35:55', 5)).toBe('2026_11_24_13_36_00');
+    expect(jimiStamp('2026-11-24T13:35:55')).toBe('2026_11_24_13_35_55');
+    expect(nameMinute('2026_11_24_13_35_55_02.ts')).toBe('2026_11_24_13_35');
+    expect(nameMinute('EVENT_864993060658300_00000000_2026_11_24_13_36_01_I_02.mp4')).toBe('2026_11_24_13_36');
+    expect(nameMinute('photo.jpg')).toBeNull();
+  });
+});

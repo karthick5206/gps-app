@@ -5,6 +5,8 @@ import {
   StartPlaybackRequest,
   VideoCaptureDto,
   VideoCaptureRequest,
+  VideoDownloadDto,
+  VideoDownloadRequest,
   VideoExtendDto,
   VIDEO_DEFAULT_CHANNELS,
   VideoChannelsDto,
@@ -25,7 +27,7 @@ import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { CommandsService } from '../commands/commands.service';
 import { zonedToUtc } from '../dvr-upload/dvr-upload.logic';
-import { filesForPlayback, JimiRecordingFile, jimiRecordings, parseJimiFileList } from './jimi-recordings';
+import { filesForPlayback, JimiRecordingFile, jimiRecordings, jimiStamp, parseJimiFileList } from './jimi-recordings';
 import { listMediaPaths, MediaPath, pickPlaybackPath, pickReadyPath, RTMP_LIVE_MINUTES, rtmpCamera, rtmpCommand } from './rtmp-live';
 import { VideoGatewayReply, VideoRequestBody } from './video-messages';
 import { signVideoToken } from './video-token';
@@ -153,6 +155,8 @@ export class VideoService implements OnModuleInit {
     const joined = !!path;
     if (!path) {
       if (!this.commands) throw videoError('VIDEO_DISABLED', 'Live video is not available on this server');
+      // The camera does one push at a time: a recording being played back is stopped first.
+      await this.stopPush(ctx, t, 'playback');
       const sentAt = Date.now();
       if (!(await this.commands.sendInternal(ctx, t.objectId, rtmpCommand(channel)))) {
         throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Video needs the device to be connected.');
@@ -219,6 +223,53 @@ export class VideoService implements OnModuleInit {
     }
     this.logger.log(`${ctx.userId} asked ${t.uniqueId} for a ${req.kind} on ch${req.channel} (event ${event.id})`);
     return { eventId: event.id };
+  }
+
+  /**
+   * Download one SD-card recording (Jimi): `HVIDEO,<time>,<1|2>` makes the camera upload that minute through the HTTP
+   * upload; DvrUploadService links it to the MANUAL_CAPTURE event made here (Video evidence, with its download button).
+   */
+  async downloadRecording(ctx: AuthContext, objectId: string, req: VideoDownloadRequest): Promise<VideoDownloadDto> {
+    const t = await this.target(ctx, objectId);
+    if (t.transport !== 'rtmp') throw new BadRequestException('Download from the SD card is available for Jimi cameras. Play the recording instead.');
+    if (!this.commands) throw videoError('VIDEO_DISABLED', 'Commands are not available on this server');
+    const { files, toUtc } = await this.jimiFiles(ctx, t, false);
+    const wanted = [...new Set(req.fileNames)].map((n) => files.find((x) => x.name === n));
+    if (wanted.some((f) => !f)) throw new BadRequestException('A recording is not in the camera list any more. Search again.');
+    const device = await this.prisma.device.findUnique({ where: { uniqueId: t.uniqueId }, select: { id: true } });
+    const eventIds: string[] = [];
+    // One HVIDEO per minute, in order, each acknowledged before the next; stop at the first refusal (e.g. busy).
+    for (const f of wanted as JimiRecordingFile[]) {
+      try {
+        eventIds.push(await this.downloadOne(ctx, t, f, toUtc(f.localStart), device?.id ?? null));
+      } catch (err) {
+        if (!eventIds.length) throw err;
+        return { eventIds, stoppedBecause: err instanceof HttpException ? String((err.getResponse() as { message?: string }).message ?? err.message) : 'Request failed' };
+      }
+    }
+    return { eventIds, stoppedBecause: null };
+  }
+
+  private async downloadOne(ctx: AuthContext, t: VideoTarget, f: JimiRecordingFile, at: Date, deviceId: string | null): Promise<string> {
+    const event = await this.prisma.driverEvent.create({
+      data: { companyId: t.companyId, objectId: t.objectId, deviceId, type: MANUAL_CAPTURE_TYPE, occurredAt: at },
+      select: { id: true },
+    });
+    const stamp = jimiStamp(f.localStart, 5);
+    const pending = JSON.stringify({ eventId: event.id, at: at.toISOString(), channel: f.channel });
+    for (const minute of new Set([jimiStamp(f.localStart).slice(0, 16), stamp.slice(0, 16)])) {
+      await this.redis.client.hset(RedisKeys.jimiDownload(minute), t.uniqueId, pending);
+      await this.redis.client.expire(RedisKeys.jimiDownload(minute), 3600);
+    }
+    const sent = await this.commands!.sendInternalAndWait(ctx, t.objectId, `HVIDEO,${stamp},${f.channel}`, 8_000);
+    const refused = sent.response && /can ?not|fail|error|invalid|not exist|no file/i.test(sent.response);
+    if (!sent.delivered || refused) {
+      await this.prisma.driverEvent.delete({ where: { id: event.id } }).catch(() => undefined);
+      if (!sent.delivered) throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Downloads need the device to be connected.');
+      throw videoError('DEVICE_REFUSED', `The camera could not upload this recording: ${sent.response!.replace(/^HVIDEO:\s*/i, '')}`);
+    }
+    this.logger.log(`${ctx.userId} asked ${t.uniqueId} to upload ${f.name} (event ${event.id})`);
+    return event.id;
   }
 
   /** Sends one request to the device's gateway and waits for the answer; gateway errors become HTTP errors. */
@@ -334,6 +385,20 @@ export class VideoService implements OnModuleInit {
     return { files: parseJimiFileList(list?.names ?? []), toUtc };
   }
 
+  /**
+   * Stops the camera's live push (`RTMP,OFF,INOUT`) or SD-card playback push (`REPLAYLIST,OFF`) when one is running,
+   * and waits (up to 8 s) until MediaMTX no longer has it, so the next request is accepted.
+   */
+  private async stopPush(ctx: AuthContext, t: VideoTarget, kind: 'live' | 'playback'): Promise<void> {
+    const isIt = (name: string) => (kind === 'live' ? new RegExp(`^live/\\d/${t.uniqueId}$`).test(name) : name === `live/${t.uniqueId}`);
+    const running = async () => (await this.mediaPaths()).some((p) => p.ready && isIt(p.name));
+    if (!this.commands || !(await running())) return;
+    await this.commands.sendInternalAndWait(ctx, t.objectId, kind === 'live' ? 'RTMP,OFF,INOUT' : 'REPLAYLIST,OFF', 5_000);
+    if (kind === 'live') await this.redis.client.del(`vt:video:rtmp:${t.uniqueId}`);
+    const until = Date.now() + 8_000;
+    while (Date.now() < until && (await running())) await new Promise((r) => setTimeout(r, 500));
+  }
+
   /** Jimi recorded video: `REPLAYLIST,<files>` makes the camera push those SD-card files to `live/<imei>` (MediaMTX → HLS). */
   private async rtmpPlayback(ctx: AuthContext, t: VideoTarget, channel: number, from: Date, to: Date): Promise<VideoSessionDto> {
     const { files, toUtc } = await this.jimiFiles(ctx, t, false).then(async (r) => (r.files.length ? r : this.jimiFiles(ctx, t)));
@@ -341,12 +406,19 @@ export class VideoService implements OnModuleInit {
     if (!names.length) throw new BadRequestException('There is no recording of this camera at that time.');
     const first = files.find((f) => f.name === names[0])!;
     const seconds = names.reduce((s, n) => s + (files.find((f) => f.name === n)?.durationSec ?? 60), 0);
+    if (!this.commands) throw videoError('VIDEO_DISABLED', 'Recorded video is not available on this server');
+    // The camera refuses REPLAYLIST while it pushes live video ("live streaming pushing, can not executed") or another
+    // recording: stop that push first.
+    await this.stopPush(ctx, t, 'live');
+    await this.stopPush(ctx, t, 'playback');
     const sentAt = Date.now();
-    if (!this.commands || !(await this.commands.sendInternal(ctx, t.objectId, `REPLAYLIST,${names.join(',')}`))) {
-      throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Recorded video needs the device to be connected.');
+    const sent = await this.commands.sendInternalAndWait(ctx, t.objectId, `REPLAYLIST,${names.join(',')}`, 8_000);
+    if (!sent.delivered) throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Recorded video needs the device to be connected.');
+    if (sent.response && /can ?not|fail|error|invalid/i.test(sent.response)) {
+      throw videoError('DEVICE_REFUSED', `The camera could not play this recording: ${sent.response.replace(/^REPLAYLIST:\s*/i, '')}`);
     }
     let path: string | null = null;
-    while (!path && Date.now() - sentAt < RTMP_START_TIMEOUT_MS + 10_000) {
+    while (!path && Date.now() - sentAt < RTMP_START_TIMEOUT_MS) {
       await new Promise((r) => setTimeout(r, 1_000));
       path = pickPlaybackPath(await this.mediaPaths(), t.uniqueId, sentAt);
     }

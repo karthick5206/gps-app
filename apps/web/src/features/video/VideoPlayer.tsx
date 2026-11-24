@@ -25,7 +25,7 @@ export function videoErrorText(t: TFunction, err: unknown): string {
     case 'DEVICE_TIMEOUT':
       return t('The dashcam did not answer. Check that it is online and try again.');
     case 'DEVICE_REFUSED':
-      return t('The dashcam refused the request.');
+      return err instanceof ApiError && err.message ? err.message : t('The dashcam refused the request.');
     case 'VIDEO_DISABLED':
       return t('Video is not enabled on the server.');
     default:
@@ -43,6 +43,8 @@ export function VideoPlayer({
   label,
   onClose,
   onSession,
+  onVideo,
+  kind = 'live',
   className,
 }: {
   start: () => Promise<VideoSessionDto>;
@@ -50,6 +52,10 @@ export function VideoPlayer({
   onClose?: () => void;
   /** The session once started (transport, stream end time for RTMP cameras). */
   onSession?: (s: VideoSessionDto) => void;
+  /** The <video> element (recording controls drive it: pause, seek, speed, sound, frame grab). */
+  onVideo?: (el: HTMLVideoElement | null) => void;
+  /** `playback` shows REC instead of LIVE. */
+  kind?: 'live' | 'playback';
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -61,6 +67,12 @@ export function VideoPlayer({
   startRef.current = start;
   const onSessionRef = useRef(onSession);
   onSessionRef.current = onSession;
+  const onVideoRef = useRef(onVideo);
+  onVideoRef.current = onVideo;
+  useEffect(() => {
+    onVideoRef.current?.(videoRef.current);
+    return () => onVideoRef.current?.(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +141,15 @@ export function VideoPlayer({
         // Ask why (H.265 or the stream ended) for a precise message.
         api
           .get<VideoSessionStatusDto>(`/video/sessions/${session.sessionId}`)
-          .then((s) => fail(s.codec === 'h265' ? videoErrorText(t, new ApiError(415, [], 'CODEC_UNSUPPORTED')) : s.state === 'closed' ? t('The video stream ended.') : t('The video connection was lost.')))
+          .then((s) =>
+            fail(
+              s.codec === 'h265'
+                ? videoErrorText(t, new ApiError(415, [], 'CODEC_UNSUPPORTED'))
+                : s.state === 'closed'
+                  ? t('The video stream ended.')
+                  : t('The video connection was lost.'),
+            ),
+          )
           .catch(() => fail(t('The video connection was lost.')));
       });
       p.on(mpegts.Events.LOADING_COMPLETE, () => !cancelled && setPhase('ended'));
@@ -164,17 +184,36 @@ export function VideoPlayer({
   }, [attempt, t]);
 
   const overlay =
-    phase === 'starting' ? t('Asking the dashcam to start video…') : phase === 'connecting' ? t('Connecting…') : phase === 'buffering' ? t('Buffering…') : null;
+    phase === 'starting'
+      ? kind === 'playback'
+        ? t('Asking the dashcam to play the recording…')
+        : t('Asking the dashcam to start video…')
+      : phase === 'connecting'
+        ? t('Connecting…')
+        : phase === 'buffering'
+          ? t('Buffering…')
+          : null;
 
   return (
     <div className={cn('relative overflow-hidden rounded-lg bg-black', className)}>
       <video ref={videoRef} className="aspect-video w-full bg-black object-contain" muted playsInline controls={phase === 'playing'} aria-label={label} />
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent px-2 py-1.5 text-xs text-white">
         <span className="truncate font-medium">{label}</span>
-        {phase === 'playing' && <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">LIVE</span>}
+        {phase === 'playing' &&
+          (kind === 'playback' ? (
+            <span className="rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">REC</span>
+          ) : (
+            <span className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">LIVE</span>
+          ))}
       </div>
       {onClose && (
-        <Button size="icon-sm" variant="ghost" className="absolute right-1 bottom-1 text-white hover:bg-white/20 hover:text-white" onClick={onClose} aria-label={t('Stop video')}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="absolute right-1 bottom-1 text-white hover:bg-white/20 hover:text-white"
+          onClick={onClose}
+          aria-label={t('Stop video')}
+        >
           <XIcon />
         </Button>
       )}

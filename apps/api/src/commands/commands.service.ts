@@ -168,6 +168,26 @@ export class CommandsService implements OnModuleInit {
    * history as a custom command by the user who asked, never queued (an offline device just fails). True if delivered.
    */
   async sendInternal(ctx: AuthContext, objectId: string, text: string): Promise<boolean> {
+    return (await this.sendInternalRow(ctx, objectId, text)).delivered;
+  }
+
+  /**
+   * As sendInternal, then waits up to `timeoutMs` for the device's text reply (e.g. Jimi `REPLAYLIST:live streaming
+   * pushing, can not executed`). `response` is null when it did not answer in time.
+   */
+  async sendInternalAndWait(ctx: AuthContext, objectId: string, text: string, timeoutMs = 8_000): Promise<{ delivered: boolean; response: string | null }> {
+    const { id, delivered } = await this.sendInternalRow(ctx, objectId, text);
+    if (!delivered) return { delivered, response: null };
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 400));
+      const row = await this.prisma.deviceCommand.findUnique({ where: { id }, select: { response: true } });
+      if (row?.response) return { delivered, response: row.response };
+    }
+    return { delivered, response: null };
+  }
+
+  private async sendInternalRow(ctx: AuthContext, objectId: string, text: string): Promise<{ id: string; delivered: boolean }> {
     const t = await this.target(ctx, objectId);
     const row = await this.prisma.deviceCommand.create({
       data: {
@@ -184,7 +204,7 @@ export class CommandsService implements OnModuleInit {
     const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text, noQueue: true });
     if (!delivered) await this.prisma.deviceCommand.update({ where: { id: row.id }, data: { status: 'FAILED', error: 'Tracker not connected' } });
     this.logger.log(`${ctx.userId} → ${t.uniqueId} internal "${text}" (${row.id})${delivered ? '' : ' NOT SENT (not connected)'}`);
-    return delivered;
+    return { id: row.id, delivered };
   }
 
   /**

@@ -61,8 +61,10 @@ With **JIMI_SETUP_COMMANDS** in the API .env (`|`-separated, e.g. `UPLOAD,http:/
   `{"imei":"…","fileNameList":"a.mp4,b.mp4"}`, answer `{"code":0,"ok":true}`. Our URL: `http://track.veetrax.com/dvr/filelist`.
 - Names `yyyy_mm_dd_hh_mi_ss_<code>.mp4` in camera local time: 01 road / 02 driver (1-min, low quality), 03 / 04 HD.
 - `REPLAYLIST,<name>,<name>…` pushes the files over RTMP to `live/<imei>` (no channel); `REPLAYLIST,OFF` stops.
-- `HVIDEO,<yyyy_mm_dd_hh_mi_ss>,<1|2>` uploads one recorded minute through the HTTP upload (for downloads, not built yet).
+- `HVIDEO,<yyyy_mm_dd_hh_mi_ss>,<1|2>` uploads one recorded minute through the HTTP upload (v1.30.0 downloads).
+- One push at a time: REPLAYLIST is refused while live RTMP runs (`REPLAYLIST:live streaming pushing, can not executed`);
+  stop live first with `RTMP,OFF,INOUT`. SD files seen on the JC261 are `.ts` (1-min, e.g. `2026_11_24_13_35_55_02.ts`).
 
 ## Still to build
-- Downloads of recorded video (HVIDEO queue) and the timeline page.
+- Device test of HVIDEO uploads (file name format of the uploaded minute not confirmed yet).
 - Device test: no unit yet; layouts are checked against the vendor's example packets only.
