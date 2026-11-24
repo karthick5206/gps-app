@@ -20,8 +20,13 @@ async function bootstrap(): Promise<void> {
   // Gzip JSON/CSV: the live snapshot is ~600 B per object (~6 MB at 10k objects) before compression.
   app.use(compression());
   // Jimi dashcams post their whole SD-card name list (can pass 1 MB) as JSON, sometimes without a JSON content type.
-  // Registered before Nest's own parser (100 kB), which then skips the already-parsed body.
-  app.use('/api/dvr/jimi/filelist', json({ limit: '4mb', type: () => true }));
+  // Registered before Nest's own parser (100 kB), which then skips the already-parsed body. It MUST be wrapped in a
+  // differently named function: Nest skips registering its global JSON parser when a middleware named `jsonParser`
+  // is already on the stack (ExpressAdapter.isMiddlewareApplied), which left every other request body empty (v1.29.0).
+  const fileListJson = json({ limit: '4mb', type: () => true });
+  app.use('/api/dvr/jimi/filelist', function jimiFileListBody(req: Parameters<typeof fileListJson>[0], res: Parameters<typeof fileListJson>[1], next: Parameters<typeof fileListJson>[2]) {
+    fileListJson(req, res, next);
+  });
   app.setGlobalPrefix('api');
   app.enableCors({ origin: env.corsOrigins, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
