@@ -34,6 +34,9 @@ Useful commands: `VERSION`, `STATUS`, `PARAM`, `REBOOT`, `Picture,in|out|inout`,
 `RTMP,ON|OFF,IN|OUT|INOUT,<minutes>`, `UPLOADFILE,<clip name>`, `UPLOADSW,<event>,ON|OFF|1|2`, `RELAY,<0|1>`.
 Clip names: `EVENT_<imei>_00000000_<yyyy_mm_dd_hh_mm_ss>_<channel F/I>_<code>.mp4` (code per event / camera).
 
+## Automatic set-up (v1.27.1)
+With **JIMI_SETUP_COMMANDS** in the API .env (`|`-separated, e.g. `UPLOAD,http://track.veetrax.com/dvr/upload|RSERVICE,103.176.85.69:1935/live`), `commands/dvr-auto-setup.service.ts` sends each command once a minute to every connected Jimi camera (model protocol GT06 + capability `video`, linked to a vehicle) until the camera has acknowledged it (resend after 10 min unanswered). The commands show in the vehicle history (no user). Only `COREKITSW,0` and `SERVER,0,<ip>,5023` still go by SMS. Empty = off (demo: no MediaMTX).
+
 ## Clip upload (v1.25.0)
 `dvr-upload/`: public `POST /api/dvr/jimi/upload` (Caddy also maps `http://track.veetrax.com/dvr/upload`).
 - Multipart `file`; `filename`, `timestamp`, `sign` as form fields or URL parameters.
