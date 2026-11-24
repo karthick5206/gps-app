@@ -15,6 +15,8 @@ export interface AppEnv {
   jt808Port: number;
   /** AIS-140 (iTriangle TS101 and other VLT units) TCP port; 0 disables the listener. */
   ais140Port: number;
+  /** Zhongxun blue ID card trackers (own 78 78 dialect without checksum) TCP port; 0 disables the listener. */
+  zhongxunPort: number;
   /** JT/T 1078 media: TCP port dashcams stream to (0 disables video), host they are told to connect to. */
   mediaPort: number;
   mediaPublicHost: string;
@@ -55,6 +57,7 @@ export function loadEnv(): AppEnv {
     teltonikaPort: Number(process.env.TELTONIKA_PORT ?? 5027),
     jt808Port: Number(process.env.JT808_PORT ?? 6808),
     ais140Port: Number(process.env.AIS140_PORT ?? 5030),
+    zhongxunPort: Number(process.env.ZHONGXUN_PORT ?? 5032),
     mediaPort: Number(process.env.MEDIA_PORT ?? 7612),
     mediaPublicHost: process.env.MEDIA_PUBLIC_HOST ?? 'track.mintplus.co.in',
     mediaHttpPort: Number(process.env.MEDIA_HTTP_PORT ?? 4110),

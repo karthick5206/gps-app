@@ -122,6 +122,25 @@ const PROFILES: Record<string, ModelProfile> = {
     ],
     commands: [],
   },
+  // Zhongxun blue ID card trackers (own port 5032, gateway/zhongxun): SOS button, battery, GPS + Wi-Fi / cell.
+  ZX_CARD: {
+    capabilities: ['sos', 'battery', 'lbs'],
+    fields: [
+      { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
+      { key: 'charging', label: 'Charging', type: 'boolean' },
+      { key: 'gsmSignal', label: 'GSM signal', type: 'number' },
+    ],
+    commands: [],
+  },
+  // 4G ID cards on JT/T 808-2011 (port 6808): SOS, battery (0x62 / heartbeat), low battery, temperature.
+  JT808_CARD: {
+    capabilities: ['sos', 'battery', 'temperature'],
+    fields: [
+      { key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' },
+      { key: 'temp1', label: 'Temperature', unit: '°C', type: 'number' },
+    ],
+    commands: [],
+  },
   PHONE: { capabilities: ['battery'], fields: [{ key: 'batteryLevel', label: 'Battery', unit: '%', type: 'number' }], commands: [] },
   // VeeTrax Tracker app: the device's uniqueId is the phone's mobile number (91XXXXXXXXXX), activated by OTP.
   MOBILE: {
@@ -233,6 +252,8 @@ async function main() {
     ['iTriangle', 'TS101', 'AIS140', 'AIS140'],
     ['Mettax', 'MC202', 'JT808', 'JT808'],
     ['Jimi', 'JC400 / JC261 dashcam', 'GT06', 'JIMI_DVR'],
+    ['Zhongxun', 'Blue ID card', 'ZHONGXUN', 'ZX_CARD'],
+    ['Generic', '4G ID card (JT808)', 'JT808', 'JT808_CARD'],
     ['Generic', 'JT808 terminal', 'JT808', 'JT808'],
     ['Generic', 'Phone', 'PHONE', 'PHONE'],
     ['VeeTrax', 'Mobile tracker (Android)', 'MOBILE', 'MOBILE'],

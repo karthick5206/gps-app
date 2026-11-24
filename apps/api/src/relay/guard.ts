@@ -33,7 +33,7 @@ function positive(raw: string | undefined, fallback: number): number {
   return raw && Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-export function relayPolicy(env: Pick<AppEnv, 'gt06Port' | 'teltonikaPort' | 'jt808Port' | 'ais140Port' | 'mediaPort' | 'attachPort' | 'mediaPublicHost' | 'webUrl'>, raw: NodeJS.ProcessEnv = process.env): RelayPolicy {
+export function relayPolicy(env: Pick<AppEnv, 'gt06Port' | 'teltonikaPort' | 'jt808Port' | 'ais140Port' | 'zhongxunPort' | 'mediaPort' | 'attachPort' | 'mediaPublicHost' | 'webUrl'>, raw: NodeJS.ProcessEnv = process.env): RelayPolicy {
   const production = raw.NODE_ENV === 'production';
   const ownHosts = new Set<string>(['localhost']);
   for (const h of (raw.RELAY_OWN_HOSTS ?? '').split(',')) if (h.trim()) ownHosts.add(h.trim().toLowerCase());
@@ -43,7 +43,7 @@ export function relayPolicy(env: Pick<AppEnv, 'gt06Port' | 'teltonikaPort' | 'jt
   } catch {
     // no usable WEB_URL
   }
-  const devicePorts = [env.gt06Port, env.teltonikaPort, env.jt808Port, env.ais140Port, env.mediaPort, env.attachPort].filter((p) => p > 0);
+  const devicePorts = [env.gt06Port, env.teltonikaPort, env.jt808Port, env.ais140Port, env.zhongxunPort, env.mediaPort, env.attachPort].filter((p) => p > 0);
   return { production, allowPrivate: raw.RELAY_ALLOW_PRIVATE === 'true' || !production, ownHosts: [...ownHosts], devicePorts };
 }
 

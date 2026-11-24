@@ -8,6 +8,7 @@ import { APP_ROOT, loadEnv } from '../config/env';
 import { RateMeter, startHeartbeat } from '../monitoring/heartbeat';
 import { RedisKeys } from '../redis/keys';
 import { Ais140Decoder } from './ais140/decoder';
+import { ZhongxunDecoder } from './zhongxun/decoder';
 import { Gt06Decoder } from './gt06/decoder';
 import { MediaHub } from './jt1078/hub';
 import { MediaServer } from './jt1078/media-server';
@@ -38,6 +39,7 @@ const LISTEN_RETRY_MS = 30_000;
  *   TELTONIKA_PORT (5027)  Teltonika FMB/FMC/FMM (0 disables)
  *   JT808_PORT (6808)      JT/T 808-2013/2019 dashcams and MDVRs (Mettax MC202, Jimi JC4xx) (0 disables)
  *   AIS140_PORT (5030)     AIS-140 VLT devices (iTriangle TS101) (0 disables)
+ *   ZHONGXUN_PORT (5032)   Zhongxun blue ID card trackers (0 disables)
  *   MEDIA_PORT (7612)      JT/T 1078 dashcam video streams (0 disables); MEDIA_HTTP_PORT (4110, localhost) HTTP-FLV
  *   ATTACH_PORT (7613)     Su-standard ADAS / DMS alarm attachments (photos / clips) (0 disables)
  * GATEWAY_CAPTURE =comma-separated IMEIs (or `all`) to write raw frames to var/logs/capture-<protocol>.log.
@@ -99,6 +101,7 @@ async function main(): Promise<void> {
       env.jt808Port,
     ],
     [new Ais140Decoder() as ProtocolDecoder<BaseSession>, env.ais140Port],
+    [new ZhongxunDecoder() as ProtocolDecoder<BaseSession>, env.zhongxunPort],
   ];
   const servers: TcpGatewayServer<BaseSession>[] = [];
   // Data forwarding (RAW_TCP): rules come from Valkey (published by the API), so the gateway stays database-free.

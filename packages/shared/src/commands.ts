@@ -33,6 +33,8 @@ export const PROTOCOL_COMMANDS: Record<string, Partial<Record<Exclude<CommandTyp
   // AIS-140 OTA command syntax differs per vendor and isn't confirmed for the iTriangle TS101 yet: only the custom
   // (raw text line) command is offered until a vendor document / device test confirms SET/GET commands.
   AIS140: {},
+  // Zhongxun blue ID cards: text names mapped to binary frames by gateway/zhongxun/codec.ts (zxCommand).
+  ZHONGXUN: { locate: 'LOCATE', reboot: 'RESTART' },
 };
 
 /** Engine cut-off is refused above this speed (km/h), as most operators require for safety. */

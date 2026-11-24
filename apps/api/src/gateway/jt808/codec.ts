@@ -21,6 +21,11 @@ export const Jt808Msg = {
   LOCATION_RESPONSE: 0x0201,
   BATCH: 0x0704,
   TRANSPARENT: 0x0900,
+  /** 4G ID cards (JT/T 808-2011 variant): ICCID report (STRING 20). */
+  ICCID: 0x0120,
+  /** 4G ID cards: time request (empty body); answered with TIME_RESPONSE. */
+  TIME_REQUEST: 0x0121,
+  TIME_RESPONSE: 0x8121,
   PLATFORM_RESPONSE: 0x8001,
   REGISTER_RESPONSE: 0x8100,
   TEXT: 0x8300,
@@ -176,6 +181,28 @@ export function platformResponse(h: Jt808Header, serial: number, result = 0): Bu
 }
 
 /** 0x8100 registration response with an auth code the terminal sends back in 0x0102. */
+/** 0x8121 time reply for 4G ID cards: BYTE[6] = year-2000, month, day, hour, minute, second (binary, UTC). */
+export function timeResponse(h: Pick<Jt808Header, 'terminalBcd' | 'version2019' | 'protocolVersion'>, serial: number, now: Date): Buffer {
+  const body = Buffer.from([now.getUTCFullYear() - 2000, now.getUTCMonth() + 1, now.getUTCDate(), now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()]);
+  return encodeMessage(Jt808Msg.TIME_RESPONSE, h, serial, body);
+}
+
+/**
+ * Extras of 4G ID cards (JT/T 808-2011 variant): 0x62 battery %, 0x64 temperature ×10 (2 bytes; the 47+ byte 0x64 of
+ * dashcams is ADAS), 0x57 extended alarm word (bit 4 low battery, bit 7 low-power shutdown).
+ */
+export function cardExtras(extras: Map<number, Buffer>): { batteryLevel: number | null; temperature: number | null; lowBattery: boolean } {
+  const bat = extras.get(0x62);
+  const temp = extras.get(0x64);
+  const ext = extras.get(0x57);
+  const alarmWord = ext && ext.length >= 2 ? ext.readUInt16BE(0) : 0;
+  return {
+    batteryLevel: bat && bat.length === 1 && bat[0] <= 100 ? bat[0] : null,
+    temperature: temp && temp.length === 2 ? temp.readInt16BE(0) / 10 : null,
+    lowBattery: (alarmWord & 0x0090) !== 0,
+  };
+}
+
 export function registerResponse(h: Jt808Header, serial: number, authCode: string, result = 0): Buffer {
   const body = Buffer.concat([Buffer.from([h.serial >> 8, h.serial & 0xff, result]), result === 0 ? Buffer.from(authCode, 'ascii') : Buffer.alloc(0)]);
   return encodeMessage(Jt808Msg.REGISTER_RESPONSE, h, serial, body);
