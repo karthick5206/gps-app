@@ -2,7 +2,7 @@ import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-nati
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, isDriverEventType, type AlertDto, type DriverEventDto } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { CarIcon, CheckIcon, ScanFaceIcon } from 'lucide-react-native';
+import { CarIcon, CheckIcon, ScanFaceIcon, VideoIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
@@ -100,6 +100,14 @@ export default function AlertScreen() {
         )}
         {driverEvent.data && can('driver_events') && (
           <Button title={t('Open driver event')} icon={ScanFaceIcon} variant="outline" onPress={() => router.push(`/driver-events/${driverEvent.data!.id}`)} />
+        )}
+        {driverEvent.data && can('video') && (
+          <Button
+            title={t('Watch video')}
+            icon={VideoIcon}
+            variant="outline"
+            onPress={() => router.push({ pathname: '/video/[id]', params: { id: a.objectId, name: a.plateNumber || a.objectName, at: a.occurredAt } })}
+          />
         )}
         <Button title={t('Open vehicle')} icon={CarIcon} variant="outline" onPress={() => router.push(`/vehicle/${a.objectId}`)} />
 

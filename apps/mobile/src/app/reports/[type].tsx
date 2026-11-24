@@ -11,7 +11,7 @@ import {
   type TripPerformanceGroupBy,
 } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { FileSpreadsheetIcon, FileTextIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
+import { FileSpreadsheetIcon, FileTextIcon, ListIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, View } from 'react-native';
@@ -21,6 +21,7 @@ import { useAuth } from '@/features/auth/auth';
 import { liveStore } from '@/features/live/live-store';
 import { cellText, columnsForResult, computeTotals, REPORT_DEF_MAP, type Row } from '@/features/reports/report-defs';
 import { daySpan } from '@/features/reports/report-format';
+import { TripSafetySheet } from '@/features/reports/TripSafetySheet';
 import { api, errorMessage } from '@/lib/api';
 import { downloadAndShare } from '@/lib/share-file';
 import { SPACE, useColors } from '@/lib/theme';
@@ -56,11 +57,14 @@ const FORMATS: { format: ReportFormat; label: string; icon: typeof FileTextIcon 
 /** How many fields a collapsed row card shows. */
 const PREVIEW_FIELDS = 5;
 
-function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getColumns> }) {
+function RowCard({ row, columns, onDetails }: { row: Row; columns: ReturnType<typeof getColumns>; onDetails?: (row: Row) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [title, ...rest] = columns;
+  const [title, ...all] = columns;
+  // Columns marked hideZero (e.g. the trip safety violation counts) only show when they have something to say.
+  const rest = all.filter((col) => !(col.hideZero && col.value(row) === 0));
   const shown = open ? rest : rest.slice(0, PREVIEW_FIELDS);
+  const occurrences = Array.isArray(row.occurrences) ? row.occurrences.length : 0;
   return (
     <Card onPress={rest.length > PREVIEW_FIELDS ? () => setOpen((o) => !o) : undefined}>
       <Text weight="600" numberOfLines={1}>
@@ -82,6 +86,9 @@ function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getCol
         <Text size="xs" tone="primary" weight="600" style={{ marginTop: SPACE.sm }}>
           {open ? t('Show less') : t('Show all {{count}} fields', { count: rest.length + 1 })}
         </Text>
+      )}
+      {onDetails && occurrences > 0 && (
+        <Button title={t('{{n}} violations', { n: occurrences })} icon={ListIcon} variant="outline" style={{ marginTop: SPACE.sm, height: 38 }} onPress={() => onDetails(row)} />
       )}
     </Card>
   );
@@ -106,6 +113,8 @@ export default function ReportRunScreen() {
   const [minDuration, setMinDuration] = useState(type === 'HALT' ? '30' : '');
   const [groupBy, setGroupBy] = useState<TripPerformanceGroupBy>('ROUTE');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
+  /** TRIP_SAFETY: the trip whose violations are open in the sheet. */
+  const [safetyRow, setSafetyRow] = useState<Row | null>(null);
 
   const pickPreset = (p: Preset) => {
     setPreset(p);
@@ -150,7 +159,7 @@ export default function ReportRunScreen() {
   const columns = useMemo(() => (def ? columnsForResult(def, run.data?.groupBy) : []), [def, run.data]);
   const rows = run.data?.rows ?? [];
   const totals = useMemo(() => (run.data ? computeTotals(columns, rows, run.data.totals) : {}), [run.data, columns, rows]);
-  const totalCols = columns.filter((col) => totals[col.id] !== undefined);
+  const totalCols = columns.filter((col) => totals[col.id] !== undefined && !(col.hideZero && totals[col.id] === 0));
 
   if (!def) return <EmptyState icon={FileTextIcon} title={t('Unknown report')} />;
   const vehicleLabel = objectIds.length === 0 ? (single ? t('Choose a vehicle') : t('All vehicles')) : objectIds.length === 1 ? (liveStore.get(objectIds[0])?.name ?? t('1 vehicle')) : t('{{n}} vehicles', { n: objectIds.length });
@@ -252,9 +261,10 @@ export default function ReportRunScreen() {
             )}
           </View>
         }
-        renderItem={({ item }) => <RowCard row={item} columns={columns} />}
+        renderItem={({ item }) => <RowCard row={item} columns={columns} onDetails={type === 'TRIP_SAFETY' ? setSafetyRow : undefined} />}
         ListEmptyComponent={run.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : run.data ? <EmptyState icon={def.icon} title={t('No data')} description={t('Nothing matched for these vehicles and dates.')} /> : undefined}
       />
+      {type === 'TRIP_SAFETY' && <TripSafetySheet row={safetyRow} onClose={() => setSafetyRow(null)} />}
       <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectIds} onChange={setObjectIds} multiple={!single} title={single ? t('Choose a vehicle') : t('Choose vehicles')} />
     </>
   );
