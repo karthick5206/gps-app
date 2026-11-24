@@ -153,13 +153,10 @@ export default function HistoryScreen() {
         />
         {preset === 'custom' && (
           <View style={{ gap: SPACE.xs, marginTop: SPACE.sm }}>
+            {/* DateField stretches with flex: 1, so it must sit directly in a row (inside a column it collapses to 0 height). */}
             <View style={{ flexDirection: 'row', gap: SPACE.md }}>
-              <View style={{ flex: 1 }}>
-                <DateField label={t('From')} value={custom.from} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(v, r.to, 'from'))} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <DateField label={t('To')} value={custom.to} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(r.from, v, 'to'))} />
-              </View>
+              <DateField label={t('From')} value={custom.from} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(v, r.to, 'from'))} />
+              <DateField label={t('To')} value={custom.to} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(r.from, v, 'to'))} />
             </View>
             <Text size="xs" tone="muted">
               {t('Any days, up to {{n}} at a time.', { n: MOBILE_CUSTOM_MAX_DAYS })}

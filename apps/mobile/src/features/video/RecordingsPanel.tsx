@@ -102,7 +102,10 @@ export function RecordingsPanel({ objectId, vehicle, channels, initialAt }: { ob
   return (
     <View style={{ gap: SPACE.md }}>
       <Card style={{ gap: SPACE.md }}>
-        <DateField label={t('Day')} value={day} onChange={setDay} maximumDate={new Date()} />
+        {/* DateField uses flex: 1, so it sits in a row (in this column it would collapse to 0 height). */}
+        <View style={{ flexDirection: 'row' }}>
+          <DateField label={t('Day')} value={day} onChange={setDay} maximumDate={new Date()} />
+        </View>
         <View style={{ flexDirection: 'row', gap: SPACE.md }}>
           <TimeField label={t('From')} value={fromMin} onChange={setFromMin} />
           <TimeField label={t('To')} value={toMin} onChange={setToMin} />
