@@ -187,6 +187,20 @@ export class CommandsService implements OnModuleInit {
     return delivered;
   }
 
+  /**
+   * Command sent by the platform itself (automatic device set-up, no user): recorded in the vehicle's command
+   * history, never queued. True if delivered to the device's gateway.
+   */
+  async sendSystem(t: { companyId: string; objectId: string; deviceId: string; uniqueId: string }, text: string): Promise<boolean> {
+    const row = await this.prisma.deviceCommand.create({
+      data: { companyId: t.companyId, objectId: t.objectId, deviceId: t.deviceId, uniqueId: t.uniqueId, type: 'custom', payload: text, createdById: null, expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000) },
+    });
+    const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text, noQueue: true });
+    if (!delivered) await this.prisma.deviceCommand.update({ where: { id: row.id }, data: { status: 'FAILED', error: 'Tracker not connected' } });
+    this.logger.log(`system → ${t.uniqueId} "${text}" (${row.id})${delivered ? '' : ' NOT SENT (not connected)'}`);
+    return delivered;
+  }
+
   // ── Engine-stop preparation: "request a fresh position, then confirm" (anti-theft proposal, Option 1) ──
 
   /**
