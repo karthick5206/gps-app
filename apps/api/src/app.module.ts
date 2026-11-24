@@ -35,6 +35,7 @@ import { ReportSchedulesModule } from './report-schedules/report-schedules.modul
 import { CommandsModule } from './commands/commands.module';
 import { VideoModule } from './video/video.module';
 import { DriverEventsModule } from './driver-events/driver-events.module';
+import { DvrUploadModule } from './dvr-upload/dvr-upload.module';
 import { DriversModule } from './drivers/drivers.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PoisModule } from './pois/pois.module';
@@ -108,6 +109,7 @@ import { PricingModule } from './pricing/pricing.module';
     CommandsModule,
     VideoModule,
     DriverEventsModule,
+    DvrUploadModule,
     DriversModule,
     DocumentsModule,
     PoisModule,
