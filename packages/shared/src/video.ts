@@ -37,6 +37,27 @@ export interface VideoSessionDto {
   expiresAt: string;
   /** True when this joined a live stream someone else had already started. */
   joined: boolean;
+  /** `jt1078` (JT/T 808 dashcam via the gateway) or `rtmp` (camera pushes RTMP, e.g. Jimi JC261). */
+  transport?: 'jt1078' | 'rtmp';
+  /** RTMP cameras stream for a fixed time: when it stops unless extended (`POST /video/:objectId/extend`). */
+  streamEndsAt?: string | null;
+}
+
+/** `POST /video/:objectId/capture`: ask the dashcam for a photo or a short clip of one camera. */
+export interface VideoCaptureRequest {
+  channel: number;
+  kind: 'photo' | 'video';
+  /** Clip length, 3–10 s (RTMP / Jimi cameras). */
+  seconds?: number;
+}
+
+export interface VideoCaptureDto {
+  /** Driver event (type MANUAL_CAPTURE) the photo / clip will be attached to (Video evidence). */
+  eventId: string;
+}
+
+export interface VideoExtendDto {
+  streamEndsAt: string;
 }
 
 export interface VideoSessionStatusDto {

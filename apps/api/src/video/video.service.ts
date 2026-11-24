@@ -1,7 +1,11 @@
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import {
+  MANUAL_CAPTURE_TYPE,
   StartLiveVideoRequest,
   StartPlaybackRequest,
+  VideoCaptureDto,
+  VideoCaptureRequest,
+  VideoExtendDto,
   VIDEO_DEFAULT_CHANNELS,
   VideoChannelsDto,
   VideoErrorCode,
@@ -26,6 +30,8 @@ import { signVideoToken } from './video-token';
 
 /** How long to wait for an RTMP camera to start pushing after the command. */
 const RTMP_START_TIMEOUT_MS = 25_000;
+/** Longest an RTMP stream can run with Extend (the Jimi firmware limit, 180 min): the HLS token lasts this long. */
+const RTMP_MAX_MINUTES = 185;
 
 const REPLY_TIMEOUT_MS = 20_000;
 const SESSION_TTL_SEC = 6 * 3600;
@@ -155,10 +161,56 @@ export class VideoService implements OnModuleInit {
     const sessionId = randomUUID();
     const record: VideoSessionRecord = { objectId: t.objectId, companyId: t.companyId, vehicle: t.name, uniqueId: t.uniqueId, channel, kind: 'live', hlsPath: path };
     await this.redis.client.set(RedisKeys.videoSession(sessionId), JSON.stringify(record), 'EX', SESSION_TTL_SEC);
-    // HLS fetches the playlist and segments for the whole stream: the token lasts as long as the camera streams.
-    const { token, expiresAt } = signVideoToken({ u: ctx.userId, c: t.companyId, s: sessionId }, this.env.jwtSecret, Date.now(), (RTMP_LIVE_MINUTES + 5) * 60);
+    // HLS fetches the playlist and segments for the whole stream, which Extend can prolong up to the camera's 180 min.
+    const { token, expiresAt } = signVideoToken({ u: ctx.userId, c: t.companyId, s: sessionId }, this.env.jwtSecret, Date.now(), RTMP_MAX_MINUTES * 60);
     this.logger.log(`${ctx.userId} ${joined ? 'joined' : 'started'} rtmp live ${t.uniqueId} ${path} (${sessionId})`);
-    return { sessionId, kind: 'live', channel, url: `/api/video/hls/${sessionId}/${encodeURIComponent(token)}/index.m3u8`, codec: 'h264', expiresAt: expiresAt.toISOString(), joined };
+    const ttl = await this.redis.client.pttl(camKey);
+    const streamEndsAt = new Date(Date.now() + (ttl > 0 ? ttl : RTMP_LIVE_MINUTES * 60_000)).toISOString();
+    return { sessionId, kind: 'live', channel, url: `/api/video/hls/${sessionId}/${encodeURIComponent(token)}/index.m3u8`, codec: 'h264', expiresAt: expiresAt.toISOString(), joined, transport: 'rtmp', streamEndsAt };
+  }
+
+  /** RTMP cameras: asks the camera to keep streaming for another RTMP_LIVE_MINUTES (same command, restarts its timer). */
+  async extend(ctx: AuthContext, objectId: string, channel: number): Promise<VideoExtendDto> {
+    this.assertChannel(channel);
+    const t = await this.target(ctx, objectId);
+    if (t.transport !== 'rtmp') throw new BadRequestException('This camera streams until you stop it; nothing to extend.');
+    if (!this.commands || !(await this.commands.sendInternal(ctx, t.objectId, rtmpCommand(channel)))) {
+      throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Video needs the device to be connected.');
+    }
+    await this.redis.client.set(`vt:video:rtmp:${t.uniqueId}`, rtmpCamera(channel), 'EX', RTMP_LIVE_MINUTES * 60);
+    return { streamEndsAt: new Date(Date.now() + RTMP_LIVE_MINUTES * 60_000).toISOString() };
+  }
+
+  /**
+   * Photo or short clip on request (Video: Snapshot / Record). A driver event of type MANUAL_CAPTURE is created now;
+   * the file the camera uploads moments later is linked to it by time (DriverEventWorker.handleMedia) and shows in
+   * Video evidence. Jimi: `Picture,in|out` / `Video,in|out,<n>s` (uploaded over HTTP); JT/T 808: photo via 0x8801.
+   */
+  async capture(ctx: AuthContext, objectId: string, req: VideoCaptureRequest): Promise<VideoCaptureDto> {
+    this.assertChannel(req.channel);
+    const t = await this.target(ctx, objectId);
+    const device = await this.prisma.device.findUnique({ where: { uniqueId: t.uniqueId }, select: { id: true } });
+    const cam = req.channel === 2 ? 'in' : 'out';
+    const seconds = Math.min(10, Math.max(3, Math.round(req.seconds ?? 10)));
+    if (t.transport === 'jt1078' && req.kind === 'video') throw new BadRequestException('Short clips on request are available for Jimi cameras; take a photo or use Recordings.');
+    const event = await this.prisma.driverEvent.create({
+      data: { companyId: t.companyId, objectId: t.objectId, deviceId: device?.id ?? null, type: MANUAL_CAPTURE_TYPE, occurredAt: new Date() },
+      select: { id: true },
+    });
+    let delivered: boolean;
+    if (t.transport === 'rtmp') {
+      if (!this.commands) throw videoError('VIDEO_DISABLED', 'Commands are not available on this server');
+      delivered = await this.commands.sendInternal(ctx, t.objectId, req.kind === 'photo' ? `Picture,${cam}` : `Video,${cam},${seconds}s`);
+    } else {
+      const gatewayId = await this.redis.client.get(RedisKeys.connection(t.uniqueId));
+      delivered = !!gatewayId && (await this.redis.client.publish(RedisKeys.snapshotChannel(gatewayId), JSON.stringify({ uniqueId: t.uniqueId, eventId: event.id, channel: req.channel }))) > 0;
+    }
+    if (!delivered) {
+      await this.prisma.driverEvent.delete({ where: { id: event.id } }).catch(() => undefined);
+      throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Video needs the device to be connected.');
+    }
+    this.logger.log(`${ctx.userId} asked ${t.uniqueId} for a ${req.kind} on ch${req.channel} (event ${event.id})`);
+    return { eventId: event.id };
   }
 
   /** Sends one request to the device's gateway and waits for the answer; gateway errors become HTTP errors. */
@@ -257,6 +309,8 @@ export class VideoService implements OnModuleInit {
       codec: s.codec,
       expiresAt: expiresAt.toISOString(),
       joined: s.joined,
+      transport: 'jt1078',
+      streamEndsAt: null,
     };
   }
 

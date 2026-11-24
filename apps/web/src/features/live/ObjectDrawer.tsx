@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { CompliancePanel } from '@/features/documents/CompliancePanel';
 import { CommandsTab } from './CommandsTab';
 import { DriverControl } from './DriverControl';
+import { GoLiveButton } from '@/features/video/GoLiveButton';
 import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
@@ -310,6 +311,11 @@ export function ObjectDrawer({
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           <Overview o={object} now={now} />
+          {hasVideo && (
+            <div className="pt-3">
+              <GoLiveButton objectId={object.objectId} vehicle={object.name} />
+            </div>
+          )}
           {hasVideo && <RecentDriverEvents objectId={object.objectId} />}
         </TabsContent>
         {owned && (

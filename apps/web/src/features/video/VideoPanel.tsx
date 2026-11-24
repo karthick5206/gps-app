@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { VideoChannelsDto, VideoRecordingDto, VideoSessionDto, VideoStreamType } from '@veetracer/shared';
-import { LayoutGridIcon, PlayIcon, SearchIcon, SquareIcon, VideoIcon } from 'lucide-react';
+import { PictureInPicture2Icon, PlayIcon, SearchIcon, SquareIcon, VideoIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,8 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { alertWindow, formatBytes, gridColumns, isAlarmRecording, playbackRange } from './video-utils';
+import { floatingVideo } from './floating-video-store';
+import { LiveControls } from './LiveControls';
 import { VideoPlayer, videoErrorText } from './VideoPlayer';
 
 export function useVideoChannels(objectId: string | null, enabled = true) {
@@ -28,39 +30,76 @@ export function useVideoChannels(objectId: string | null, enabled = true) {
   });
 }
 
-function LiveView({ objectId, vehicle, channels, initialChannel, large }: { objectId: string; vehicle: string; channels: number[]; initialChannel?: number; large?: boolean }) {
+/** Channel picker + players: every channel stacked one below another by default, each with its own controls. */
+export function LiveChannels({
+  objectId,
+  vehicle,
+  channels,
+  selected,
+  onSelect,
+  playing,
+  large,
+  compact,
+}: {
+  objectId: string;
+  vehicle: string;
+  channels: number[];
+  selected: number[];
+  onSelect: (channels: number[]) => void;
+  /** null = not playing yet. */
+  playing: { channels: number[]; stream: VideoStreamType } | null;
+  large?: boolean;
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
-  const [grid, setGrid] = useState(false);
-  const [selected, setSelected] = useState<number[]>([initialChannel && channels.includes(initialChannel) ? initialChannel : channels[0]]);
-  const [stream, setStream] = useState<VideoStreamType>('sub');
-  const [playing, setPlaying] = useState<{ channels: number[]; stream: VideoStreamType } | null>(null);
-
-  const toggle = (ch: number) => {
-    if (!grid) return setSelected([ch]);
-    setSelected((cur) => (cur.includes(ch) ? (cur.length > 1 ? cur.filter((c) => c !== ch) : cur) : [...cur, ch].sort((a, b) => a - b)));
-  };
-  const cols = gridColumns(playing?.channels.length ?? 1);
+  const [sessions, setSessions] = useState<Record<number, VideoSessionDto>>({});
+  const toggle = (ch: number) => onSelect(selected.includes(ch) ? (selected.length > 1 ? selected.filter((c) => c !== ch) : selected) : [...selected, ch].sort((a, b) => a - b));
+  const cols = large ? gridColumns(playing?.channels.length ?? 1) : 1;
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('Camera channel')}>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('Camera channel')}>
         {channels.map((ch) => (
-          <Button key={ch} size="sm" variant={selected.includes(ch) ? 'default' : 'outline'} aria-pressed={selected.includes(ch)} onClick={() => toggle(ch)}>
-            {t('CH{{n}}', { n: ch })}
+          <Button key={ch} size="sm" variant={selected.includes(ch) ? 'default' : 'outline'} aria-pressed={selected.includes(ch)} onClick={() => toggle(ch)} className={compact ? 'h-7 px-2' : undefined}>
+            {channelLabel(t, ch, channels.length)}
           </Button>
         ))}
-        <Button
-          size="sm"
-          variant={grid ? 'secondary' : 'ghost'}
-          aria-pressed={grid}
-          onClick={() => {
-            setGrid((g) => !g);
-            if (grid) setSelected((cur) => cur.slice(0, 1));
-          }}
-          title={t('Watch several channels at once')}
-        >
-          <LayoutGridIcon /> {t('Grid')}
-        </Button>
       </div>
+      {playing && (
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {playing.channels.map((ch) => (
+            <div key={`${ch}-${playing.stream}`} className="space-y-1.5">
+              <VideoPlayer
+                label={`${vehicle} · ${channelLabel(t, ch, channels.length)}`}
+                start={() => api.post<VideoSessionDto>(`/video/${objectId}/live`, { channel: ch, stream: playing.stream })}
+                onSession={(s) => setSessions((cur) => ({ ...cur, [ch]: s }))}
+                onClose={() => onSelect(selected.length > 1 ? selected.filter((c) => c !== ch) : selected)}
+              />
+              <LiveControls objectId={objectId} channel={ch} session={sessions[ch] ?? null} compact={compact} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Road camera" / "Driver camera" for 2-channel dashcams, else CH<n>. */
+export function channelLabel(t: (k: string, o?: Record<string, unknown>) => string, ch: number, count: number): string {
+  if (count === 2) return ch === 1 ? t('Road camera') : t('Driver camera');
+  return t('CH{{n}}', { n: ch });
+}
+
+function LiveView({ objectId, vehicle, channels, initialChannel, large }: { objectId: string; vehicle: string; channels: number[]; initialChannel?: number; large?: boolean }) {
+  const { t } = useTranslation();
+  // All channels by default (one below another); an alert opens just its own channel.
+  const [selected, setSelected] = useState<number[]>(initialChannel && channels.includes(initialChannel) ? [initialChannel] : channels);
+  const [stream, setStream] = useState<VideoStreamType>('sub');
+  const [playing, setPlaying] = useState<{ channels: number[]; stream: VideoStreamType } | null>(null);
+  // Channel changes while playing apply at once.
+  useEffect(() => setPlaying((p) => (p ? { ...p, channels: selected } : p)), [selected]);
+
+  return (
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={stream} onValueChange={(v) => setStream(v as VideoStreamType)}>
           <SelectTrigger className="h-8 w-44" aria-label={t('Quality')}>
@@ -80,19 +119,20 @@ function LiveView({ objectId, vehicle, channels, initialChannel, large }: { obje
             <VideoIcon /> {t('Live')}
           </Button>
         )}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            floatingVideo.open(objectId, vehicle, channels, selected);
+            setPlaying(null);
+          }}
+          title={t('Keep watching in a small window while you use the map and other pages')}
+        >
+          <PictureInPicture2Icon /> {t('Pop out')}
+        </Button>
       </div>
-      {playing ? (
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${large ? cols : Math.min(cols, 2)}, minmax(0, 1fr))` }}>
-          {playing.channels.map((ch) => (
-            <VideoPlayer
-              key={`${ch}-${playing.stream}`}
-              label={`${vehicle} · ${t('CH{{n}}', { n: ch })}`}
-              start={() => api.post<VideoSessionDto>(`/video/${objectId}/live`, { channel: ch, stream: playing.stream })}
-              onClose={() => setPlaying((p) => (p && p.channels.length > 1 ? { ...p, channels: p.channels.filter((c) => c !== ch) } : null))}
-            />
-          ))}
-        </div>
-      ) : (
+      <LiveChannels objectId={objectId} vehicle={vehicle} channels={channels} selected={selected} onSelect={setSelected} playing={playing} large={large} />
+      {!playing && (
         <p className="text-xs text-muted-foreground">{t('Live video uses mobile data on the dashcam SIM (about 256–512 kbps per channel on the sub-stream). It stops automatically when you close it.')}</p>
       )}
     </div>

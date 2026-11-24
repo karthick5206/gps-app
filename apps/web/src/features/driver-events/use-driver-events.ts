@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ALERT_TYPE_MAP, type AlertSeverity, type AlertTypeCode, type DriverEventDto, type DriverEventStatus } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, type AlertSeverity, type AlertTypeCode, type DriverEventDto, type DriverEventStatus, MANUAL_CAPTURE_TYPE } from '@veetracer/shared';
 import { api } from '@/lib/api';
 
 export const eventSeverity = (type: string): AlertSeverity => ALERT_TYPE_MAP[type as AlertTypeCode]?.defaultSeverity ?? 'WARNING';
-export const eventLabel = (type: string): string => ALERT_TYPE_MAP[type as AlertTypeCode]?.label ?? type;
+export const eventLabel = (type: string): string => (type === MANUAL_CAPTURE_TYPE ? 'Manual capture' : (ALERT_TYPE_MAP[type as AlertTypeCode]?.label ?? type));
 
 export function useDriverEvent(id: string | null, initial?: DriverEventDto | null) {
   return useQuery({

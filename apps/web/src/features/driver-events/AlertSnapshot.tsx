@@ -24,7 +24,7 @@ export function AlertSnapshot({ alertId, type }: { alertId: string; type: string
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{t('Dashcam snapshot')}</h3>
+        <h3 className="text-sm font-semibold">{t('Dashcam photo & clip')}</h3>
         {can('driver_events') && (
           <Link to={driverEventsPath({ event: e.id })} className="text-xs text-primary hover:underline">
             {t('Open driver event')}

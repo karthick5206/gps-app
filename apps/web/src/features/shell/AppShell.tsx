@@ -14,6 +14,7 @@ import { SystemHealthBanner } from './SystemHealthBanner';
 import { TopBar } from './TopBar';
 import { SosBanner } from '@/features/transport/incidents/SosShell';
 import { AppFooter } from './AppFooter';
+import { FloatingVideoPlayer } from '@/features/video/FloatingVideoPlayer';
 
 /** Keeps one Socket.IO connection per selected company while the user is in the app. */
 function useRealtimeConnection() {
@@ -71,6 +72,7 @@ export function AppShell() {
       </div>
       <LicenceRequiredDialog />
       <AccessReasonDialog />
+      <FloatingVideoPlayer />
     </div>
   );
 }
