@@ -9,6 +9,7 @@ import { Auth, Public, RequirePermission } from '../access/decorators';
 import { AuditService } from '../audit/audit.service';
 import { APP_ENV } from '../config/config.module';
 import { AppEnv } from '../config/env';
+import { MEDIAMTX_HLS } from './rtmp-live';
 import { verifyVideoToken } from './video-token';
 import { VideoService } from './video.service';
 
@@ -37,6 +38,8 @@ class StreamQuery {
 @Controller('video')
 export class VideoController {
   private readonly logger = new Logger('VideoProxy');
+  /** RTMP/HLS sessions whose view is already audited (HLS makes many requests per view). */
+  private readonly auditedHls = new Set<string>();
 
   constructor(
     private readonly video: VideoService,
@@ -72,6 +75,55 @@ export class VideoController {
   @Delete('sessions/:id') @HttpCode(204) @RequirePermission('video', 'view')
   async leave(@Auth() ctx: AuthContext, @Param('id') id: string): Promise<void> {
     await this.video.leave(ctx, id);
+  }
+
+  /**
+   * HLS for RTMP cameras (Jimi): `GET /api/video/hls/<sessionId>/<token>/<file>`, proxied from MediaMTX on localhost.
+   * The token sits in the path so the playlist's relative segment URLs carry it. The view is audited once per session
+   * (first playlist request).
+   */
+  @Get('hls/:sessionId/:token/*file') @Public()
+  async hls(@Param('sessionId') sessionId: string, @Param('token') token: string, @Param('file') file: string | string[], @Req() req: Request, @Res() res: Response): Promise<void> {
+    const parts = (Array.isArray(file) ? file : String(file).split('/')).filter(Boolean);
+    const claims = verifyVideoToken(decodeURIComponent(token), sessionId, this.env.jwtSecret);
+    if (!claims || !parts.length || parts.some((p) => !/^[\w.-]{1,120}$/.test(p) || p.startsWith('.'))) {
+      res.status(401).json({ statusCode: 401, message: 'This video link has expired. Start the video again.' });
+      return;
+    }
+    let rec;
+    try {
+      rec = await this.video.record({ companyId: claims.c, isSuperAdmin: true }, sessionId);
+    } catch {
+      rec = null;
+    }
+    if (!rec?.hlsPath) {
+      res.status(404).json({ statusCode: 404, message: 'This video stream has ended' });
+      return;
+    }
+    const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    const upstream = httpGet(`${MEDIAMTX_HLS}/${rec.hlsPath}/${parts.join('/')}${query}`, (up) => {
+      res.status(up.statusCode ?? 502);
+      const type = up.headers['content-type'];
+      if (type) res.setHeader('Content-Type', type);
+      res.setHeader('Cache-Control', 'no-cache, no-store, no-transform');
+      up.pipe(res);
+    });
+    upstream.on('error', (error) => {
+      this.logger.warn(`MediaMTX unreachable for ${sessionId}: ${error.message}`);
+      if (!res.headersSent) res.status(503).json({ statusCode: 503, message: 'The video server is not available' });
+      else res.end();
+    });
+    res.on('close', () => upstream.destroy());
+    if (parts.join('/') === 'index.m3u8' && !this.auditedHls.has(sessionId)) {
+      this.auditedHls.add(sessionId);
+      if (this.auditedHls.size > 5_000) this.auditedHls.clear();
+      void this.audit
+        .recordSystem(
+          { companyId: rec.companyId, userId: claims.u, ip: req.ip ?? null },
+          { action: 'CREATE', entity: 'VideoView', entityId: rec.objectId, details: { vehicle: rec.vehicle, channel: rec.channel, kind: rec.kind, sessionId, startedAt: new Date().toISOString(), transport: 'rtmp' } },
+        )
+        .catch((error: Error) => this.logger.error(`Video audit failed: ${error.message}`));
+    }
   }
 
   /**

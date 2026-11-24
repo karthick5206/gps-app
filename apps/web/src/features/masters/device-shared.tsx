@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { DEFAULT_SPEED_LIMIT_KPH, MOBILE_TRACKER_PROTOCOL, normalizeMobile, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
+import { DEFAULT_SPEED_LIMIT_KPH, deviceProtocolPort, MOBILE_TRACKER_PROTOCOL, normalizeMobile, type CompanyDto, type DeviceDto, type DeviceModelDto } from '@veetracer/shared';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -22,7 +22,15 @@ import { named, useEntityOptions } from './use-options';
 /** Platform-wide device inventory (Super Admin). */
 export const INVENTORY_ENDPOINT = '/admin/devices';
 
-export const modelOption = (m: DeviceModelDto): Option => ({ value: m.id, label: `${m.brand} ${m.model}`, description: m.protocol });
+/** Model option with the server port the device must be set to, e.g. "Concox V5 (5023)" (phone apps have no port). */
+export const modelOption = (m: DeviceModelDto): Option => {
+  const port = deviceProtocolPort(m.protocol);
+  return {
+    value: m.id,
+    label: port ? `${m.brand} ${m.model} (${port})` : `${m.brand} ${m.model}`,
+    description: port ? i18n.t('{{protocol}} · server port {{port}}', { protocol: m.protocol, port }) : m.protocol,
+  };
+};
 
 const schema = z.object({
   // IMEI-style ids, or a mobile number for the Tracker app model (checked in submit, where the model is known).

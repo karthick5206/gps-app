@@ -21,6 +21,7 @@ export * from './system-health';
 export * from './relay';
 export * from './io-sensors';
 export * from './mobile-tracker';
+export * from './device-ports';
 export * from './guide';
 export * from './troubleshooting';
 export * from './purge';

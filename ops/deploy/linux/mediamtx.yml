@@ -1,0 +1,47 @@
+# MediaMTX (MIT licence) for RTMP dashcams (Jimi JC400 / JC261): installed by install-mediamtx.sh as /etc/veetrax/mediamtx.yml.
+# Cameras push rtmp://<server>:1935/live/<channel>/<imei>. Only localhost may read (the API proxies HLS to viewers after
+# its own login / token checks) and use the control API; anything outside live/<digit>/<15-digit IMEI> is refused.
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: 127.0.0.1:9997
+metrics: no
+pprof: no
+playback: no
+
+rtsp: no
+webrtc: no
+srt: no
+
+rtmp: yes
+rtmpAddress: :1935
+
+hls: yes
+hlsAddress: 127.0.0.1:8888
+hlsVariant: fmp4
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+
+authMethod: internal
+authInternalUsers:
+  # Cameras: publish only (the firmware sends no credentials; paths are restricted below).
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+  # The API on this server: watch (HLS) and the control API.
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: read
+      - action: api
+
+pathDefaults:
+  record: no
+
+paths:
+  "~^live/[0-9]/[0-9]{15}$":
+    source: publisher

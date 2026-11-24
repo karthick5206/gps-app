@@ -25,17 +25,35 @@ DRIVER_FATIGUE / DRIVER_DISTRACTED / CAMERA_FAULT in `processor/rules/evaluate.t
 ## Pointing a camera at our servers (command list, sent by SMS or platform command)
 Order matters (vendor note): switch to the integrated mode first, then HTTP / RTMP, then TCP (the device restarts).
 1. `COREKITSW,0`, integrated (third-party platform) mode.
-2. `UPLOAD,http://<host>/upload`, clip / photo upload server (phase 2, not built yet).
-3. `RSERVICE,<host>:1935/live`, RTMP live video server (phase 3, not built yet).
+2. `UPLOAD,http://track.veetrax.com/dvr/upload`: event photo / clip upload (v1.25.0). HTTPS also works: `https://app.veetrax.com/api/dvr/jimi/upload`.
+3. `RSERVICE,103.176.85.69:1935/live`: RTMP live video server (MediaMTX, v1.25.0).
 4. `SERVER,0,103.176.85.69,5023` (live) or `SERVER,1,track.mintplus.co.in,5023` (demo): TCP server, then the device restarts.
+Optional: `UPLOADSW,<event>,ON` (e.g. CRASH, CLOSEEYES, FORWARDCOLLISION) so event clips upload automatically.
 
 Useful commands: `VERSION`, `STATUS`, `PARAM`, `REBOOT`, `Picture,in|out|inout`, `Video,in|out|inout,3s..10s`,
 `RTMP,ON|OFF,IN|OUT|INOUT,<minutes>`, `UPLOADFILE,<clip name>`, `UPLOADSW,<event>,ON|OFF|1|2`, `RELAY,<0|1>`.
 Clip names: `EVENT_<imei>_00000000_<yyyy_mm_dd_hh_mm_ss>_<channel F/I>_<code>.mp4` (code per event / camera).
 
+## Clip upload (v1.25.0)
+`dvr-upload/`: public `POST /api/dvr/jimi/upload` (Caddy also maps `http://track.veetrax.com/dvr/upload`).
+- Multipart `file`; `filename`, `timestamp`, `sign` as form fields or URL parameters.
+- sign = Base64(md5 hex(filename + timestamp + key)); the firmware key is in the API .env as **JIMI_UPLOAD_KEY**
+  (value from the vendor document; not in the repository).
+- The IMEI in the file name finds the device; capture time and place come from the 0x95 alarm position whose
+  `mediaFiles` lists the file (else the name's time in the company time zone).
+- The file then follows the JT/T 808 attachment path: var/driver-media/incoming → `vt:driver-media` → the notifier's
+  DriverEventWorker links it to the driver event → "Watch video".
+- Replies `{code:200}` even for unknown devices, so the camera does not retry forever.
+
+## Live video (v1.25.0)
+- MediaMTX (MIT; `ops/deploy/linux/install-mediamtx.sh`, unit veetrax-mediamtx) takes RTMP on :1935 (paths
+  `live/<n>/<imei>` only) and serves HLS on 127.0.0.1:8888; its API is on 127.0.0.1:9997.
+- `VideoService`: protocol GT06 + capability `video` = RTMP camera. Live sends `RTMP,ON,OUT|IN,15`
+  (CommandsService.sendInternal, shown in the command history), waits up to 25 s for the stream and returns
+  `/api/video/hls/<session>/<token>/index.m3u8` (token valid while the camera streams).
+- Channel 1 = road camera (OUT), 2 = driver camera (IN). The web player uses hls.js (Apache-2.0) for .m3u8 URLs.
+
 ## Still to build
-- **Phase 2:** HTTP upload server (`POST /upload`, multipart, `sign` = Base64(md5(filename + timestamp + key)))
-  and linking `mediaFiles` from 0x95 to the uploaded clips; playback name list endpoint (`FILELIST`).
-- **Phase 3:** RTMP ingest (open-source server, e.g. MediaMTX, MIT) and the live / playback player (`RTMP,ON,…`,
-  `REPLAYLIST,<names>`).
-- Device test: no unit available yet (2026-11-21); all layouts are checked against the vendor's example packets only.
+- Recorded video playback from the SD card (`FILELIST` name list + `REPLAYLIST` push).
+- Seat belt alert type.
+- Device test: no unit yet; layouts are checked against the vendor's example packets only.

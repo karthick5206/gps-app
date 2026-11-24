@@ -163,6 +163,30 @@ export class CommandsService implements OnModuleInit {
     return (await this.toDtos([row]))[0];
   }
 
+  /**
+   * Text command sent on behalf of another feature (dashcam live video `RTMP,ON,…`): recorded in the vehicle's command
+   * history as a custom command by the user who asked, never queued (an offline device just fails). True if delivered.
+   */
+  async sendInternal(ctx: AuthContext, objectId: string, text: string): Promise<boolean> {
+    const t = await this.target(ctx, objectId);
+    const row = await this.prisma.deviceCommand.create({
+      data: {
+        companyId: t.companyId,
+        objectId: t.objectId,
+        deviceId: t.deviceId,
+        uniqueId: t.uniqueId,
+        type: 'custom',
+        payload: text,
+        createdById: ctx.apiKey ? null : ctx.userId,
+        expiresAt: new Date(Date.now() + COMMAND_TTL_HOURS * 3600_000),
+      },
+    });
+    const delivered = await this.dispatch({ commandId: row.id, uniqueId: t.uniqueId, text, noQueue: true });
+    if (!delivered) await this.prisma.deviceCommand.update({ where: { id: row.id }, data: { status: 'FAILED', error: 'Tracker not connected' } });
+    this.logger.log(`${ctx.userId} → ${t.uniqueId} internal "${text}" (${row.id})${delivered ? '' : ' NOT SENT (not connected)'}`);
+    return delivered;
+  }
+
   // ── Engine-stop preparation: "request a fresh position, then confirm" (anti-theft proposal, Option 1) ──
 
   /**

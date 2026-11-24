@@ -1,6 +1,6 @@
 # VeeTrax production (Ubuntu): /etc/caddy/Caddyfile. Caddy gets and renews the HTTPS certificates itself.
 # DNS (all DNS-only / grey cloud): app, @ (and www once added) and track -> the server.
-# track.veetrax.com is for devices only (raw TCP ports, no website).
+# track.veetrax.com is for devices only: raw TCP ports, plus plain-HTTP dashcam uploads (block at the end).
 
 app.veetrax.com {
 	encode zstd gzip
@@ -48,4 +48,16 @@ app.veetrax.com {
 # The bare domain goes to the app until there is a landing page. Add www.veetrax.com here once its DNS record exists.
 veetrax.com {
 	redir https://app.veetrax.com{uri} permanent
+}
+
+# Dashcam photo / clip uploads over plain HTTP for firmware without HTTPS (Jimi JC400 / JC261: UPLOAD,http://track.veetrax.com/dvr/upload).
+# Only this one path; everything else on this host is 404.
+http://track.veetrax.com {
+	handle /dvr/upload {
+		rewrite * /api/dvr/jimi/upload?{query}
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle {
+		respond 404
+	}
 }

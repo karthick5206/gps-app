@@ -34,8 +34,9 @@ export function videoErrorText(t: TFunction, err: unknown): string {
 }
 
 /**
- * One HTTP-FLV player (mpegts.js over MSE). `start` opens (or joins) a session; leaving the page or pressing stop
- * destroys the player and tells the API the viewer left.
+ * One live player: HTTP-FLV (mpegts.js over MSE) for JT/T 1078 dashcams, HLS (hls.js / native) for RTMP cameras.
+ * `start` opens (or joins) a session; leaving the page or pressing stop destroys the player and tells the API the
+ * viewer left.
  */
 export function VideoPlayer({ start, label, onClose, className }: { start: () => Promise<VideoSessionDto>; label: string; onClose?: () => void; className?: string }) {
   const { t } = useTranslation();
@@ -60,12 +61,6 @@ export function VideoPlayer({ start, label, onClose, className }: { start: () =>
     setError(null);
 
     void (async () => {
-      const { default: mpegts } = await import('mpegts.js');
-      if (cancelled) return;
-      if (!mpegts.isSupported() || !mpegts.getFeatureList().mseLivePlayback) {
-        fail(t('This browser cannot play live video. Use Chrome, Edge or Firefox on a computer or Android.'));
-        return;
-      }
       let session: VideoSessionDto;
       try {
         session = await startRef.current();
@@ -78,8 +73,39 @@ export function VideoPlayer({ start, label, onClose, className }: { start: () =>
       if (cancelled || !video) return;
       sessionId = session.sessionId;
       setPhase('connecting');
+      const url = new URL(session.url, window.location.origin).toString();
+
+      // RTMP cameras (Jimi) come as HLS: hls.js over MSE, or the browser's own HLS (Safari / iPhone).
+      if (/\.m3u8(\?|$)/.test(session.url)) {
+        const { default: Hls } = await import('hls.js');
+        if (cancelled) return;
+        if (Hls.isSupported()) {
+          const hls = new Hls({ liveSyncDurationCount: 2, lowLatencyMode: false });
+          player = { destroy: () => hls.destroy(), unload: () => hls.stopLoad(), detachMediaElement: () => hls.detachMedia() };
+          hls.on(Hls.Events.ERROR, (_e, data) => {
+            if (data.fatal) fail(t('The video connection was lost.'));
+          });
+          hls.loadSource(url);
+          hls.attachMedia(video);
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = url;
+          player = { destroy: () => video.removeAttribute('src'), unload: () => video.pause(), detachMediaElement: () => video.load() };
+        } else {
+          fail(t('This browser cannot play live video. Use Chrome, Edge or Firefox on a computer or Android.'));
+          return;
+        }
+        void Promise.resolve(video.play()).catch(() => undefined);
+        return;
+      }
+
+      const { default: mpegts } = await import('mpegts.js');
+      if (cancelled) return;
+      if (!mpegts.isSupported() || !mpegts.getFeatureList().mseLivePlayback) {
+        fail(t('This browser cannot play live video. Use Chrome, Edge or Firefox on a computer or Android.'));
+        return;
+      }
       const p = mpegts.createPlayer(
-        { type: 'flv', isLive: true, url: new URL(session.url, window.location.origin).toString(), hasAudio: false, hasVideo: true },
+        { type: 'flv', isLive: true, url, hasAudio: false, hasVideo: true },
         { enableStashBuffer: false, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 3, liveBufferLatencyMinRemain: 0.5, lazyLoad: false },
       );
       player = p;

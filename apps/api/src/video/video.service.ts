@@ -19,8 +19,13 @@ import { LicencePolicyService } from '../licences/licence-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
+import { CommandsService } from '../commands/commands.service';
+import { listMediaPaths, MediaPath, pickReadyPath, RTMP_LIVE_MINUTES, rtmpCamera, rtmpCommand } from './rtmp-live';
 import { VideoGatewayReply, VideoRequestBody } from './video-messages';
 import { signVideoToken } from './video-token';
+
+/** How long to wait for an RTMP camera to start pushing after the command. */
+const RTMP_START_TIMEOUT_MS = 25_000;
 
 const REPLY_TIMEOUT_MS = 20_000;
 const SESSION_TTL_SEC = 6 * 3600;
@@ -47,6 +52,8 @@ export interface VideoTarget {
   companyId: string;
   name: string;
   uniqueId: string;
+  /** `jt1078`: JT/T 808 + 1078 dashcam via the gateway; `rtmp`: camera pushes RTMP to MediaMTX (Jimi, GT06 port). */
+  transport: 'jt1078' | 'rtmp';
 }
 
 /** What the API remembers about a session (Valkey), to authorise status / leave / stream calls. */
@@ -57,6 +64,8 @@ export interface VideoSessionRecord {
   uniqueId: string;
   channel: number;
   kind: VideoSessionKind;
+  /** RTMP sessions: MediaMTX path (`live/<n>/<imei>`) the HLS proxy reads. */
+  hlsPath?: string;
 }
 
 /**
@@ -74,6 +83,8 @@ export class VideoService implements OnModuleInit {
     private readonly redis: RedisService,
     @Inject(APP_ENV) private readonly env: AppEnv,
     @Optional() private readonly licences?: LicencePolicyService,
+    @Optional() private readonly commands?: CommandsService,
+    @Optional() private readonly mediaPaths: () => Promise<MediaPath[]> = listMediaPaths,
   ) {}
 
   onModuleInit(): void {
@@ -110,10 +121,44 @@ export class VideoService implements OnModuleInit {
     if (!o) throw new NotFoundException('Vehicle not found');
     await this.licences?.assertViewable(ctx, o.id);
     const d = o.assignments[0]?.device;
-    if (!d || d.model.protocol.toLowerCase() !== 'jt808' || !d.model.capabilities.includes('video')) {
-      throw videoError('NOT_DASHCAM', 'This vehicle has no dashcam with video. Video needs a JT/T 1078 dashcam (e.g. Mettax MC202).');
+    const protocol = d?.model.protocol.toLowerCase();
+    if (!d || !d.model.capabilities.includes('video') || (protocol !== 'jt808' && protocol !== 'gt06')) {
+      throw videoError('NOT_DASHCAM', 'This vehicle has no dashcam with video. Video needs a JT/T 1078 dashcam (e.g. Mettax MC202) or a Jimi JC400 / JC261.');
     }
-    return { objectId: o.id, companyId: o.companyId, name: o.name, uniqueId: d.uniqueId };
+    return { objectId: o.id, companyId: o.companyId, name: o.name, uniqueId: d.uniqueId, transport: protocol === 'gt06' ? 'rtmp' : 'jt1078' };
+  }
+
+  /**
+   * RTMP live (Jimi): asks the camera over its GT06 connection to push to MediaMTX and waits until the stream is up.
+   * A stream of the same camera that is already running is joined instead (Valkey remembers which camera streams).
+   */
+  private async rtmpLive(ctx: AuthContext, t: VideoTarget, channel: number): Promise<VideoSessionDto> {
+    const camKey = `vt:video:rtmp:${t.uniqueId}`;
+    const current = await this.redis.client.get(camKey);
+    let path = current === rtmpCamera(channel) ? pickReadyPath(await this.mediaPaths(), t.uniqueId) : null;
+    const joined = !!path;
+    if (!path) {
+      if (!this.commands) throw videoError('VIDEO_DISABLED', 'Live video is not available on this server');
+      const sentAt = Date.now();
+      if (!(await this.commands.sendInternal(ctx, t.objectId, rtmpCommand(channel)))) {
+        throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Video needs the device to be connected.');
+      }
+      while (!path && Date.now() - sentAt < RTMP_START_TIMEOUT_MS) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        path = pickReadyPath(await this.mediaPaths(), t.uniqueId, sentAt);
+      }
+      if (!path) {
+        throw videoError('DEVICE_TIMEOUT', 'The camera did not start streaming. Check that its RTMP server (RSERVICE) points to this server and try again.');
+      }
+      await this.redis.client.set(camKey, rtmpCamera(channel), 'EX', RTMP_LIVE_MINUTES * 60);
+    }
+    const sessionId = randomUUID();
+    const record: VideoSessionRecord = { objectId: t.objectId, companyId: t.companyId, vehicle: t.name, uniqueId: t.uniqueId, channel, kind: 'live', hlsPath: path };
+    await this.redis.client.set(RedisKeys.videoSession(sessionId), JSON.stringify(record), 'EX', SESSION_TTL_SEC);
+    // HLS fetches the playlist and segments for the whole stream: the token lasts as long as the camera streams.
+    const { token, expiresAt } = signVideoToken({ u: ctx.userId, c: t.companyId, s: sessionId }, this.env.jwtSecret, Date.now(), (RTMP_LIVE_MINUTES + 5) * 60);
+    this.logger.log(`${ctx.userId} ${joined ? 'joined' : 'started'} rtmp live ${t.uniqueId} ${path} (${sessionId})`);
+    return { sessionId, kind: 'live', channel, url: `/api/video/hls/${sessionId}/${encodeURIComponent(token)}/index.m3u8`, codec: 'h264', expiresAt: expiresAt.toISOString(), joined };
   }
 
   /** Sends one request to the device's gateway and waits for the answer; gateway errors become HTTP errors. */
@@ -145,6 +190,8 @@ export class VideoService implements OnModuleInit {
 
   async channels(ctx: AuthContext, objectId: string): Promise<VideoChannelsDto> {
     const t = await this.target(ctx, objectId);
+    // Jimi: road (OUT) and driver (IN) camera.
+    if (t.transport === 'rtmp') return { channels: [1, 2], source: 'default' };
     const key = RedisKeys.videoAttributes(t.uniqueId);
     let count: number | null = null;
     const cached = await this.redis.client.get(key);
@@ -164,6 +211,7 @@ export class VideoService implements OnModuleInit {
   async live(ctx: AuthContext, objectId: string, req: StartLiveVideoRequest): Promise<VideoSessionDto> {
     this.assertChannel(req.channel);
     const t = await this.target(ctx, objectId);
+    if (t.transport === 'rtmp') return this.rtmpLive(ctx, t, req.channel);
     const r = await this.ask(t.uniqueId, { op: 'live', channel: req.channel, stream: req.stream ?? 'sub' });
     return this.session(ctx, t, 'live', req.channel, r);
   }
@@ -172,6 +220,7 @@ export class VideoService implements OnModuleInit {
     this.assertChannel(req.channel);
     const { from, to } = this.range(req.start, req.end, MAX_PLAYBACK_MS);
     const t = await this.target(ctx, objectId);
+    if (t.transport === 'rtmp') throw new BadRequestException('Recorded video playback is not available for this camera yet. Use the event clips or live video.');
     const r = await this.ask(t.uniqueId, { op: 'playback', channel: req.channel, start: from.toISOString(), end: to.toISOString() });
     return this.session(ctx, t, 'playback', req.channel, r);
   }
@@ -180,6 +229,7 @@ export class VideoService implements OnModuleInit {
     if (channel !== 0) this.assertChannel(channel);
     const { from, to } = this.range(fromIso, toIso, MAX_RECORDING_RANGE_MS);
     const t = await this.target(ctx, objectId);
+    if (t.transport === 'rtmp') return [];
     const r = await this.ask(t.uniqueId, { op: 'recordings', channel, from: from.toISOString(), to: to.toISOString() });
     return (r.recordings ?? []).sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
   }
@@ -220,6 +270,10 @@ export class VideoService implements OnModuleInit {
 
   async status(ctx: AuthContext, sessionId: string): Promise<VideoSessionStatusDto> {
     const rec = await this.record(ctx, sessionId);
+    if (rec.hlsPath) {
+      const up = (await this.mediaPaths()).some((p) => p.name === rec.hlsPath && p.ready);
+      return { sessionId, state: up ? 'streaming' : 'closed', codec: 'h264', viewers: 0, frames: 0 };
+    }
     const r = await this.ask(rec.uniqueId, { op: 'status', sessionId }).catch(() => null);
     const s = r?.status;
     return s ? { sessionId, ...s } : { sessionId, state: 'closed', codec: 'unknown', viewers: 0, frames: 0 };
@@ -227,6 +281,8 @@ export class VideoService implements OnModuleInit {
 
   async leave(ctx: AuthContext, sessionId: string): Promise<void> {
     const rec = await this.record(ctx, sessionId);
+    // RTMP: the camera stops by itself after RTMP_LIVE_MINUTES; other viewers may still be watching.
+    if (rec.hlsPath) return;
     await this.ask(rec.uniqueId, { op: 'leave', sessionId }).catch(() => undefined);
   }
 }
