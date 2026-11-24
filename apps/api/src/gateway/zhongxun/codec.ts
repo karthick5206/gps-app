@@ -173,6 +173,8 @@ export function splitZhongxun(buf: Buffer, maxFrameBytes = ZX_MAX_FRAME_BYTES): 
 
 export interface ZxFix {
   time: Date;
+  /** `time` as ISO text, built from the packet bytes without a Date round trip (hot path). */
+  iso: string;
   satellites: number;
   lat: number;
   lng: number;
@@ -186,11 +188,13 @@ const COORD_SCALE = 1_800_000;
 /** date(6, hex, UTC) · gps length/satellites(1) · lat(4) · lng(4) · speed(1) · status/course(2), as in GT06. */
 export function readZxFix(c: Buffer, at = 0): ZxFix {
   const time = new Date(Date.UTC(2000 + c[at], c[at + 1] - 1, c[at + 2], c[at + 3], c[at + 4], c[at + 5]));
+  const iso = zxIso(c, at) ?? (Number.isNaN(time.getTime()) ? new Date(0).toISOString() : time.toISOString());
   const status = c.readUInt16BE(at + 16);
   const north = (status & 0x0400) !== 0;
   const west = (status & 0x0800) !== 0;
   return {
     time,
+    iso,
     satellites: c[at + 6] & 0x0f,
     lat: (c.readUInt32BE(at + 7) / COORD_SCALE) * (north ? 1 : -1),
     lng: (c.readUInt32BE(at + 11) / COORD_SCALE) * (west ? -1 : 1),
@@ -198,6 +202,17 @@ export function readZxFix(c: Buffer, at = 0): ZxFix {
     course: status & 0x03ff,
     positioned: (status & 0x1000) !== 0,
   };
+}
+
+const two = (n: number) => (n < 10 ? '0' + n : String(n));
+const DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** ISO text of a packet date (YY MM DD hh mm ss, UTC) when every field is in range; null → let Date normalise it. */
+export function zxIso(c: Buffer, at = 0): string | null {
+  const y = c[at], mo = c[at + 1], d = c[at + 2], h = c[at + 3], mi = c[at + 4], s = c[at + 5];
+  if (y > 99 || mo < 1 || mo > 12 || d < 1 || d > DAYS[mo - 1] || h > 23 || mi > 59 || s > 59) return null;
+  if (mo === 2 && d === 29 && y % 4 !== 0) return null;
+  return `20${two(y)}-${two(mo)}-${two(d)}T${two(h)}:${two(mi)}:${two(s)}.000Z`;
 }
 
 /** Alarm byte of V1.2 GPS / Wi-Fi packets → normalised alarm (first set bit that is an alarm). */
@@ -215,8 +230,19 @@ export function zxFrame(proto: number, content: Buffer = Buffer.alloc(0), b2 = c
   return Buffer.concat([Buffer.from([0x78, 0x78, b2 & 0xff, proto]), content, Buffer.from(ZX_STOP)]);
 }
 
-/** Reply to GPS / Wi-Fi packets: `78 78 00 <proto> <date(6) as sent> 0D 0A`. */
-export const zxDateReply = (proto: number, date: Buffer) => zxFrame(proto, date.subarray(0, 6), 0x00);
+/** Reply to GPS / Wi-Fi packets: `78 78 00 <proto> <date(6) as sent> 0D 0A` (one allocation, sent for every fix). */
+export function zxDateReply(proto: number, date: Buffer): Buffer {
+  const n = Math.min(6, date.length);
+  const out = Buffer.allocUnsafe(6 + n);
+  out[0] = 0x78;
+  out[1] = 0x78;
+  out[2] = 0x00;
+  out[3] = proto;
+  date.copy(out, 4, 0, n);
+  out[4 + n] = 0x0d;
+  out[5 + n] = 0x0a;
+  return out;
+}
 
 /** Time sync reply (0x30): year(2) month day hour minute second, hex, UTC. */
 export function zxTimeReply(now: Date): Buffer {

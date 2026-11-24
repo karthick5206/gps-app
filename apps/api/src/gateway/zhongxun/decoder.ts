@@ -13,7 +13,32 @@ export interface ZhongxunSession extends BaseSession {
   /** Device time zone (hours east of UTC) from the status packet. */
   timeZoneHours: number | null;
   lastFix: { lat: number; lng: number; course: number } | null;
+  /** Time (ms) of the last event without GPS: each gets a unique time, so its history row is never lost. */
+  lastEventMs: number;
 }
+
+/**
+ * Last GPS fix per card, kept across connections in this gateway process (bounded): an SOS straight after a reconnect
+ * (common indoors on a weak network) still carries the real last position instead of 0,0.
+ */
+const LAST_FIX = new Map<string, { lat: number; lng: number; course: number }>();
+const LAST_FIX_MAX = 100_000;
+function rememberFix(uniqueId: string, fix: { lat: number; lng: number; course: number }): void {
+  LAST_FIX.delete(uniqueId);
+  LAST_FIX.set(uniqueId, fix);
+  if (LAST_FIX.size > LAST_FIX_MAX) LAST_FIX.delete(LAST_FIX.keys().next().value as string);
+}
+
+/** receivedAt as ISO text, memoised: every frame of one TCP chunk shares the same Date. */
+let isoDate: Date | null = null;
+let isoText = '';
+const receivedIso = (d: Date): string => {
+  if (d !== isoDate) {
+    isoDate = d;
+    isoText = d.toISOString();
+  }
+  return isoText;
+};
 
 /** Wi-Fi / cell packets that must be answered with their date (and carry an optional alarm byte). */
 const WIFI_LBS = new Set<number>([P.WIFI_LBS, P.WIFI_LBS_OFFLINE, P.WIFI_LBS_4G, P.WIFI_LBS_4G_OFFLINE, P.WIFI_LBS_4G_SPECIAL, P.WIFI_LBS_4G_SPECIAL_OFFLINE]);
@@ -33,7 +58,7 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
   readonly maxFrameBytes = ZX_MAX_FRAME_BYTES;
 
   createSession(): ZhongxunSession {
-    return { uniqueId: null, batteryLevel: null, charging: null, gsmSignal: null, iccid: null, timeZoneHours: null, lastFix: null };
+    return { uniqueId: null, batteryLevel: null, charging: null, gsmSignal: null, iccid: null, timeZoneHours: null, lastFix: null, lastEventMs: 0 };
   }
 
   split(buf: Buffer): SplitResult {
@@ -58,6 +83,7 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
     switch (proto) {
       case P.LOGIN: {
         session.uniqueId = c.subarray(0, 8).toString('hex').replace(/^0/, '');
+        session.lastFix = session.lastFix ?? LAST_FIX.get(session.uniqueId) ?? null;
         result.replies.push(zxFrame(P.LOGIN, Buffer.alloc(0), 0x01));
         break;
       }
@@ -87,7 +113,10 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
         result.replies.push(zxTimeReply(ctx.receivedAt));
         break;
       case P.SOS:
-        event({ alarm: 'sos' });
+        // No GPS in this packet: raised at the last known fix (the processor falls back to the vehicle's last valid
+        // point when even that is missing). Ask the card to locate now, so a fresh fix follows the alert.
+        event({ alarm: 'sos', noGpsFix: true });
+        result.replies.push(zxFrame(P.LOCATE, Buffer.alloc(0), 0x01));
         break;
       case P.VIBRATION:
         event({ alarm: 'vibration' });
@@ -124,9 +153,14 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
         break;
       }
       case P.CALL_SOS:
+        // The card asks to call its SOS number (long press): an emergency as well, so it raises SOS too (the alert
+        // cooldown merges it with a 0x99 sent for the same press).
+        event({ alarm: 'sos', event: 'callSos', noGpsFix: true });
+        result.replies.push(zxFrame(P.LOCATE, Buffer.alloc(0), 0x01));
+        break;
       case P.CALL_DAD:
       case P.CALL_MOM:
-        event({ event: proto === P.CALL_SOS ? 'callSos' : proto === P.CALL_DAD ? 'callDad' : 'callMom' });
+        event({ event: proto === P.CALL_DAD ? 'callDad' : 'callMom' });
         break;
       case P.ATTENDANCE:
         event({ event: c[0] === 1 ? 'wifiAttendanceIn' : 'wifiAttendanceOut' });
@@ -176,12 +210,15 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
   }
 
   private position(session: ZhongxunSession, fix: ZxFix, frame: Buffer, ctx: DecodeContext, reupload: boolean, altitude: number | null, extra: Record<string, unknown>): NormalizedPosition {
-    if (fix.positioned) session.lastFix = { lat: fix.lat, lng: fix.lng, course: fix.course };
+    if (fix.positioned) {
+      session.lastFix = { lat: fix.lat, lng: fix.lng, course: fix.course };
+      rememberFix(session.uniqueId!, session.lastFix);
+    }
     return {
       protocol: ZHONGXUN_PROTOCOL,
       uniqueId: session.uniqueId!,
-      fixTime: fix.time.toISOString(),
-      receivedAt: ctx.receivedAt.toISOString(),
+      fixTime: fix.iso,
+      receivedAt: receivedIso(ctx.receivedAt),
       lat: fix.lat,
       lng: fix.lng,
       speedKph: fix.speedKph,
@@ -204,7 +241,10 @@ export class ZhongxunDecoder implements ProtocolDecoder<ZhongxunSession> {
   /** Event without GPS: receive time at the last known fix, marked invalid (keeps the map point, carries the alarm). */
   private eventPosition(session: ZhongxunSession, frame: Buffer, ctx: DecodeContext, extra: Record<string, unknown>): NormalizedPosition {
     const last = session.lastFix ?? { lat: 0, lng: 0, course: 0 };
-    const fix: ZxFix = { time: ctx.receivedAt, satellites: 0, lat: last.lat, lng: last.lng, speedKph: 0, course: last.course, positioned: false };
+    const ms = Math.max(ctx.receivedAt.getTime(), session.lastEventMs + 1);
+    session.lastEventMs = ms;
+    const time = new Date(ms);
+    const fix: ZxFix = { time, iso: time.toISOString(), satellites: 0, lat: last.lat, lng: last.lng, speedKph: 0, course: last.course, positioned: false };
     return this.position(session, fix, frame, ctx, false, null, extra);
   }
 }

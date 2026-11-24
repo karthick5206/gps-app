@@ -147,3 +147,55 @@ describe('Zhongxun blue ID card (vendor document examples)', () => {
     expect(zxCommand('WHERE')).toBeNull();
   });
 });
+
+describe('Zhongxun SOS without GPS (v1.30.1)', () => {
+  it('SOS asks the card to locate now and is marked as having no own fix', () => {
+    const { feed } = session();
+    feed(DOC.login);
+    feed(DOC.gps);
+    const r = feed(DOC.sos);
+    expect(r.positions).toHaveLength(1);
+    expect(r.positions[0].attributes).toMatchObject({ alarm: 'sos', noGpsFix: true });
+    expect(r.positions[0].valid).toBe(false);
+    expect(r.replies.map((b) => b.toString('hex'))).toContain('7878018' + '00d0a');
+  });
+
+  it('a reconnect keeps the last fix: SOS on a new connection is at the last position, not 0,0', () => {
+    const first = session();
+    first.feed(DOC.login);
+    const fix = first.feed(DOC.gps).positions[0];
+    const second = session('2010-03-23T16:30:00Z'); // new TCP connection, no GPS yet
+    second.feed(DOC.login);
+    const sos = second.feed(DOC.sos).positions[0];
+    expect([sos.lat, sos.lng]).toEqual([fix.lat, fix.lng]);
+    expect(sos.attributes).toMatchObject({ alarm: 'sos' });
+  });
+
+  it("the card's call-SOS request (0x41 01) also raises SOS", () => {
+    const { feed } = session();
+    feed(DOC.login);
+    const r = feed(h('7878 02 41 01 0D0A'));
+    expect(r.positions[0].attributes).toMatchObject({ alarm: 'sos', event: 'callSos' });
+    expect(r.replies.map((b) => b.toString('hex'))).toContain('787801800d0a');
+  });
+
+  it('events without GPS in one TCP chunk get distinct times, so no history row is lost', () => {
+    const { feed } = session();
+    feed(DOC.login);
+    feed(DOC.gps);
+    const a = feed(DOC.statusSignal).positions[0];
+    const b = feed(DOC.sos).positions[0];
+    expect(a.fixTime).not.toBe(b.fixTime);
+    expect(Date.parse(b.fixTime)).toBeGreaterThan(Date.parse(a.fixTime));
+  });
+
+  it('fast fix time text equals the Date-based ISO, and odd dates still fall back safely', () => {
+    const { feed } = session();
+    feed(DOC.login);
+    const p = feed(DOC.gps).positions[0];
+    expect(p.fixTime).toBe(new Date(Date.UTC(2010, 2, 23, 15, 50, 23)).toISOString());
+    // Day 0 / month 13 from a confused firmware: no crash, a valid ISO string.
+    const odd = feed(h('7878 12 10 0A0D00172317 9C 026B3F3E 0C22AD65 1F 3460 0D0A')).positions[0];
+    expect(Number.isNaN(Date.parse(odd.fixTime))).toBe(false);
+  });
+});
