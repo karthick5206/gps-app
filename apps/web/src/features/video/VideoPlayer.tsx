@@ -38,7 +38,20 @@ export function videoErrorText(t: TFunction, err: unknown): string {
  * `start` opens (or joins) a session; leaving the page or pressing stop destroys the player and tells the API the
  * viewer left.
  */
-export function VideoPlayer({ start, label, onClose, className }: { start: () => Promise<VideoSessionDto>; label: string; onClose?: () => void; className?: string }) {
+export function VideoPlayer({
+  start,
+  label,
+  onClose,
+  onSession,
+  className,
+}: {
+  start: () => Promise<VideoSessionDto>;
+  label: string;
+  onClose?: () => void;
+  /** The session once started (transport, stream end time for RTMP cameras). */
+  onSession?: (s: VideoSessionDto) => void;
+  className?: string;
+}) {
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [phase, setPhase] = useState<Phase>('starting');
@@ -46,6 +59,8 @@ export function VideoPlayer({ start, label, onClose, className }: { start: () =>
   const [attempt, setAttempt] = useState(0);
   const startRef = useRef(start);
   startRef.current = start;
+  const onSessionRef = useRef(onSession);
+  onSessionRef.current = onSession;
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +87,7 @@ export function VideoPlayer({ start, label, onClose, className }: { start: () =>
       // leave could close a stream another tile just joined.
       if (cancelled || !video) return;
       sessionId = session.sessionId;
+      onSessionRef.current?.(session);
       setPhase('connecting');
       const url = new URL(session.url, window.location.origin).toString();
 

@@ -1,5 +1,17 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Param, ParseUUIDPipe, Post, Query, Req, Res } from '@nestjs/common';
-import { StartLiveVideoRequest, StartPlaybackRequest, VideoChannelsDto, VideoRecordingDto, VideoSessionDto, VideoSessionStatusDto, VideoStreamType } from '@veetracer/shared';
+import { Throttle } from '@nestjs/throttler';
+import {
+  StartLiveVideoRequest,
+  StartPlaybackRequest,
+  VideoCaptureDto,
+  VideoCaptureRequest,
+  VideoChannelsDto,
+  VideoExtendDto,
+  VideoRecordingDto,
+  VideoSessionDto,
+  VideoSessionStatusDto,
+  VideoStreamType,
+} from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Request, Response } from 'express';
@@ -22,6 +34,16 @@ class PlaybackDto implements StartPlaybackRequest {
   @Type(() => Number) @IsInt() @Min(1) @Max(16) channel!: number;
   @IsISO8601() start!: string;
   @IsISO8601() end!: string;
+}
+
+class ExtendDto {
+  @Type(() => Number) @IsInt() @Min(1) @Max(16) channel!: number;
+}
+
+class CaptureDto implements VideoCaptureRequest {
+  @Type(() => Number) @IsInt() @Min(1) @Max(16) channel!: number;
+  @IsIn(['photo', 'video']) kind!: 'photo' | 'video';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(3) @Max(10) seconds?: number;
 }
 
 class RecordingsQuery {
@@ -55,6 +77,18 @@ export class VideoController {
   @Post(':objectId/live') @HttpCode(200) @RequirePermission('video', 'view')
   live(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() body: LiveDto): Promise<VideoSessionDto> {
     return this.video.live(ctx, objectId, body);
+  }
+
+  /** RTMP cameras (Jimi): keep the live stream running for another period. */
+  @Post(':objectId/extend') @HttpCode(200) @RequirePermission('video', 'view')
+  extend(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() body: ExtendDto): Promise<VideoExtendDto> {
+    return this.video.extend(ctx, objectId, body.channel);
+  }
+
+  /** Photo or short clip on request; it arrives in Video evidence as a "Manual capture" event. */
+  @Post(':objectId/capture') @HttpCode(200) @RequirePermission('video', 'view') @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  capture(@Auth() ctx: AuthContext, @Param('objectId', ParseUUIDPipe) objectId: string, @Body() body: CaptureDto): Promise<VideoCaptureDto> {
+    return this.video.capture(ctx, objectId, body);
   }
 
   @Get(':objectId/recordings') @RequirePermission('video', 'view')

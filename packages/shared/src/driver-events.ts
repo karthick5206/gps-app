@@ -177,11 +177,14 @@ export const DRIVER_EVENT_WEIGHTS: Record<DriverEventType, number> = {
   SOS: 0,
 };
 
+/** Driver event type of a photo / clip a user asked the dashcam for (Video: Snapshot / Record); never a violation. */
+export const MANUAL_CAPTURE_TYPE = 'MANUAL_CAPTURE';
+
 /** Simple safety score 0–100: 100 minus the weighted penalties (dismissed events don't count). */
 export function driverScore(events: { type: string; level: number | null; status?: string }[]): number {
   let penalty = 0;
   for (const e of events) {
-    if (e.status === 'DISMISSED') continue;
+    if (e.status === 'DISMISSED' || e.type === MANUAL_CAPTURE_TYPE) continue;
     const w = DRIVER_EVENT_WEIGHTS[e.type as DriverEventType] ?? 1;
     penalty += w * Math.min(Math.max(e.level ?? 1, 1), 3);
   }

@@ -19,6 +19,7 @@ import { AlertTypeIcon } from './alert-icons';
 import { AlertStateBadge, SeverityBadge } from './badges';
 import { videoPagePath } from '@/features/video/video-utils';
 import { AlertSnapshot } from '@/features/driver-events/AlertSnapshot';
+import { GoLiveButton } from '@/features/video/GoLiveButton';
 
 const MiniMap = lazy(() => import('./MiniMap').then((m) => ({ default: m.MiniMap })));
 
@@ -139,6 +140,7 @@ export function AlertDetailSheet({ alertId, initial, onClose, onAck }: { alertId
                     </Link>
                   </Button>
                 )}
+                {can('video') && ['adas', 'dms'].includes(ALERT_TYPE_MAP[a.type]?.capability ?? '') && <GoLiveButton objectId={a.objectId} vehicle={a.objectName} />}
                 {can('alerts', 'edit') && a.status === 'NEW' && a.ackRequired && (
                   <Button size="sm" onClick={() => onAck(a)}>
                     <CheckIcon /> {t('Acknowledge')}
