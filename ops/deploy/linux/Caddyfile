@@ -65,6 +65,11 @@ http://track.veetrax.com {
 		rewrite * /api/dvr/jimi/upload?{query}
 		reverse_proxy 127.0.0.1:4000
 	}
+	# SD-card recording name list (FILELIST,http://track.veetrax.com/dvr/filelist).
+	handle /dvr/filelist {
+		rewrite * /api/dvr/jimi/filelist
+		reverse_proxy 127.0.0.1:4000
+	}
 	handle {
 		respond 404
 	}

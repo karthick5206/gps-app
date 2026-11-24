@@ -3,6 +3,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
+import { json } from 'express';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { displayHost, resolveApiHost } from './config/api-host';
@@ -18,6 +19,9 @@ async function bootstrap(): Promise<void> {
   app.set('trust proxy', 'loopback');
   // Gzip JSON/CSV: the live snapshot is ~600 B per object (~6 MB at 10k objects) before compression.
   app.use(compression());
+  // Jimi dashcams post their whole SD-card name list (can pass 1 MB) as JSON, sometimes without a JSON content type.
+  // Registered before Nest's own parser (100 kB), which then skips the already-parsed body.
+  app.use('/api/dvr/jimi/filelist', json({ limit: '4mb', type: () => true }));
   app.setGlobalPrefix('api');
   app.enableCors({ origin: env.corsOrigins, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));

@@ -34,6 +34,13 @@ export function pickReadyPath(items: MediaPath[], imei: string, since?: number):
   return ready[0]?.name ?? null;
 }
 
+/** Recorded-video push (`REPLAYLIST`): the camera streams SD-card files to `live/<imei>` (no channel). */
+export function pickPlaybackPath(items: MediaPath[], imei: string, since?: number): string | null {
+  const name = `live/${imei}`;
+  const p = items.find((i) => i.name === name && i.ready && (since === undefined || (i.readyTime !== null && Date.parse(i.readyTime) >= since - 2_000)));
+  return p ? p.name : null;
+}
+
 /** MediaMTX /v3/paths/list (localhost API). Empty when MediaMTX is not running. */
 export function listMediaPaths(base = MEDIAMTX_API): Promise<MediaPath[]> {
   return new Promise((resolve) => {

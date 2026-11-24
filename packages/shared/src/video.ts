@@ -41,6 +41,9 @@ export interface VideoSessionDto {
   transport?: 'jt1078' | 'rtmp';
   /** RTMP cameras stream for a fixed time: when it stops unless extended (`POST /video/:objectId/extend`). */
   streamEndsAt?: string | null;
+  /** Recorded playback from an SD card (RTMP cameras): wall-clock time of the first frame, to map player time to the
+   * timeline. */
+  startsAt?: string | null;
 }
 
 /** `POST /video/:objectId/capture`: ask the dashcam for a photo or a short clip of one camera. */
@@ -87,4 +90,6 @@ export interface VideoRecordingDto {
   /** 1 main storage, 2 disaster backup. */
   storageType: number;
   sizeBytes: number;
+  /** SD-card file name (Jimi cameras), e.g. `2026_11_24_10_00_00_01.mp4`. */
+  fileName?: string;
 }

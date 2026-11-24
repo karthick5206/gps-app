@@ -50,13 +50,19 @@ With **JIMI_SETUP_COMMANDS** in the API .env (`|`-separated, e.g. `UPLOAD,http:/
 
 ## Live video (v1.25.0)
 - MediaMTX (MIT; `ops/deploy/linux/install-mediamtx.sh`, unit veetrax-mediamtx) takes RTMP on :1935 (paths
-  `live/<n>/<imei>` only) and serves HLS on 127.0.0.1:8888; its API is on 127.0.0.1:9997.
+  `live/<n>/<imei>` for live, `live/<imei>` for SD-card playback) and serves HLS on 127.0.0.1:8888; its API is on 127.0.0.1:9997.
 - `VideoService`: protocol GT06 + capability `video` = RTMP camera. Live sends `RTMP,ON,OUT|IN,15`
   (CommandsService.sendInternal, shown in the command history), waits up to 25 s for the stream and returns
   `/api/video/hls/<session>/<token>/index.m3u8` (token valid while the camera streams).
 - Channel 1 = road camera (OUT), 2 = driver camera (IN). The web player uses hls.js (Apache-2.0) for .m3u8 URLs.
 
+## SD-card recordings (v1.29.0)
+- `FILELIST,<url>` sets where the camera posts its name list; `FILELIST` alone makes it post now. Body JSON
+  `{"imei":"…","fileNameList":"a.mp4,b.mp4"}`, answer `{"code":0,"ok":true}`. Our URL: `http://track.veetrax.com/dvr/filelist`.
+- Names `yyyy_mm_dd_hh_mi_ss_<code>.mp4` in camera local time: 01 road / 02 driver (1-min, low quality), 03 / 04 HD.
+- `REPLAYLIST,<name>,<name>…` pushes the files over RTMP to `live/<imei>` (no channel); `REPLAYLIST,OFF` stops.
+- `HVIDEO,<yyyy_mm_dd_hh_mi_ss>,<1|2>` uploads one recorded minute through the HTTP upload (for downloads, not built yet).
+
 ## Still to build
-- Recorded video playback from the SD card (`FILELIST` name list + `REPLAYLIST` push).
-- Seat belt alert type.
+- Downloads of recorded video (HVIDEO queue) and the timeline page.
 - Device test: no unit yet; layouts are checked against the vendor's example packets only.

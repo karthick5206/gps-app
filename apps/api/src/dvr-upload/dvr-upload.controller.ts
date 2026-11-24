@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { DRIVER_MEDIA_MAX_VIDEO_BYTES } from '@veetracer/shared';
 import { Public } from '../access/decorators';
-import { DvrUploadService, JimiUploadReply } from './dvr-upload.service';
+import { DvrUploadService, JimiFileListReply, JimiUploadReply } from './dvr-upload.service';
 
 /**
  * Device-facing upload endpoint for Jimi dashcams (no user login: the request is checked by the firmware's `sign`).
@@ -24,5 +24,11 @@ export class DvrUploadController {
     // The vendor document lists filename / timestamp / sign as URL parameters; form fields are accepted too.
     const pick = (k: string) => body?.[k] ?? query?.[k];
     return this.service.upload({ file, filename: pick('filename'), timestamp: pick('timestamp'), sign: pick('sign') });
+  }
+
+  /** SD-card recording name list (`FILELIST`); http://track.veetrax.com/dvr/filelist rewrites here. Body limit 4 MB (main.ts). */
+  @Public() @Post('jimi/filelist') @HttpCode(200) @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  fileList(@Body() body: { imei?: unknown; fileNameList?: unknown } | undefined): Promise<JimiFileListReply> {
+    return this.service.fileList(body);
   }
 }

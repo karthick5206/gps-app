@@ -24,7 +24,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
 import { CommandsService } from '../commands/commands.service';
-import { listMediaPaths, MediaPath, pickReadyPath, RTMP_LIVE_MINUTES, rtmpCamera, rtmpCommand } from './rtmp-live';
+import { zonedToUtc } from '../dvr-upload/dvr-upload.logic';
+import { filesForPlayback, JimiRecordingFile, jimiRecordings, parseJimiFileList } from './jimi-recordings';
+import { listMediaPaths, MediaPath, pickPlaybackPath, pickReadyPath, RTMP_LIVE_MINUTES, rtmpCamera, rtmpCommand } from './rtmp-live';
 import { VideoGatewayReply, VideoRequestBody } from './video-messages';
 import { signVideoToken } from './video-token';
 
@@ -32,6 +34,12 @@ import { signVideoToken } from './video-token';
 const RTMP_START_TIMEOUT_MS = 25_000;
 /** Longest an RTMP stream can run with Extend (the Jimi firmware limit, 180 min): the HLS token lasts this long. */
 const RTMP_MAX_MINUTES = 185;
+/** Jimi SD-card name list: ask the camera again when the cached list is older than this. */
+const FILE_LIST_FRESH_MS = 60_000;
+/** How long to wait for the camera to post its name list after `FILELIST`. */
+const FILE_LIST_TIMEOUT_MS = 25_000;
+/** Files per `REPLAYLIST` (1-min files: 5 min of video per request). */
+const REPLAY_MAX_FILES = 5;
 
 const REPLY_TIMEOUT_MS = 20_000;
 const SESSION_TTL_SEC = 6 * 3600;
@@ -272,7 +280,7 @@ export class VideoService implements OnModuleInit {
     this.assertChannel(req.channel);
     const { from, to } = this.range(req.start, req.end, MAX_PLAYBACK_MS);
     const t = await this.target(ctx, objectId);
-    if (t.transport === 'rtmp') throw new BadRequestException('Recorded video playback is not available for this camera yet. Use the event clips or live video.');
+    if (t.transport === 'rtmp') return this.rtmpPlayback(ctx, t, req.channel, from, to);
     const r = await this.ask(t.uniqueId, { op: 'playback', channel: req.channel, start: from.toISOString(), end: to.toISOString() });
     return this.session(ctx, t, 'playback', req.channel, r);
   }
@@ -281,9 +289,85 @@ export class VideoService implements OnModuleInit {
     if (channel !== 0) this.assertChannel(channel);
     const { from, to } = this.range(fromIso, toIso, MAX_RECORDING_RANGE_MS);
     const t = await this.target(ctx, objectId);
-    if (t.transport === 'rtmp') return [];
+    if (t.transport === 'rtmp') {
+      const { files, toUtc } = await this.jimiFiles(ctx, t);
+      return jimiRecordings(files, channel, from, to, toUtc);
+    }
     const r = await this.ask(t.uniqueId, { op: 'recordings', channel, from: from.toISOString(), to: to.toISOString() });
     return (r.recordings ?? []).sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''));
+  }
+
+  /**
+   * Jimi SD-card recordings: the name list the camera posts after `FILELIST` (DvrUploadService.fileList). A list younger
+   * than FILE_LIST_FRESH_MS is reused; otherwise the camera is asked and we wait for a newer one (an older list is the
+   * fallback when it does not answer). Names are camera wall clock in the company time zone.
+   */
+  private async jimiFiles(ctx: AuthContext, t: VideoTarget, fresh = true): Promise<{ files: JimiRecordingFile[]; toUtc: (local: string) => Date }> {
+    const company = await this.prisma.company.findUnique({ where: { id: t.companyId }, select: { timezone: true } });
+    const tz = company?.timezone || 'Asia/Kolkata';
+    const toUtc = (local: string) => zonedToUtc(local, tz);
+    const key = RedisKeys.jimiFileList(t.uniqueId);
+    const read = async () => {
+      const raw = await this.redis.client.get(key);
+      return raw ? (JSON.parse(raw) as { at: number; names: string[] }) : null;
+    };
+    let list = await read();
+    if (fresh && (!list || Date.now() - list.at > FILE_LIST_FRESH_MS)) {
+      if (!this.commands) throw videoError('VIDEO_DISABLED', 'Recorded video is not available on this server');
+      const sentAt = Date.now();
+      if (!(await this.commands.sendInternal(ctx, t.objectId, 'FILELIST'))) {
+        if (!list) throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Recorded video needs the device to be connected.');
+      } else {
+        let latest = list;
+        while (Date.now() - sentAt < FILE_LIST_TIMEOUT_MS) {
+          await new Promise((r) => setTimeout(r, 1_000));
+          latest = await read();
+          if (latest && latest.at >= sentAt) break;
+        }
+        if (!latest || latest.at < sentAt) {
+          if (!list) {
+            throw videoError('DEVICE_TIMEOUT', 'The camera did not send its list of recordings. Check that its FILELIST server points to this server and try again.');
+          }
+        } else list = latest;
+      }
+    }
+    return { files: parseJimiFileList(list?.names ?? []), toUtc };
+  }
+
+  /** Jimi recorded video: `REPLAYLIST,<files>` makes the camera push those SD-card files to `live/<imei>` (MediaMTX → HLS). */
+  private async rtmpPlayback(ctx: AuthContext, t: VideoTarget, channel: number, from: Date, to: Date): Promise<VideoSessionDto> {
+    const { files, toUtc } = await this.jimiFiles(ctx, t, false).then(async (r) => (r.files.length ? r : this.jimiFiles(ctx, t)));
+    const names = filesForPlayback(files, channel, from, to, toUtc, REPLAY_MAX_FILES);
+    if (!names.length) throw new BadRequestException('There is no recording of this camera at that time.');
+    const first = files.find((f) => f.name === names[0])!;
+    const seconds = names.reduce((s, n) => s + (files.find((f) => f.name === n)?.durationSec ?? 60), 0);
+    const sentAt = Date.now();
+    if (!this.commands || !(await this.commands.sendInternal(ctx, t.objectId, `REPLAYLIST,${names.join(',')}`))) {
+      throw videoError('DEVICE_OFFLINE', 'The dashcam is offline. Recorded video needs the device to be connected.');
+    }
+    let path: string | null = null;
+    while (!path && Date.now() - sentAt < RTMP_START_TIMEOUT_MS + 10_000) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      path = pickPlaybackPath(await this.mediaPaths(), t.uniqueId, sentAt);
+    }
+    if (!path) throw videoError('DEVICE_TIMEOUT', 'The camera did not start playing the recording. Check that its RTMP server (RSERVICE) points to this server and try again.');
+    const sessionId = randomUUID();
+    const record: VideoSessionRecord = { objectId: t.objectId, companyId: t.companyId, vehicle: t.name, uniqueId: t.uniqueId, channel, kind: 'playback', hlsPath: path };
+    await this.redis.client.set(RedisKeys.videoSession(sessionId), JSON.stringify(record), 'EX', SESSION_TTL_SEC);
+    const { token, expiresAt } = signVideoToken({ u: ctx.userId, c: t.companyId, s: sessionId }, this.env.jwtSecret, Date.now(), seconds + 15 * 60);
+    this.logger.log(`${ctx.userId} started rtmp playback ${t.uniqueId} ${names.join(',')} (${sessionId})`);
+    return {
+      sessionId,
+      kind: 'playback',
+      channel,
+      url: `/api/video/hls/${sessionId}/${encodeURIComponent(token)}/index.m3u8`,
+      codec: 'h264',
+      expiresAt: expiresAt.toISOString(),
+      joined: false,
+      transport: 'rtmp',
+      streamEndsAt: new Date(sentAt + seconds * 1000).toISOString(),
+      startsAt: toUtc(first.localStart).toISOString(),
+    };
   }
 
   private range(fromIso: string, toIso: string, maxMs: number): { from: Date; to: Date } {
@@ -335,8 +419,12 @@ export class VideoService implements OnModuleInit {
 
   async leave(ctx: AuthContext, sessionId: string): Promise<void> {
     const rec = await this.record(ctx, sessionId);
-    // RTMP: the camera stops by itself after RTMP_LIVE_MINUTES; other viewers may still be watching.
-    if (rec.hlsPath) return;
+    // RTMP live: the camera stops by itself after RTMP_LIVE_MINUTES; other viewers may still be watching. Recorded
+    // playback is one viewer's: stop the push.
+    if (rec.hlsPath) {
+      if (rec.kind === 'playback') await this.commands?.sendInternal(ctx, rec.objectId, 'REPLAYLIST,OFF').catch(() => false);
+      return;
+    }
     await this.ask(rec.uniqueId, { op: 'leave', sessionId }).catch(() => undefined);
   }
 }

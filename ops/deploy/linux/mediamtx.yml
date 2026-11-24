@@ -45,3 +45,6 @@ pathDefaults:
 paths:
   "~^live/[0-9]/[0-9]{15}$":
     source: publisher
+  # Recorded video (SD card) pushed by REPLAYLIST: live/<imei>, no channel.
+  "~^live/[0-9]{15}$":
+    source: publisher

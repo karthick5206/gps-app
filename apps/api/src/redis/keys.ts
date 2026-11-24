@@ -37,6 +37,8 @@ export const RedisKeys = {
   videoAttributes: (uniqueId: string) => `vt:video:attrs:${uniqueId}`,
   /** Session → `{ objectId, companyId, channel, kind }` so the API can authorise status / leave calls. */
   videoSession: (sessionId: string) => `vt:video:session:${sessionId}`,
+  /** Jimi dashcams: last SD-card name list the camera posted (`FILELIST`), JSON `{ at, names }`, 2 days. */
+  jimiFileList: (imei: string) => `vt:video:jimi:files:${imei}`,
   // ── Driver events ──
   /** Pub/sub: snapshot requests (`SnapshotRequest`) for the dashcams connected to one gateway. */
   snapshotChannel: (gatewayId: string) => `vt:snap:gw:${gatewayId}`,

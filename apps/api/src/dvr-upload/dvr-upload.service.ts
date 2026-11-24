@@ -4,6 +4,7 @@ import { DriverMediaMessage, writeIncoming } from '../driver-events/media-store'
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisKeys } from '../redis/keys';
 import { RedisService } from '../redis/redis.service';
+import { parseJimiFileList } from '../video/jimi-recordings';
 import { jimiMime, parseJimiFileName, verifyJimiSign, zonedToUtc } from './dvr-upload.logic';
 
 /** Reply format the Jimi firmware expects (it retries on anything but code 200). */
@@ -12,6 +13,16 @@ export interface JimiUploadReply {
   message: string;
   data?: string;
 }
+
+/** Reply format of the playback name-list service (vendor: `{"code":0,"ok":true}`). */
+export interface JimiFileListReply {
+  code: number;
+  ok: boolean;
+  msg?: string;
+}
+
+/** How long a posted SD-card name list is kept. */
+export const JIMI_FILE_LIST_TTL_SEC = 2 * 86_400;
 
 export interface JimiUploadInput {
   file?: { buffer: Buffer; originalname?: string };
@@ -80,6 +91,24 @@ export class DvrUploadService {
     await this.redis.client.xadd(RedisKeys.driverMediaStream, 'MAXLEN', '~', 20_000, '*', 'data', JSON.stringify(msg));
     this.logger.log(`Upload ${filename} from ${device.uniqueId}: ${kind.toLowerCase()} ${size} bytes${alarm ? '' : ' (no matching alarm, time from the name)'}`);
     return { code: 200, message: 'success', data: filename };
+  }
+
+  /**
+   * SD-card recording names posted by a Jimi camera after `FILELIST` (body `{ imei, fileNameList: "a.mp4,b.mp4" }`).
+   * Kept in Valkey for VideoService.recordings / playback. No sign in this request: only registered IMEIs are kept.
+   */
+  async fileList(body: { imei?: unknown; fileNameList?: unknown } | undefined): Promise<JimiFileListReply> {
+    const imei = String(body?.imei ?? '').trim();
+    if (!/^\d{6,20}$/.test(imei)) return { code: 1, ok: false, msg: 'imei is required' };
+    const device = await this.prisma.device.findUnique({ where: { uniqueId: imei }, select: { id: true } });
+    if (!device) {
+      this.logger.warn(`File list from ${imei}: no registered device, dropped`);
+      return { code: 0, ok: true };
+    }
+    const names = parseJimiFileList(body?.fileNameList).map((f) => f.name);
+    await this.redis.client.set(RedisKeys.jimiFileList(imei), JSON.stringify({ at: Date.now(), names }), 'EX', JIMI_FILE_LIST_TTL_SEC);
+    this.logger.log(`File list from ${imei}: ${names.length} recordings`);
+    return { code: 0, ok: true };
   }
 
   /** The 0x95 alarm position (last 2 days) whose clip list names this file. */
