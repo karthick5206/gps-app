@@ -37,7 +37,7 @@ const CHANNELS: { key: NotifyChannel; label: string }[] = [
 ];
 const sameSet = (a: NotifyChannel[], b: NotifyChannel[]) => a.length === b.length && a.every((x) => b.includes(x));
 const LEVEL_NAME: Record<AlertLevel, string> = { COMPANY: 'Company', BRANCH: 'Branch', GROUP: 'Group', OBJECT: 'Vehicle' };
-const CATEGORY_ORDER: AlertTypeDef['category'][] = ['Driving', 'Driver safety', 'Vehicle', 'Location', 'Safety', 'Device', 'Device health', 'Compliance'];
+const CATEGORY_ORDER: AlertTypeDef['category'][] = ['Driving', 'ADAS (road camera)', 'DMS (driver camera)', 'Vehicle', 'Location', 'Safety', 'Device', 'Device health', 'Compliance'];
 
 /** What one alert type looks like at the chosen level: values, and whether this level overrides them. */
 interface Row {

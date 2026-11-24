@@ -1,7 +1,7 @@
 import { ensureStreamGroup, isNoGroupError } from '../redis/stream-groups';
 import { Injectable, Logger } from '@nestjs/common';
 import { Alert, Prisma } from '@prisma/client';
-import { driverEventSettings, isDriverEventType, snapshotChannel } from '@veetracer/shared';
+import { CAMERA_ONLY_EVENT_TYPES, driverEventSettings, isDriverEventType, snapshotChannel } from '@veetracer/shared';
 import { hostname } from 'node:os';
 import { asRecord } from '../common/dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,8 +45,16 @@ export class DriverEventWorkerService {
   }
 
   /** Creates (once) the driver event of an alert and requests the snapshot; returns the event id, or null. */
+  /** The alert's device has a dashcam (video / ADAS / DMS capability). */
+  private async hasCamera(deviceId: string | null): Promise<boolean> {
+    if (!deviceId) return false;
+    const d = await this.prisma.device.findUnique({ where: { id: deviceId }, select: { model: { select: { capabilities: true } } } });
+    return !!d?.model.capabilities.some((c) => c === 'video' || c === 'adas' || c === 'dms');
+  }
+
   async onAlert(alert: Alert): Promise<string | null> {
     if (!isDriverEventType(alert.type)) return null;
+    if (CAMERA_ONLY_EVENT_TYPES.includes(alert.type) && !(await this.hasCamera(alert.deviceId))) return null;
     const existing = await this.prisma.driverEvent.findUnique({ where: { alertId: alert.id }, select: { id: true } });
     if (existing) return existing.id;
     const data = asRecord(alert.data);

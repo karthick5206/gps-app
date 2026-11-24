@@ -7,6 +7,8 @@ import {
   type SummaryReportRow,
   type TripDto,
   type TripPerformanceGroupBy,
+  TRIP_SAFETY_TYPES,
+  type TripSafetyType,
   utilisationPct,
 } from '@veetracer/shared';
 import type { LucideIcon } from 'lucide-react';
@@ -36,6 +38,7 @@ import {
   RouteIcon,
   RulerIcon,
   ShapesIcon,
+  ShieldAlertIcon,
   SigmaIcon,
   SnowflakeIcon,
   TimerIcon,
@@ -50,6 +53,7 @@ import { i18n } from '@/lib/i18n';
 import { historyLink } from '@/features/history/time-range';
 import { formatHm, periodLabel } from './report-format';
 import { formatReportTime } from './report-time';
+import { TripSafetyDetails } from './TripSafetyDetails';
 
 export type Row = Record<string, unknown>;
 type Total = 'sum' | 'max';
@@ -203,6 +207,60 @@ const TRIPS: ReportColumn[] = [
   { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km },
   { id: 'maxSpeedKph', header: 'Max (km/h)', value: num('maxSpeedKph'), numeric: true, total: 'max', format: int },
   { id: 'avgSpeedKph', header: 'Avg (km/h)', value: num('avgSpeedKph'), numeric: true, format: int },
+];
+
+/** Short headers of the violation count columns (TRIP_SAFETY_TYPES order). */
+const TRIP_SAFETY_HEADERS: Record<TripSafetyType, string> = {
+  SEATBELT_OFF: 'Seat belt',
+  DRIVER_PHONE: 'Phone',
+  DRIVER_FATIGUE: 'Fatigue',
+  DRIVER_DISTRACTED: 'Distracted',
+  DRIVER_SMOKING: 'Smoking',
+  DRIVER_ABSENT: 'No driver',
+  FORWARD_COLLISION_WARNING: 'Collision warning',
+  LANE_DEPARTURE: 'Lane departure',
+  TAILGATING: 'Too close',
+  OVERSPEED: 'Overspeed',
+  HARSH_BRAKING: 'Harsh braking',
+  HARSH_ACCELERATION: 'Harsh accel.',
+  HARSH_CORNERING: 'Harsh turn',
+  SOS: 'SOS',
+  CRASH: 'Crash',
+};
+const countOf = (type: TripSafetyType) => (r: Row) => ((r.counts as Record<string, number> | undefined)?.[type] ?? 0);
+const scoreTone = (v: number) => (v >= 90 ? 'text-emerald-600' : v >= 70 ? 'text-amber-600' : 'text-destructive');
+
+const TRIP_SAFETY: ReportColumn[] = [
+  vehicle,
+  { id: 'driverName', header: 'Driver', value: (r) => (r.driverName as string | null) ?? null, render: text('driverName') },
+  { id: 'startTime', header: 'Start', zoned: true, value: time('startTime'), render: timeCell('startTime') },
+  { id: 'endTime', header: 'End', zoned: true, value: time('endTime'), render: timeCell('endTime') },
+  { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km },
+  { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng'), render: placeCell('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'To', value: place('endAddress', 'endLat', 'endLng'), render: placeCell('endAddress', 'endLat', 'endLng') },
+  ...TRIP_SAFETY_TYPES.map(
+    (type): ReportColumn => ({
+      id: type,
+      header: TRIP_SAFETY_HEADERS[type],
+      value: countOf(type),
+      numeric: true,
+      total: 'sum',
+      format: int,
+      render: (r) => {
+        const n = countOf(type)(r);
+        return n ? <span className="font-semibold text-destructive tabular-nums">{n}</span> : <span className="text-muted-foreground tabular-nums">0</span>;
+      },
+    }),
+  ),
+  { id: 'violations', header: 'Violations', value: num('total'), numeric: true, total: 'sum', format: int },
+  {
+    id: 'score',
+    header: 'Score',
+    value: num('score'),
+    numeric: true,
+    render: (r) => (typeof r.score === 'number' ? <span className={`font-semibold tabular-nums ${scoreTone(r.score)}`}>{r.score}</span> : null),
+  },
+  { id: 'occurrences', header: 'Where & when', value: num('total'), render: (r) => <TripSafetyDetails row={r} /> },
 ];
 
 const STOPS: ReportColumn[] = [
@@ -798,6 +856,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'POSITIONS', category: 'Activity', label: 'Positions', description: 'Raw GPS points of one vehicle (up to 7 days): speed, ignition, power.', icon: MapPinnedIcon, columns: POSITIONS },
   { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
   { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED, drill: windowOf('startTime', 'endTime', 2) },
+  { type: 'TRIP_SAFETY', category: 'Driving', label: 'Trip safety & violations', description: 'Every trip with how many seat belt, phone, fatigue, distraction, collision, lane, too-close, overspeed, harsh driving and SOS violations happened, a safety score, and where and when each one occurred (with clips).', icon: ShieldAlertIcon, columns: TRIP_SAFETY, drill: windowOf('startTime', 'endTime') },
   { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING, drill: windowOf('startTime', 'endTime') },
   { type: 'DRIVERS', category: 'Driving', label: 'Driver activity', description: 'Per driver: vehicles driven, trips, distance, driving time and overspeeding (from card swipes and assignments).', icon: IdCardIcon, columns: DRIVERS },
   { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION, drill: windowOf('time', null, 15, 0) },

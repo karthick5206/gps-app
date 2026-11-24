@@ -49,7 +49,8 @@ import { GEOFENCE_DISTANCE_MAX_DAYS, geofenceDistanceReport } from './geofence-d
 import { mileageReport } from './mileage-report';
 import { ioDailyReport, ioSessionsReport } from './io-report';
 import { plannedTripsReport, tripPerformanceReport } from './planned-trips-report';
-import { AddressEnricher } from './address-enricher';
+import { AddressEnricher, pointField } from './address-enricher';
+import { tripSafetyRows, tripSafetyTypes } from './trip-safety-report';
 
 export const REPORT_JSON_MAX_ROWS = 10_000;
 export const REPORT_MAX_DAYS = 366;
@@ -407,6 +408,49 @@ export class ReportDataService {
         };
       }
 
+      case 'TRIP_SAFETY': {
+        const zero = { count: 0, violations: 0, distanceKm: 0, safeTrips: 0 };
+        if (!ids.length) return { ...empty, totals: zero };
+        const types = tripSafetyTypes(req.options?.alertTypes);
+        const where: Prisma.TripWhereInput = { companyId: ctx.companyId, objectId: { in: ids }, startTime: range };
+        const [trips, tripCount] = await Promise.all([this.prisma.trip.findMany({ where, orderBy: { startTime: 'asc' }, take: maxRows }), this.prisma.trip.count({ where })]);
+        if (!trips.length) return { ...empty, totals: zero };
+        const objectIds = [...new Set(trips.map((t) => t.objectId))];
+        const first = trips[0].startTime;
+        const last = new Date(Math.max(...trips.map((t) => t.endTime.getTime())));
+        const [alerts, assignments] = await Promise.all([
+          this.prisma.alert.findMany({
+            where: { companyId: ctx.companyId, objectId: { in: objectIds }, type: { in: types }, occurredAt: { gte: first, lte: last } },
+            select: { id: true, objectId: true, type: true, occurredAt: true, lat: true, lng: true, address: true, data: true },
+            orderBy: { occurredAt: 'asc' },
+            take: 50_000,
+          }),
+          this.prisma.driverAssignment.findMany({
+            where: { objectId: { in: objectIds }, fromTime: { lte: last }, OR: [{ toTime: null }, { toTime: { gt: first } }] },
+            select: { objectId: true, fromTime: true, toTime: true, driver: { select: { name: true } } },
+          }),
+        ]);
+        const evidence = alerts.length
+          ? await this.prisma.driverEvent.findMany({ where: { alertId: { in: alerts.map((a) => a.id) } }, select: { id: true, alertId: true, media: { where: { kind: 'VIDEO' }, select: { id: true }, take: 1 } } })
+          : [];
+        const rows = tripSafetyRows(
+          trips.map((t) => ({ ...tripDto(t, { name: name(t.objectId) }), plateNumber: objects.get(t.objectId)?.plateNumber ?? null })),
+          alerts.map((a) => ({ ...a, objectId: a.objectId as string })),
+          evidence.map((e) => ({ id: e.id, alertId: e.alertId, hasClip: e.media.length > 0 })),
+          assignments.map((d) => ({ objectId: d.objectId, fromTime: d.fromTime, toTime: d.toTime, driverName: d.driver.name })),
+          types,
+        ).sort(byName);
+        // Occurrence addresses: stored on the alert when known, else looked up (bounded).
+        await this.addresses.enrich(rows.flatMap((r) => r.occurrences), [pointField()], { budget: 40 });
+        const totals: Record<string, number> = { ...zero, count: tripCount };
+        for (const r of rows) {
+          totals.violations += r.total;
+          totals.distanceKm = round3(totals.distanceKm + r.distanceKm);
+          if (r.total === 0) totals.safeTrips += 1;
+          for (const [type, n] of Object.entries(r.counts)) totals[type] = (totals[type] ?? 0) + (n ?? 0);
+        }
+        return { ...base, rows, totals, truncated: tripCount > trips.length, totalRows: tripCount };
+      }
       case 'ALERTS': {
         const zero = { count: 0, INFO: 0, WARNING: 0, CRITICAL: 0 };
         if (!ids.length) return { ...empty, totals: zero };

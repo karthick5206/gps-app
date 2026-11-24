@@ -1,4 +1,4 @@
-import type { AlertSeverity, AlertTypeCode } from '@veetracer/shared';
+import { ALERT_TYPE_MAP, type AlertSeverity, type AlertTypeCode } from '@veetracer/shared';
 import {
   AirVentIcon,
   ArrowDownToDotIcon,
@@ -91,6 +91,7 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
   DRIVER_SMOKING: CigaretteIcon,
   DRIVER_DISTRACTED: ScanEyeIcon,
   DRIVER_ABSENT: UserXIcon,
+  SEATBELT_OFF: UserXIcon,
   FORWARD_COLLISION_WARNING: CarFrontIcon,
   LANE_DEPARTURE: MoveHorizontalIcon,
   TAILGATING: ArrowDownToDotIcon,
@@ -126,6 +127,27 @@ export const ALERT_ICON: Record<AlertTypeCode, LucideIcon> = {
 export const alertIcon = (type: string): LucideIcon => ALERT_ICON[type as AlertTypeCode] ?? BellIcon;
 
 /** Alert type glyph in a round badge tinted by severity. */
+/** "ADAS" (road camera) or "DMS" (driver camera) for dashcam alert types, from the type's category; null otherwise. */
+export function dashcamKind(type: string): 'ADAS' | 'DMS' | null {
+  const cat = ALERT_TYPE_MAP[type as AlertTypeCode]?.category ?? '';
+  return cat.startsWith('ADAS') ? 'ADAS' : cat.startsWith('DMS') ? 'DMS' : null;
+}
+
+/** Small ADAS / DMS tag next to a dashcam alert's name. */
+export function DashcamBadge({ type, className }: { type: string; className?: string }) {
+  const { t } = useTranslation();
+  const kind = dashcamKind(type);
+  if (!kind) return null;
+  return (
+    <span
+      className={cn('rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground', className)}
+      title={kind === 'ADAS' ? t('ADAS (road camera)') : t('DMS (driver camera)')}
+    >
+      {kind}
+    </span>
+  );
+}
+
 export function AlertTypeIcon({ type, severity, size = 'md', className }: { type: string; severity: AlertSeverity; size?: 'sm' | 'md' | 'lg'; className?: string }) {
   const { t } = useTranslation();
   const Icon = alertIcon(type);

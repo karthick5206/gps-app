@@ -45,6 +45,7 @@ const DETAIL: Record<AlertTypeCode, string> = {
   DRIVER_SMOKING: 'dashcam detected the driver smoking',
   DRIVER_DISTRACTED: 'dashcam detected a distracted driver',
   DRIVER_ABSENT: 'dashcam could not see a driver in the seat',
+  SEATBELT_OFF: 'driver is not wearing the seat belt',
   FORWARD_COLLISION_WARNING: 'dashcam raised a forward collision warning at {{speed}}',
   LANE_DEPARTURE: 'dashcam detected a lane departure at {{speed}}',
   TAILGATING: 'was following the vehicle ahead too closely at {{speed}}',

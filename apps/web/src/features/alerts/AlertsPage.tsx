@@ -35,7 +35,7 @@ import { alertCenter, alertTitle } from './alert-center';
 import { useAlertCenter } from './AlertBell';
 import { isUnread, withRead } from './read-state';
 import { AlertDetailSheet } from './AlertDetailSheet';
-import { AlertTypeIcon } from './alert-icons';
+import { AlertTypeIcon, DashcamBadge } from './alert-icons';
 import { DateRangePicker, rangeFromPreset, type DateRangeValue } from './DateRangePicker';
 import { AlertStateBadge, SeverityBadge } from './badges';
 import { SEVERITY_LABEL, STATUS_LABEL } from './severity';
@@ -427,6 +427,7 @@ export function AlertsPage() {
                   <span className={cn('flex items-center gap-2 whitespace-nowrap', isUnread(a) ? 'font-semibold' : 'font-medium')}>
                     <AlertTypeIcon type={a.type} severity={a.severity} size="sm" />
                     {alertTitle(a)}
+                    <DashcamBadge type={a.type} />
                     {isUnread(a) && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-label={t('Unread')} />}
                   </span>
                 </TableCell>

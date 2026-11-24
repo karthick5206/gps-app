@@ -103,6 +103,7 @@ export const REPORT_TYPES = [
   'DISTANCE',
   'ENGINE_HOURS',
   'TRIPS',
+  'TRIP_SAFETY',
   'STOPS',
   'IDLE',
   'HALT',
@@ -178,6 +179,7 @@ export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof Repo
   OVERSPEED: ['minOverspeedSec'],
   DEVICE_STATUS: ['inactiveAfterMin'],
   TRIP_PERFORMANCE: ['groupBy'],
+  TRIP_SAFETY: ['alertTypes'],
 };
 /** Report options saved with a schedule, per report type. {} = the API defaults. */
 export type ScheduleReportOptions = Partial<Record<ReportType, ReportOptions>>;
@@ -194,6 +196,70 @@ export interface ReportRequest {
   to: string; // YYYY-MM-DD inclusive
   period?: ReportPeriod; // PERIOD_REPORT_TYPES only
   options?: ReportOptions;
+}
+
+/** TRIP_SAFETY: the violations counted per trip (driver camera, road camera, driving), in column order. */
+export const TRIP_SAFETY_TYPES = [
+  'SEATBELT_OFF',
+  'DRIVER_PHONE',
+  'DRIVER_FATIGUE',
+  'DRIVER_DISTRACTED',
+  'DRIVER_SMOKING',
+  'DRIVER_ABSENT',
+  'FORWARD_COLLISION_WARNING',
+  'LANE_DEPARTURE',
+  'TAILGATING',
+  'OVERSPEED',
+  'HARSH_BRAKING',
+  'HARSH_ACCELERATION',
+  'HARSH_CORNERING',
+  'SOS',
+  'CRASH',
+] as const;
+export type TripSafetyType = (typeof TRIP_SAFETY_TYPES)[number];
+
+/** Penalty per violation for the trip safety score (100 minus the sum, never below 0). */
+export const TRIP_SAFETY_WEIGHTS: Record<TripSafetyType, number> = {
+  SEATBELT_OFF: 5,
+  DRIVER_PHONE: 8,
+  DRIVER_FATIGUE: 10,
+  DRIVER_DISTRACTED: 5,
+  DRIVER_SMOKING: 3,
+  DRIVER_ABSENT: 3,
+  FORWARD_COLLISION_WARNING: 8,
+  LANE_DEPARTURE: 3,
+  TAILGATING: 5,
+  OVERSPEED: 5,
+  HARSH_BRAKING: 3,
+  HARSH_ACCELERATION: 2,
+  HARSH_CORNERING: 2,
+  SOS: 0,
+  CRASH: 20,
+};
+
+/** One violation inside a trip (drill-down / map pin). */
+export interface TripSafetyOccurrence {
+  alertId: string;
+  type: TripSafetyType;
+  occurredAt: string;
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  speedKph: number | null;
+  /** Driver event with the photo / clip, when the dashcam sent evidence. */
+  driverEventId: string | null;
+  hasClip: boolean;
+}
+
+/** TRIP_SAFETY: one row per trip with the number of each violation, a score and every occurrence. */
+export interface TripSafetyReportRow extends TripDto {
+  plateNumber: string | null;
+  driverName: string | null;
+  counts: Partial<Record<TripSafetyType, number>>;
+  total: number;
+  /** 100 minus the weighted violations (TRIP_SAFETY_WEIGHTS), 0–100. */
+  score: number;
+  occurrences: TripSafetyOccurrence[];
 }
 
 /** CONSOLIDATED: one row per vehicle for the whole range. */

@@ -214,6 +214,7 @@ const DMS_ALERTS: Record<string, [AlertTypeCode, string]> = {
   yawn: ['DRIVER_FATIGUE', 'Driver yawning'],
   lookDown: ['DRIVER_DISTRACTED', 'Driver looking down'],
   calibrationFail: ['CAMERA_FAULT', 'Driver camera calibration failed'],
+  seatbelt: ['SEATBELT_OFF', 'Seat belt not worn'],
 };
 const ADAS_ALERTS: Record<string, [AlertTypeCode, string]> = {
   fcw: ['FORWARD_COLLISION_WARNING', 'Forward collision warning'],

@@ -42,6 +42,7 @@ export const MENU_KEYS = [
   'live_map',
   'video',
   'driver_events',
+  'video_evidence',
   'dms',
   'history',
   'alerts',
@@ -154,6 +155,7 @@ export const MENUS: readonly MenuDef[] = [
   // Drivers & staff: behaviour, safety and attendance.
   { key: 'dms', label: 'DMS dashboard', group: 'people', path: '/dms', actions: ['view', 'export'] },
   { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },
+  { key: 'video_evidence', label: 'Video evidence', group: 'people', path: '/video-evidence', actions: ['view', 'export'] },
   { key: 'driver_scores', label: 'Driver scorecard', group: 'people', path: '/driver-scores', actions: ['view'] },
   { key: 'attendance', label: 'Staff attendance', group: 'people', path: '/attendance', actions: ['view', 'edit', 'export'] },
   // Costs & reports.
@@ -262,6 +264,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
       live_map: ['view'], // device commands (engine stop…) are for Admin roles only
       video: ['view'],
       driver_events: ['view', 'edit', 'export'],
+      video_evidence: ['view', 'export'],
       dms: ['view', 'export'],
       history: ['view', 'export'],
       alerts: ['view', 'edit', 'export'],
@@ -293,7 +296,7 @@ export const SYSTEM_ROLES: { name: string; description: string; dataScope: DataS
     description: 'Tracks assigned branches/vehicles',
     dataScope: 'ASSIGNED',
     permissions: {
-      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], photo_notes: ['view', 'create'], reports: ['view'], driver_events: ['view'], dms: ['view'],
+      dashboard: ['view'], live_map: ['view'], history: ['view'], alerts: ['view', 'edit'], parking_mode: ['view', 'edit'], driver_scores: ['view'], expenses: ['view', 'create'], photo_notes: ['view', 'create'], reports: ['view'], driver_events: ['view'], video_evidence: ['view'], dms: ['view'],
       geofences: ['view'], pois: ['view'], report_schedules: ['view', 'create', 'edit', 'delete'], objects: ['view'], drivers: ['view'], documents: ['view'], vehicle_groups: ['view'],
       routes: ['view'], plannedTrips: ['view'],
     },

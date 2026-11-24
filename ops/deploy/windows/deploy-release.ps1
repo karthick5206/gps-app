@@ -71,6 +71,8 @@ Invoke-Command -Session $s -ArgumentList $Rollback.IsPresent, $Branch -ScriptBlo
     $steps += , @('migrate', 'cd apps\api && npx prisma migrate deploy')
     $steps += , @('seed', 'cd apps\api && npm run db:seed')
   }
+  # The API build (nest / tsc) needs more than Node's default ~2 GB heap since v1.2x.
+  $env:NODE_OPTIONS = '--max-old-space-size=4096'
   $ok = $true
   foreach ($st in $steps) {
     cmd /c "$($st[1]) >> $log 2>&1"

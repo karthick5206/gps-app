@@ -1,6 +1,7 @@
 import { MENUS, PERSONAL_HIDDEN_MENUS, type MenuDef, type MenuGroup, type MenuKey, type PermissionMap } from '@veetracer/shared';
 import {
   ActivityIcon,
+  FilmIcon,
   PackageIcon,
   IdCardIcon,
   ReceiptIndianRupeeIcon,
@@ -68,6 +69,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
   live_map: MapIcon,
   video: VideoIcon,
   driver_events: ScanFaceIcon,
+  video_evidence: FilmIcon,
   dms: ScanEyeIcon,
   objects: TruckIcon,
   drivers: IdCardIcon,
