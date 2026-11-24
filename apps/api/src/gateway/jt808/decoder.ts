@@ -16,8 +16,7 @@ import {
   parseTerminalResponse,
   platformResponse,
   registerResponse,
-  split808,
-} from './codec';
+  split808, cardExtras, timeResponse } from './codec';
 import { AvMsg, parseAvAttributes, parseResourceList } from './av';
 import { encodeAlarmAttachRequest, encodeMediaUploadResponse, MEDIA_FORMAT_MIME, MediaMsg, MediaType, parseMediaEvent, parseMediaUpload, parseShootResponse } from './media';
 
@@ -99,6 +98,9 @@ export interface Jt808Session extends BaseSession {
   avAttributesRef: number | null;
   /** Snapshots the platform asked for (0x8801), matched to 0x0801 uploads by multimedia id or channel. */
   snapshots: PendingSnapshot[];
+  /** 4G ID cards: battery % from the heartbeat body (byte 0), used when a location carries no 0x62. */
+  batteryLevel?: number | null;
+  iccid?: string | null;
 }
 
 export interface PendingSnapshot {
@@ -280,9 +282,19 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
         if (media) (result.media ??= []).push(media);
         break;
       }
+      case Jt808Msg.TIME_REQUEST:
+        // 4G ID cards ask for UTC time (0x0121 → 0x8121).
+        result.replies.push(timeResponse(h, this.nextSerial(session), ctx.receivedAt));
+        break;
+      case Jt808Msg.ICCID:
+        ack();
+        session.iccid = body.toString('latin1').replace(/[^0-9A-Fa-f]/g, '') || null;
+        break;
       case Jt808Msg.AUTH:
       case Jt808Msg.HEARTBEAT:
       case Jt808Msg.LOGOUT:
+        // 4G ID cards send battery % (byte 0) and a work mode in the heartbeat body.
+        if (h.msgId === Jt808Msg.HEARTBEAT && body.length >= 1 && body[0] <= 100) session.batteryLevel = body[0];
         ack();
         if (h.msgId === Jt808Msg.LOGOUT) result.close = true;
         break;
@@ -425,6 +437,8 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
     // ADAS / DMS: flag 1 = event started, 0 = instantaneous; 2 (ended) is not a new event.
     const adas = loc.adas && loc.adas.flag !== 2 ? (ADAS_TYPES[loc.adas.type] ?? `adas_${loc.adas.type}`) : null;
     const dms = loc.dms && loc.dms.flag !== 2 ? (DMS_TYPES[loc.dms.type] ?? `dms_${loc.dms.type}`) : null;
+    // 4G ID cards: battery (0x62 or the last heartbeat), temperature (2-byte 0x64), low battery (0x57).
+    const card = cardExtras(loc.extras);
 
     return {
       protocol: JT808_PROTOCOL,
@@ -440,7 +454,10 @@ export class Jt808Decoder implements ProtocolDecoder<Jt808Session> {
       valid: bit(loc.status, 1),
       ignition: bit(loc.status, 0),
       attributes: compact({
-        alarm,
+        alarm: alarm ?? (card.lowBattery && !history ? 'lowBattery' : null),
+        batteryLevel: card.batteryLevel ?? session.batteryLevel ?? null,
+        temp1: card.temperature,
+        iccid: session.iccid ?? null,
         gsmSignal: loc.gsmCsq === null ? null : gsmFromCsq(loc.gsmCsq),
         odometerM: loc.mileageKm === null ? null : Math.round(loc.mileageKm * 1000),
         fuelLevelL: loc.fuelL,

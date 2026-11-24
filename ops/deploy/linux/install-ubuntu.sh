@@ -16,7 +16,7 @@ if [[ "$MODE" != --routing-only ]]; then
   DB_PASS="${DB_PASS:?set DB_PASS=<database password> before running}"
 fi
 # Device ports: 5023 Concox, 5027 Teltonika, 6808 JT808 dashcam, 5030 AIS-140, 7612 JT1078 video, 7613 ADAS attachments.
-DEVICE_PORTS="${DEVICE_PORTS:-5023,5027,6808,5030,7612,7613}"
+DEVICE_PORTS="${DEVICE_PORTS:-5023,5027,6808,5030,5032,7612,7613}"
 # PostgreSQL memory budget (the rest of the RAM goes to the app, Valkey, GraphHopper and Photon).
 PG_MEMORY="${PG_MEMORY:-8GB}"
 # ETMS E4 route planning (veetrax-routing-worker + veetrax-optimizer), v1.16: installed by default (Python 3.14 from the
