@@ -47,6 +47,34 @@ export function presetRange(preset: Exclude<RangePreset, 'custom'>, now: Date = 
   }
 }
 
+/** Longest custom range on the phone's History screen (days, inclusive). */
+export const MOBILE_CUSTOM_MAX_DAYS = 7;
+
+/**
+ * Custom day range (YYYY-MM-DD, local days, inclusive). When one end is changed and the span goes past `maxDays`
+ * (or the order flips), the other end moves along, so any 7 days can be chosen without an error.
+ */
+export function clampDayRange(fromYmd: string, toYmd: string, changed: 'from' | 'to', maxDays = MOBILE_CUSTOM_MAX_DAYS): { from: string; to: string } {
+  const parse = (s: string) => {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  let f = parse(fromYmd);
+  let t = parse(toYmd);
+  const span = Math.round((t.getTime() - f.getTime()) / DAY_MS) + 1;
+  if (changed === 'from' && (span < 1 || span > maxDays)) t = addDays(f, span < 1 ? 0 : maxDays - 1);
+  if (changed === 'to' && (span < 1 || span > maxDays)) f = addDays(t, span < 1 ? 0 : -(maxDays - 1));
+  return { from: ymd(f), to: ymd(t) };
+}
+
+/** Custom day range → time range (start of the first day to end of the last). */
+export function dayRange(fromYmd: string, toYmd: string): TimeRange {
+  const [fy, fm, fd] = fromYmd.split('-').map(Number);
+  const [ty, tm, td] = toYmd.split('-').map(Number);
+  return { from: startOfDay(new Date(fy, fm - 1, fd)), to: endOfDay(new Date(ty, tm - 1, td)) };
+}
+
 /** Which preset a range corresponds to (minute precision), else 'custom'. */
 export function detectPreset(range: TimeRange, now: Date = new Date()): RangePreset {
   const same = (a: Date, b: Date) => Math.abs(a.getTime() - b.getTime()) < 60_000;

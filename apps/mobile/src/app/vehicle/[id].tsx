@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { displayStatus, displayStatusLabel, personActivity, type VideoChannelsDto, chargeState } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { BellIcon, CarIcon, HistoryIcon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
+import { BellIcon, CarIcon, HistoryIcon, Maximize2Icon, Minimize2Icon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
-import { Button, Card, EmptyState, InfoRow, SectionTitle, Text } from '@/components/ui';
+import { Button, Card, EmptyState, InfoRow, Text } from '@/components/ui';
+import { CollapsibleSection, useRememberedToggle } from '@/components/CollapsibleSection';
 import { useAuth } from '@/features/auth/auth';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
 import { ObjectPhoto } from '@/features/objects/object-photo';
@@ -47,8 +48,9 @@ export default function VehicleScreen() {
   const o = useMemo(() => liveStore.get(id), [id, version]);
   const objects = useMemo(() => (o ? [o] : []), [o]);
   const day = useDayStats().data?.[id];
-  // A large map: about 45 % of the screen (never under 260 dp).
-  const mapH = Math.max(260, Math.round(useWindowDimensions().height * 0.45));
+  // A large map: about 45 % of the screen (never under 260 dp), or 75 % with the expand button (remembered).
+  const [bigMap, toggleBigMap] = useRememberedToggle('vehicle.bigMap', false);
+  const mapH = Math.max(260, Math.round(useWindowDimensions().height * (bigMap ? 0.75 : 0.45)));
   // Dashcams only: the API answers NOT_DASHCAM for other trackers. Video plays in the browser (web player, no native deps).
   const video = useQuery({
     queryKey: ['video-channels', id],
@@ -70,7 +72,18 @@ export default function VehicleScreen() {
     <ScrollView contentContainerStyle={{ paddingBottom: SPACE.xl }}>
       <Stack.Screen options={{ title: o.plateNumber || o.name }} />
       {hasPosition ? (
-        <FleetMap objects={objects} selectedId={o.objectId} initialZoom={15} style={{ height: mapH, flex: 0 }} />
+        <View style={{ height: mapH }}>
+          <FleetMap objects={objects} selectedId={o.objectId} initialZoom={15} style={{ height: mapH, flex: 0 }} />
+          <Pressable
+            onPress={toggleBigMap}
+            accessibilityRole="button"
+            accessibilityLabel={bigMap ? t('Smaller map') : t('Bigger map')}
+            hitSlop={8}
+            style={{ position: 'absolute', left: SPACE.md, top: SPACE.md, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.card, borderWidth: 1, borderColor: c.border, elevation: 3 }}
+          >
+            {bigMap ? <Minimize2Icon size={18} color={c.foreground} /> : <Maximize2Icon size={18} color={c.foreground} />}
+          </Pressable>
+        </View>
       ) : (
         <View style={{ height: 120, alignItems: 'center', justifyContent: 'center', backgroundColor: c.muted }}>
           <Text tone="muted">{t('No position received yet')}</Text>
@@ -167,7 +180,7 @@ export default function VehicleScreen() {
           ))}
         </View>
 
-        <SectionTitle>{t('Status')}</SectionTitle>
+        <CollapsibleSection id="vehicle.status" title={t('Status')} summary={`${t(displayStatusLabel(o))} · ${relativeTime(o.serverTime ?? o.fixTime, now)}`}>
         <Card style={{ paddingVertical: 0 }}>
           <InfoRow label={t('Status')} value={t(displayStatusLabel(o))} />
           <InfoRow label={t('Since')} value={formatDateTime(o.statusSince)} />
@@ -178,8 +191,13 @@ export default function VehicleScreen() {
           <InfoRow label={t('GPS time')} value={formatDateTime(o.fixTime)} />
           <InfoRow label={t('Position')} value={hasPosition ? `${o.lat!.toFixed(5)}, ${o.lng!.toFixed(5)}` : '—'} />
         </Card>
+        </CollapsibleSection>
 
-        <SectionTitle>{t('Device')}</SectionTitle>
+        <CollapsibleSection
+          id="vehicle.device"
+          title={t('Device')}
+          summary={[o.batteryLevel !== null ? `${t('Battery')} ${o.batteryLevel}%` : null, o.gsmSignal !== null ? `${t('Signal')} ${o.gsmSignal}/4` : null].filter(Boolean).join(' · ')}
+        >
         <Card style={{ paddingVertical: 0 }}>
           <InfoRow label="IMEI" value={o.uniqueId ?? t('Not assigned')} />
           {o.simNumber ? (
@@ -203,6 +221,7 @@ export default function VehicleScreen() {
           {chargeState(o)?.kind === 'MAIN_POWER' && <InfoRow label={t('Main power')} value={chargeText(o, Date.now(), t) ?? '—'} />}
           {o.inMaintenance && <InfoRow label={t('Maintenance')} value={t('In maintenance (alerts off)')} />}
         </Card>
+        </CollapsibleSection>
       </View>
     </ScrollView>
   );
