@@ -138,6 +138,7 @@ export const MENU_ICONS: Record<MenuKey, LucideIcon> = {
 
 export const GROUP_LABELS: Record<MenuGroup, string> = {
   main: 'Tracking',
+  safety: 'Video & safety',
   transport: 'Employee transport',
   pricing: 'Pricing & billing',
   people: 'Drivers & Staff',
@@ -149,7 +150,7 @@ export const GROUP_LABELS: Record<MenuGroup, string> = {
   platform: 'Platform',
 };
 
-const GROUP_ORDER: MenuGroup[] = ['main', 'transport', 'pricing', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
+const GROUP_ORDER: MenuGroup[] = ['main', 'safety', 'transport', 'pricing', 'people', 'costs', 'masters', 'alerting', 'stock', 'admin', 'platform'];
 
 export interface NavGroup {
   group: MenuGroup;

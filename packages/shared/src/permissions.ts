@@ -9,7 +9,7 @@ import type { CompanySwitch } from './photo-features';
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'export', 'command', 'approve'] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export type MenuGroup = 'main' | 'transport' | 'pricing' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
+export type MenuGroup = 'main' | 'safety' | 'transport' | 'pricing' | 'people' | 'costs' | 'masters' | 'alerting' | 'stock' | 'admin' | 'platform';
 
 /** What a menu needs besides a role grant. */
 export interface MenuRequires {
@@ -119,7 +119,6 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'history', label: 'History & Playback', group: 'main', path: '/history', actions: ['view', 'export', 'command'] },
   { key: 'alerts', label: 'Alerts', group: 'main', path: '/alerts', actions: ['view', 'edit', 'export'] },
   { key: 'parking_mode', label: 'Parking mode', group: 'main', path: '/parking-mode', actions: ['view', 'edit'] },
-  { key: 'video', label: 'Video', group: 'main', path: '/video', actions: ['view'] },
   { key: 'plannedTrips', label: 'Planned trips', group: 'main', path: '/planned-trips', actions: CRUD },
   // Employee transport (ETMS, doc 07 §2.2): only when the company add-on `etms` is on. E1a ships these keys, E2 adds
   // etms_passengers, E3 etms_schedules / etms_bookings / etms_dispatch; later phases add etms_stops, etms_incidents, etms_policies, … .
@@ -136,7 +135,6 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'etms_incidents', label: 'Incidents & SOS', group: 'transport', path: '/transport/incidents', actions: ['view', 'edit', 'export', 'command'], requires: ETMS },
   // v1.16.10: vendors (cab / fleet operators) with their vehicles, drivers and rates, for every company (normal
   // tracking too); only Vendor billing needs the Employee transport add-on. The key keeps its etms_ prefix (stored grants).
-  { key: 'etms_vendors', label: 'Vendors', group: 'masters', path: '/vendors', actions: CRUD },
   { key: 'etms_billing', label: 'Vendor billing', group: 'transport', path: '/transport/billing', actions: ['view', 'export'], requires: ETMS },
   { key: 'etms_settings', label: 'Transport settings', group: 'transport', path: '/transport/settings', actions: ['view', 'edit'], requires: ETMS },
   { key: 'etms_self', label: 'My commute', group: 'transport', path: '/transport/me', actions: ['view', 'create', 'edit'], requires: ETMS },
@@ -153,9 +151,10 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'pricing_reports', label: 'Pricing reports', group: 'pricing', path: '/pricing/reports', actions: ['view', 'export'], requires: PRICING },
   { key: 'pricing_costs', label: 'Operating costs & margin', group: 'pricing', path: '/pricing/costs', actions: ['view', 'create'], requires: PRICING },
   // Drivers & staff: behaviour, safety and attendance.
-  { key: 'dms', label: 'DMS dashboard', group: 'people', path: '/dms', actions: ['view', 'export'] },
-  { key: 'driver_events', label: 'Driver events', group: 'people', path: '/driver-events', actions: ['view', 'edit', 'export'] },
-  { key: 'video_evidence', label: 'Video evidence', group: 'people', path: '/video-evidence', actions: ['view', 'export'] },
+  { key: 'video', label: 'Video', group: 'safety', path: '/video', actions: ['view'] },
+  { key: 'video_evidence', label: 'Video evidence', group: 'safety', path: '/video-evidence', actions: ['view', 'export'] },
+  { key: 'driver_events', label: 'Driver events', group: 'safety', path: '/driver-events', actions: ['view', 'edit', 'export'] },
+  { key: 'dms', label: 'DMS dashboard', group: 'safety', path: '/dms', actions: ['view', 'export'] },
   { key: 'driver_scores', label: 'Driver scorecard', group: 'people', path: '/driver-scores', actions: ['view'] },
   { key: 'attendance', label: 'Staff attendance', group: 'people', path: '/attendance', actions: ['view', 'edit', 'export'] },
   // Costs & reports.
@@ -176,6 +175,7 @@ export const MENUS: readonly MenuDef[] = [
   { key: 'routes', label: 'Routes', group: 'masters', path: '/routes', actions: CRUD },
   { key: 'pois', label: 'Points of Interest', group: 'masters', path: '/masters/pois', actions: CRUD },
   { key: 'lookups', label: 'Lookups', group: 'masters', path: '/masters/lookups', actions: CRUD },
+  { key: 'etms_vendors', label: 'Vendors', group: 'masters', path: '/vendors', actions: CRUD },
   { key: 'alert_settings', label: 'Alert Settings', group: 'alerting', path: '/alerting/settings', actions: ['view', 'create', 'edit', 'delete'] },
   { key: 'message_templates', label: 'Message Templates', group: 'alerting', path: '/alerting/templates', actions: ['view', 'create', 'edit', 'delete', 'export'] },
   { key: 'users', label: 'Users', group: 'admin', path: '/admin/users', actions: CRUD },
