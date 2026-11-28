@@ -1,25 +1,23 @@
-import { useQuery } from '@tanstack/react-query';
-import { displayStatus, displayStatusLabel, personActivity, type VideoChannelsDto, chargeState } from '@veetracer/shared';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { BellIcon, CarIcon, HistoryIcon, Maximize2Icon, Minimize2Icon, ScanFaceIcon, TerminalIcon, VideoIcon, Share2Icon } from 'lucide-react-native';
+import { displayStatus, displayStatusLabel, personActivity, chargeState } from '@veetracer/shared';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { CarIcon, Maximize2Icon, Minimize2Icon } from 'lucide-react-native';
 import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Linking, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Button, Card, EmptyState, InfoRow, Text } from '@/components/ui';
 import { CollapsibleSection, useRememberedToggle } from '@/components/CollapsibleSection';
-import { useAuth } from '@/features/auth/auth';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
+import { VehicleQuickActions } from '@/features/live/VehicleQuickActions';
 import { ObjectPhoto } from '@/features/objects/object-photo';
 import { SpeedLimitRow } from '@/features/live/SpeedLimitEditor';
 import { liveStore } from '@/features/live/live-store';
 import { useLiveVersion, useNow } from '@/features/live/use-live';
 import { useAddress } from '@/features/geocoding/use-address';
 import { FleetMap } from '@/features/map/FleetMap';
-import { api } from '@/lib/api';
 import { formatDateTime, relativeTime } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { chargeText, useDayStats } from '@/features/live/day-stats';
-import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
+import { SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 /** The vehicle's current address, under its status in the top card (moved up from the Status section). */
 function HeaderAddress({ lat, lng }: { lat: number | null; lng: number | null }) {
@@ -41,7 +39,6 @@ export default function VehicleScreen() {
   const c = useColors();
   const scheme = useScheme();
   const { t } = useTranslation();
-  const { can } = useAuth();
   const version = useLiveVersion(1000);
   const now = useNow(5000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -51,14 +48,6 @@ export default function VehicleScreen() {
   // A large map: about 45 % of the screen (never under 260 dp), or 75 % with the expand button (remembered).
   const [bigMap, toggleBigMap] = useRememberedToggle('vehicle.bigMap', false);
   const mapH = Math.max(260, Math.round(useWindowDimensions().height * (bigMap ? 0.75 : 0.45)));
-  // Dashcams only: the API answers NOT_DASHCAM for other trackers. Video plays in the browser (web player, no native deps).
-  const video = useQuery({
-    queryKey: ['video-channels', id],
-    queryFn: () => api.get<VideoChannelsDto>(`/video/${id}/channels`),
-    enabled: can('video') && !!o?.deviceId && !o?.licenceLocked,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
 
   useEffect(() => {
     if (!o && !liveStore.snapshotLoaded) liveStore.loadSnapshot().catch(() => undefined);
@@ -111,6 +100,9 @@ export default function VehicleScreen() {
           </View>
         </Card>
 
+        {/* Actions straight under the header so they show without scrolling (same row as the live map card). */}
+        <VehicleQuickActions o={o} />
+
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
           {(
             [
@@ -151,34 +143,6 @@ export default function VehicleScreen() {
             ))}
           </View>
         ) : null}
-
-        {/* Actions as tiles: one tap each. */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
-          {(
-            [
-              can('history') && [HistoryIcon, t('History'), () => router.push(`/history/${o.objectId}`)],
-              can('alerts') && [BellIcon, t('Alerts'), () => router.push({ pathname: '/alerts', params: { objectId: o.objectId, name: o.plateNumber || o.name } })],
-              !o.licenceLocked && o.lat !== null && [Share2Icon, t('Share live location'), () => router.push(`/share/${o.objectId}`)],
-              can('live_map', 'command') && [TerminalIcon, t('Commands'), () => router.push(`/commands/${o.objectId}`)],
-              video.isSuccess && [VideoIcon, t('Video'), () => router.push({ pathname: '/video/[id]', params: { id: o.objectId, name: o.plateNumber || o.name } })],
-              video.isSuccess && can('driver_events') && [ScanFaceIcon, t('Driver events'), () => router.push({ pathname: '/driver-events', params: { objectId: o.objectId } })],
-            ].filter(Boolean) as [typeof HistoryIcon, string, () => void][]
-          ).map(([Icon, label, onPress]) => (
-            <Pressable
-              key={label}
-              accessibilityRole="button"
-              onPress={onPress}
-              style={({ pressed }) => [{ flexBasis: '31%', flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: SPACE.md, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderWidth: 1, borderColor: c.border, backgroundColor: pressed ? c.muted : c.card }]}
-            >
-              <View style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.accent }}>
-                <Icon size={20} color={c.accentForeground} />
-              </View>
-              <Text size="xs" weight="600" numberOfLines={2} style={{ textAlign: 'center' }}>
-                {label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
 
         <CollapsibleSection id="vehicle.status" title={t('Status')} summary={`${t(displayStatusLabel(o))} · ${relativeTime(o.serverTime ?? o.fixTime, now)}`}>
         <Card style={{ paddingVertical: 0 }}>

@@ -2,7 +2,7 @@ import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef } from '@mapl
 import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, STATUS_META, type HistoryResponse } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
+import { ChevronDownIcon, ChevronUpIcon, PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
@@ -11,6 +11,7 @@ import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
 import { PlaybackAddress } from '@/features/history/PlaybackAddress';
+import { RouteTimeline } from '@/features/history/RouteTimeline';
 import { buildRuns, buildTrackIndex, coordsOf, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { TrackLegend, trackColorExpr, type ColorMode } from '@/features/history/TrackLegend';
 import { PlaybackEngine } from '@/features/history/playback-engine';
@@ -52,6 +53,8 @@ export default function HistoryScreen() {
   const [preset, setPreset] = useState<Preset>('today');
   const [tab, setTab] = useState<Tab>('trips');
   const [colorMode, setColorMode] = useState<ColorMode>('status');
+  // Trip whose route timeline (streets with times) is open.
+  const [routeTrip, setRouteTrip] = useState<string | null>(null);
   // Custom: any days, at most MOBILE_CUSTOM_MAX_DAYS (the other end follows when the span would be longer).
   // Times of day (minutes after midnight); 00:00 → 23:59 is the whole of the chosen days.
   const [custom, setCustom] = useState(() => {
@@ -282,6 +285,21 @@ export default function HistoryScreen() {
                     <Text size="xs" tone="muted" numberOfLines={2}>
                       {trip.startAddress ?? '—'} → {trip.endAddress ?? '—'}
                     </Text>
+                  )}
+                  <Pressable
+                    onPress={() => setRouteTrip((r) => (r === trip.id ? null : trip.id))}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: SPACE.xs, paddingVertical: 4 }}
+                  >
+                    <RouteIcon size={14} color={c.primary} />
+                    <Text size="xs" weight="600" style={{ color: c.primary }}>
+                      {routeTrip === trip.id ? t('Hide route') : t('Route with times')}
+                    </Text>
+                    {routeTrip === trip.id ? <ChevronUpIcon size={14} color={c.primary} /> : <ChevronDownIcon size={14} color={c.primary} />}
+                  </Pressable>
+                  {routeTrip === trip.id && (
+                    <RouteTimeline index={index} from={Date.parse(trip.startTime)} to={Date.parse(trip.endTime)} withDate={multiDay} onSeek={(at) => engine.seek(at, { play: true, until: Date.parse(trip.endTime) })} />
                   )}
                 </Card>
               ))}

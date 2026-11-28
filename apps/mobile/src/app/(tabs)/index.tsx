@@ -27,6 +27,7 @@ import { Button, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
+import { VehicleQuickActions } from '@/features/live/VehicleQuickActions';
 import { useDayStats, VehicleDayDetails, type DayStatsMap } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
 import { attentionItems, NeedsAttention, StatusCards } from '@/features/live/LiveOverview';
@@ -322,6 +323,8 @@ export default function LiveMapScreen() {
           {t('Driver:')} <Text size="sm" weight="600">{selected.driverName}</Text>
         </Text>
       )}
+      {/* One tap to the vehicle's pages, without opening Details first. */}
+      <VehicleQuickActions o={selected} />
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
         <Button title={t('Details')} icon={ChevronRightIcon} style={{ flex: 1 }} onPress={() => router.push(`/vehicle/${selected.objectId}`)} />
         <Button
