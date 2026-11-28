@@ -141,6 +141,7 @@ function RootStack() {
           <Stack.Screen name="attendance" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-day" options={{ title: t('Staff attendance') }} />
           <Stack.Screen name="attendance-person" options={{ title: t('Staff attendance') }} />
+          <Stack.Screen name="dashboard" options={{ title: t('Dashboard') }} />
           <Stack.Screen name="driver-scores" options={{ title: t('Driver scorecard') }} />
           <Stack.Screen name="ask" options={{ title: t('Ask VeeTrax') }} />
           <Stack.Screen name="share/[id]" options={{ title: t('Share live location') }} />
