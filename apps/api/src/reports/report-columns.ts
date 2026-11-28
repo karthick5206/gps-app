@@ -2,6 +2,9 @@ import {
   ALERT_TYPE_MAP,
   AlertDto,
   AlertTypeCode,
+  BATTERY_STATUS_META,
+  BatteryHealthReportRow,
+  IdleCostReportRow,
   ConsolidatedReportRow,
   ContinuousDrivingReportRow,
   DeviceStatusReportRow,
@@ -53,6 +56,8 @@ export const REPORT_TITLES: Record<ReportType, string> = {
   CONSOLIDATED: 'Consolidated summary report',
   DISTANCE: 'Distance report',
   ENGINE_HOURS: 'Engine hours report',
+  IDLE_COST: 'Idle cost report',
+  BATTERY_HEALTH: 'Battery health report',
   TRIPS: 'Trips report',
   TRIP_SAFETY: 'Trip safety & violations report',
   STOPS: 'Stops report',
@@ -443,6 +448,36 @@ const ENGINE_HOURS: ReportColumn[] = [
   col<EngineHoursReportRow>({ header: 'Distance (km)', width: 12, numeric: true, value: (r) => num(r.distanceKm, 2), total: (t) => num(t.distanceKm ?? 0, 2) }),
 ];
 
+const IDLE_COST: ReportColumn[] = [
+  ...vehicleCols<IdleCostReportRow>((t) => `Total (${t.vehicles ?? 0} vehicles)`),
+  col<IdleCostReportRow>({ header: 'Period', width: 11, value: (r) => r.period }),
+  col<IdleCostReportRow>({ header: 'Idle', width: 10, value: (r) => hhmmss(r.idleSec), total: (t) => hhmmss(t.idleSec) }),
+  col<IdleCostReportRow>({ header: 'Idle %', width: 8, numeric: true, value: (r) => r.idlePct }),
+  col<IdleCostReportRow>({ header: 'L / hour', width: 8, numeric: true, value: (r) => r.litresPerHour }),
+  col<IdleCostReportRow>({ header: 'Fuel wasted (L)', width: 12, numeric: true, value: (r) => num(r.litres, 2), total: (t) => num(t.litres ?? 0, 2) }),
+  col<IdleCostReportRow>({ header: 'Price / L', width: 9, numeric: true, value: (r) => num(r.pricePerL, 2) }),
+  col<IdleCostReportRow>({ header: 'Price from', width: 10, value: (r) => (r.priceSource === 'FUEL_LOG' ? 'Fuel bill' : 'Default') }),
+  col<IdleCostReportRow>({ header: 'Cost (Rs)', width: 10, numeric: true, value: (r) => r.rupees, total: (t) => t.rupees ?? 0 }),
+];
+
+const volts = (v: number | null) => (v === null ? '' : num(v, 2));
+const BATTERY_HEALTH: ReportColumn[] = [
+  ...vehicleCols<BatteryHealthReportRow>((t) => `Total (${t.vehicles ?? 0} vehicles)`),
+  col<BatteryHealthReportRow>({ header: 'Branch', width: 14, value: (r) => r.branchName ?? '' }),
+  col<BatteryHealthReportRow>({
+    header: 'Battery',
+    width: 13,
+    value: (r) => BATTERY_STATUS_META[r.status].label,
+    total: (t) => `${(t.replace ?? 0) + (t.notCharging ?? 0) + (t.overcharging ?? 0)} need action, ${t.weak ?? 0} weak`,
+  }),
+  col<BatteryHealthReportRow>({ header: 'System', width: 7, value: (r) => (r.systemV ? `${r.systemV} V` : '') }),
+  col<BatteryHealthReportRow>({ header: 'Resting (V)', width: 10, numeric: true, value: (r) => volts(r.restV) }),
+  col<BatteryHealthReportRow>({ header: 'Lowest resting (V)', width: 12, numeric: true, value: (r) => volts(r.lowestRestV) }),
+  col<BatteryHealthReportRow>({ header: 'Charging (V)', width: 10, numeric: true, value: (r) => volts(r.chargeV) }),
+  col<BatteryHealthReportRow>({ header: 'Change (V)', width: 9, numeric: true, value: (r) => volts(r.trendV) }),
+  col<BatteryHealthReportRow>({ header: 'What to do', width: 40, value: (r) => r.advice }),
+];
+
 const POSITIONS: ReportColumn[] = [
   col<PositionReportRow>({ header: 'GPS time', width: 19, value: (r, tz) => localTime(r.fixTime, tz), total: (t) => `${t.count ?? 0} points` }),
   col<PositionReportRow>({ header: 'Server time', width: 19, value: (r, tz) => localTime(r.serverTime, tz) }),
@@ -642,6 +677,10 @@ export function columnsFor(type: ReportType, groupBy?: TripPerformanceGroupBy): 
       return DISTANCE;
     case 'ENGINE_HOURS':
       return ENGINE_HOURS;
+    case 'IDLE_COST':
+      return IDLE_COST;
+    case 'BATTERY_HEALTH':
+      return BATTERY_HEALTH;
     case 'TRIPS':
       return TRIPS;
     case 'TRIP_SAFETY':

@@ -1,5 +1,7 @@
 import {
   ALERT_TYPE_MAP,
+  BATTERY_STATUS_META,
+  type BatteryStatus,
   type AlertDto,
   type GeofenceVisitDto,
   type ReportType,
@@ -12,6 +14,8 @@ import {
 import type { LucideIcon } from 'lucide-react-native';
 import {
   ActivityIcon,
+  BatteryMediumIcon,
+  IndianRupeeIcon,
   FileCheck2Icon,
   BellIcon,
   CalendarCheckIcon,
@@ -264,6 +268,26 @@ const ENGINE_HOURS: ReportColumn[] = [
   kmCol(),
 ];
 
+
+const IDLE_COST: ReportColumn[] = [
+  vehicle,
+  plate,
+  periodCol,
+  duration('idleSec', 'Idle'),
+  { id: 'litres', header: 'Fuel wasted (L)', value: num('litres'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  { id: 'pricePerL', header: 'Price / L', value: num('pricePerL'), numeric: true, display: (r) => `₹${(r.pricePerL as number).toFixed(2)}${r.priceSource === 'FUEL_LOG' ? '' : ' *'}` },
+  { id: 'rupees', header: 'Cost', value: num('rupees'), numeric: true, total: 'sum', format: (v) => `₹${Math.round(v).toLocaleString('en-IN')}` },
+];
+
+const BATTERY_HEALTH: ReportColumn[] = [
+  vehicle,
+  plate,
+  { id: 'status', header: 'Battery', value: str('status'), display: (r) => i18n.t(BATTERY_STATUS_META[r.status as BatteryStatus]?.label ?? (r.status as string)) },
+  optNum('restV', 'Resting (V)', 2),
+  optNum('chargeV', 'Charging (V)', 2),
+  optNum('trendV', 'Change (V)', 2),
+  { id: 'advice', header: 'What to do', value: str('advice'), display: (r) => i18n.t(r.advice as string) },
+];
 
 const POSITIONS: ReportColumn[] = [
   { id: 'fixTime', header: 'GPS time', value: time('fixTime'), kind: 'time' },
@@ -690,6 +714,8 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'GEOFENCE_SUMMARY', category: 'Geofences', label: 'Geofence summary', description: 'Visits and total time inside per vehicle and geofence.', icon: ShapesIcon, columns: GEOFENCE_SUMMARY },
   { type: 'GEOFENCE_DISTANCE', category: 'Geofences', label: 'Geofence out-to-in distance', description: 'Km driven from leaving a geofence to entering the next one.', icon: RulerIcon, columns: GEOFENCE_DISTANCE },
   { type: 'POI_VISITS', category: 'Geofences', label: 'POI visits', description: "Arrivals and departures at points of interest (stops within a POI's radius).", icon: MapPinIcon, columns: POI_VISITS },
+  { type: 'IDLE_COST', category: 'Fuel', label: 'Idle cost (₹)', description: 'Idle time (engine on, standing) turned into litres and rupees per vehicle: price from the latest fuel bill, else ₹100 / L.', icon: IndianRupeeIcon, columns: IDLE_COST },
+  { type: 'BATTERY_HEALTH', category: 'Devices', label: 'Battery health', description: 'Vehicle battery and charging check from the tracker voltage: weak, replace soon, not charging or overcharging (up to 31 days).', icon: BatteryMediumIcon, columns: BATTERY_HEALTH },
   { type: 'FUEL', category: 'Fuel', label: 'Fuel (sensor)', description: 'Per vehicle per day: start and end level, refills, drains, consumption and km/L (vehicles with a fuel sensor).', icon: FuelIcon, columns: FUEL },
   { type: 'FUEL_EVENTS', category: 'Fuel', label: 'Fuel refills & drains', description: 'Every detected refill and drain (possible fuel theft) with the level before and after.', icon: DropletOffIcon, columns: FUEL_EVENTS },
   { type: 'MILEAGE', category: 'Fuel log (manual)', label: 'Mileage (manual fuel entries)', description: 'Full-tank method from fuel fill-ups entered in Fuel & expenses: one row per run from a full tank to the next, with GPS km, litres, km per litre and fuel cost per km. No fuel sensor needed.', icon: NotebookPenIcon, columns: MILEAGE },

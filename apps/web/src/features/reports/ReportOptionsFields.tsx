@@ -1,4 +1,4 @@
-import { ALERT_TYPES, type ReportOptions, type ReportType, type TripPerformanceGroupBy } from '@veetracer/shared';
+import { ALERT_TYPES, DEFAULT_FUEL_PRICE_PER_L, type ReportOptions, type ReportType, type TripPerformanceGroupBy } from '@veetracer/shared';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '@/components/ui/field';
@@ -38,6 +38,12 @@ export function optionsFor(type: ReportType, o: ReportOptions): ReportOptions | 
       return { inactiveAfterMin: o.inactiveAfterMin ?? OPTION_DEFAULTS.inactiveAfterMin };
     case 'TRIP_PERFORMANCE':
       return { groupBy: o.groupBy ?? OPTION_DEFAULTS.groupBy };
+    case 'IDLE_COST': {
+      const r: ReportOptions = {};
+      if (o.fuelPricePerL) r.fuelPricePerL = o.fuelPricePerL;
+      if (o.idleLitresPerHour) r.idleLitresPerHour = o.idleLitresPerHour;
+      return Object.keys(r).length ? r : undefined;
+    }
     default:
       return undefined;
   }
@@ -51,6 +57,7 @@ function NumberField({
   fallback,
   min,
   max,
+  decimals = 0,
   onChange,
 }: {
   id: string;
@@ -60,6 +67,8 @@ function NumberField({
   fallback: number | undefined;
   min: number;
   max: number;
+  /** Decimal places kept (default whole numbers). */
+  decimals?: number;
   onChange: (v: number | undefined) => void;
 }) {
   const { t } = useTranslation();
@@ -68,13 +77,14 @@ function NumberField({
       <Input
         id={id}
         type="number"
-        inputMode="numeric"
+        inputMode={decimals ? 'decimal' : 'numeric'}
+        step={decimals ? 1 / 10 ** decimals : 1}
         min={min}
         max={max}
         placeholder={fallback === undefined ? t('Any') : String(fallback)}
         value={value ?? ''}
         onChange={(e) => {
-          const n = e.target.value === '' ? undefined : Math.round(Number(e.target.value));
+          const n = e.target.value === '' ? undefined : Math.round(Number(e.target.value) * 10 ** decimals) / 10 ** decimals;
           onChange(n === undefined || !Number.isFinite(n) ? undefined : Math.min(max, Math.max(min, n)));
         }}
       />
@@ -143,6 +153,13 @@ export function ReportOptionsFields({ type, value, onChange, idPrefix = 'r' }: {
           max={43_200}
           onChange={(inactiveAfterMin) => set({ inactiveAfterMin })}
         />
+      );
+    case 'IDLE_COST':
+      return (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <NumberField id={`${idPrefix}-fuel-price`} label={t('Fuel price (₹ / L)')} hint={t('For vehicles without a fuel bill in the last 120 days')} value={value.fuelPricePerL} fallback={DEFAULT_FUEL_PRICE_PER_L} min={1} max={1000} decimals={2} onChange={(fuelPricePerL) => set({ fuelPricePerL })} />
+          <NumberField id={`${idPrefix}-idle-lph`} label={t('Litres per hour idling')} hint={t('Empty = by vehicle type (car 0.8, truck / bus 2.5)')} value={value.idleLitresPerHour} fallback={undefined} min={0.05} max={20} decimals={2} onChange={(idleLitresPerHour) => set({ idleLitresPerHour })} />
+        </div>
       );
     case 'TRIP_PERFORMANCE':
       return (

@@ -140,7 +140,7 @@ export interface HistoryArchiveRunStats {
 }
 
 /** Report types that read raw positions: over archived days they would be incomplete, so they carry a notice. */
-export const RAW_POSITION_REPORTS = ['POSITIONS', 'OVERSPEED', 'IGNITION', 'FUEL', 'GEOFENCE_DISTANCE'] as const;
+export const RAW_POSITION_REPORTS = ['POSITIONS', 'OVERSPEED', 'IGNITION', 'FUEL', 'GEOFENCE_DISTANCE', 'BATTERY_HEALTH'] as const;
 
 /** ReportResponse.archived: the period includes archived days, so rows / totals from raw points are incomplete. */
 export interface ReportArchiveNotice {

@@ -8,6 +8,7 @@ import { Button, Card, EmptyState, InfoRow, Text } from '@/components/ui';
 import { CollapsibleSection, useRememberedToggle } from '@/components/CollapsibleSection';
 import { StatusPill, VehicleThumb } from '@/features/live/components';
 import { VehicleQuickActions } from '@/features/live/VehicleQuickActions';
+import { VehicleHealthRows } from '@/features/live/VehicleHealthRows';
 import { ObjectPhoto } from '@/features/objects/object-photo';
 import { SpeedLimitRow } from '@/features/live/SpeedLimitEditor';
 import { liveStore } from '@/features/live/live-store';
@@ -174,6 +175,7 @@ export default function VehicleScreen() {
           <InfoRow label={t('Satellites')} value={o.satellites === null ? '—' : String(o.satellites)} />
           <InfoRow label={t('Mobile signal')} value={o.gsmSignal === null ? '—' : `${o.gsmSignal} / 4`} />
           <InfoRow label={t('Vehicle voltage')} value={or(o.extVoltage, 'V', 1)} />
+          <VehicleHealthRows o={o} />
           {o.acOn !== undefined && (
             <InfoRow label={t('AC')} value={`${o.acOn === null ? '—' : o.acOn ? t('On') : t('Off')}${o.acVoltage != null ? ` (${o.acVoltage.toFixed(1)} V)` : ''}`} />
           )}

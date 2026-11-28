@@ -15,6 +15,8 @@ export const REPORT_KEYWORDS: Record<string, string[]> = {
   SUMMARY: ['daily', 'weekly', 'monthly', 'utilisation', 'utilization', 'km', 'kilometres', 'running', 'idle', 'overview'],
   CONSOLIDATED: ['per vehicle', 'fleet', 'compare', 'whole period', 'alerts', 'geofence', 'overview'],
   DISTANCE: ['km', 'kilometres', 'mileage', 'odometer', 'travelled', 'offline'],
+  IDLE_COST: ['idle', 'idling', 'cost', 'rupees', 'money', 'fuel waste', 'wasted', 'ac', 'leak'],
+  BATTERY_HEALTH: ['battery', 'voltage', 'alternator', 'charging', 'weak', 'replace', 'starting', 'power'],
   ENGINE_HOURS: ['engine', 'hours', 'idle', 'idling', 'usage', 'runtime', 'utilisation'],
   TRIPS: ['journey', 'route', 'start', 'end', 'from', 'to', 'drive'],
   TRIP_SAFETY: ['seat belt', 'seatbelt', 'violation', 'safety', 'adas', 'dms', 'dashcam', 'phone', 'fatigue', 'distraction', 'harsh', 'score', 'trip'],

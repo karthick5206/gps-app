@@ -1,6 +1,6 @@
 import { REPORT_TYPES, ReportFormat, ReportOptions, ReportPeriod, ReportRequest, ReportScope, ReportType, ROW_KEY_LENGTH, TRIP_PERFORMANCE_GROUP_BY, TripPerformanceGroupBy, VIEW_MAX_ROWS } from '@veetracer/shared';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class ReportScopeDto implements ReportScope {
   @IsOptional() @IsArray() @ArrayMaxSize(10_000) @IsUUID('all', { each: true }) branchIds: string[] = [];
@@ -16,6 +16,8 @@ export class ReportOptionsDto implements ReportOptions {
   @IsOptional() @IsInt() @Min(0) @Max(3600) minOverspeedSec?: number;
   @IsOptional() @IsInt() @Min(5) @Max(43_200) inactiveAfterMin?: number;
   @IsOptional() @IsIn(TRIP_PERFORMANCE_GROUP_BY) groupBy?: TripPerformanceGroupBy;
+  @IsOptional() @IsNumber() @Min(1) @Max(1000) fuelPricePerL?: number;
+  @IsOptional() @IsNumber() @Min(0.05) @Max(20) idleLitresPerHour?: number;
 }
 
 export class ReportRequestDto implements ReportRequest {
