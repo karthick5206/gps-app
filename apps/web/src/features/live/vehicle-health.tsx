@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { BATTERY_STATUS_META, type BatteryHealthReportRow, type IdleCostReportRow, type LiveObject, type ReportResponse } from '@veetracer/shared';
+import { BATTERY_STATUS_META, batteryReasons, type BatteryHealthReportRow, type IdleCostReportRow, type LiveObject, type ReportResponse } from '@veetracer/shared';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { Badge } from '@/components/ui/badge';
@@ -43,7 +43,7 @@ export function VehicleHealthRows({ o, Row }: { o: LiveObject; Row: (p: { label:
     <>
       {battery && meta && battery.status !== 'NO_DATA' && (
         <Row label={t('Vehicle battery')}>
-          <span className="flex flex-col items-end gap-1" title={t(meta.advice)}>
+          <span className="flex flex-col items-end gap-1" title={batteryReasons(battery, (k, v) => t(k, v)).join('\n')}>
             <Link to={batteryLink}>
               <Badge variant={VARIANT[meta.tone]}>{t(meta.label)}</Badge>
             </Link>

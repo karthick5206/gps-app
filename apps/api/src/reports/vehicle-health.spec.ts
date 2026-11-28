@@ -50,3 +50,24 @@ describe('idleCostRows', () => {
     expect(r.rows[0]).toMatchObject({ litresPerHour: 2, litres: 2, pricePerL: 90, rupees: 180 });
   });
 });
+
+describe('batteryReasons', () => {
+  it('explains the verdict with the actual readings and limits', () => {
+    const { batteryReasons } = jest.requireActual('@veetracer/shared') as typeof import('@veetracer/shared');
+    const v = batteryVerdict(days([12.3, 12.0, 11.9, 12.0, 11.95, 11.9]));
+    const text = batteryReasons(v).join(' ');
+    expect(v.status).toBe('REPLACE');
+    expect(text).toContain('12 V electrical system.');
+    expect(text).toContain('Overnight resting voltage 11.95 V (too low; healthy is 12.40 V or more, below 12.10 V needs replacing), median of the last 3 nights out of 6.');
+    expect(text).toContain('Lowest night: 11.90 V on 2026-11-03.');
+    expect(text).toContain('Charging voltage while driving 14.10 V (normal; it should be 13.00–15.00 V), median of 6 days.');
+    expect(text).toContain('Action: load-test the battery now');
+  });
+  it('24 V limits are doubled', () => {
+    const { batteryReasons } = jest.requireActual('@veetracer/shared') as typeof import('@veetracer/shared');
+    const text = batteryReasons(batteryVerdict(days([25.3, 25.2, 25.2], 28.2))).join(' ');
+    expect(text).toContain('healthy is 24.80 V or more, below 24.20 V');
+    expect(text).toContain('it should be 26.00–30.00 V');
+    expect(text).toContain('No action needed.');
+  });
+});

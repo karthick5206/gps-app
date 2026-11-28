@@ -1,6 +1,8 @@
 import {
   ALERT_TYPE_MAP,
   BATTERY_STATUS_META,
+  batteryReasons,
+  type BatteryHealthReportRow,
   type BatteryStatus,
   type AlertDto,
   type GeofenceVisitDto,
@@ -286,7 +288,7 @@ const BATTERY_HEALTH: ReportColumn[] = [
   optNum('restV', 'Resting (V)', 2),
   optNum('chargeV', 'Charging (V)', 2),
   optNum('trendV', 'Change (V)', 2),
-  { id: 'advice', header: 'What to do', value: str('advice'), display: (r) => i18n.t(r.advice as string) },
+  { id: 'advice', header: 'What to do', value: str('advice'), display: (r) => batteryReasons(r as unknown as BatteryHealthReportRow, (k: string, v?: Record<string, string | number>) => i18n.t(k, v)).join('\n') },
 ];
 
 const POSITIONS: ReportColumn[] = [

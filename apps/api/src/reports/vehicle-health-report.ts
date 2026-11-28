@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import {
-  BATTERY_STATUS_META,
   BatteryDay,
+  batteryReasons,
   batteryVerdict,
   BatteryHealthReportRow,
   BatteryStatus,
@@ -82,7 +82,9 @@ export async function batteryHealthReport(
       chargeV: v.chargeV,
       trendV: v.trendV,
       days: v.days,
-      advice: BATTERY_STATUS_META[v.status].advice,
+      lowestRestDay: v.lowestRestDay ?? null,
+      chargeDays: v.chargeDays ?? 0,
+      advice: batteryReasons(v).join(' '),
     };
   });
   all.sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.objectName.localeCompare(b.objectName));
