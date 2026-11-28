@@ -28,6 +28,7 @@ export class ReportsController {
       type: r.type,
       from: r.from,
       to: r.to,
+      ...(r.fromTime ? { fromTime: r.fromTime, toTime: r.toTime } : {}),
       ...(r.period ? { period: r.period } : {}),
       ...(r.groupBy ? { groupBy: r.groupBy } : {}),
       rows: r.rows,

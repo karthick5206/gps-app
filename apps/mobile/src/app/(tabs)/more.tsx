@@ -2,7 +2,7 @@ import { Children, type ReactNode } from 'react';
 import Constants from 'expo-constants';
 import { DisplaySizeCard } from '@/components/DisplaySizeCard';
 import { router, type Href } from 'expo-router';
-import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon, CameraIcon, ToggleRightIcon } from 'lucide-react-native';
+import { BellRingIcon, BookOpenIcon, Building2Icon, SmartphoneIcon, UsersRoundIcon, ScanFaceIcon, ChevronRightIcon, CpuIcon, FileBarChartIcon, FileCheck2Icon, HexagonIcon, IdCardIcon, ReceiptIndianRupeeIcon, MapPinIcon, TruckIcon, LogOutIcon, ServerIcon, UserIcon, type LucideIcon, ShieldAlertIcon, SparklesIcon, TrophyIcon, CalendarCheckIcon, FuelIcon, BusIcon, CarFrontIcon, CameraIcon, ToggleRightIcon, FilmIcon, LayoutDashboardIcon } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, View, Switch } from 'react-native';
 import { BrandLockup } from '@/components/BrandMark';
@@ -109,12 +109,17 @@ export default function MoreScreen() {
       </MenuGroup>
 
       <MenuGroup title={t('Tracking')}>
+        {can('dashboard') && <MenuItem icon={LayoutDashboardIcon} label={t('Dashboard')} href="/dashboard" />}
         {can('parking_mode') && <MenuItem icon={ShieldAlertIcon} label={t('Parking mode')} href="/parking" />}
         {can('live_map') && <MenuItem icon={SparklesIcon} label={t('Ask VeeTrax')} href="/ask" />}
       </MenuGroup>
 
-      <MenuGroup title={t('Drivers & Staff')}>
+      <MenuGroup title={t('Video & safety')}>
+        {can('video_evidence') && <MenuItem icon={FilmIcon} label={t('Video evidence')} href="/video-evidence" />}
         {can('driver_events') && <MenuItem icon={ScanFaceIcon} label={t('Driver events')} href="/driver-events" />}
+      </MenuGroup>
+
+      <MenuGroup title={t('Drivers & Staff')}>
         {can('driver_scores') && <MenuItem icon={TrophyIcon} label={t('Driver scorecard')} href="/driver-scores" />}
         {can('attendance') && <MenuItem icon={CalendarCheckIcon} label={t('Staff attendance')} href="/attendance" />}
       </MenuGroup>

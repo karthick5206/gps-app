@@ -49,3 +49,17 @@ export function fromDateInput(v: string, end = false): Date {
   if (end) d.setHours(23, 59, 59, 999);
   return d;
 }
+
+/** yyyy-MM-ddTHH:mm of a local time (for <input type="datetime-local">). */
+export function toDateTimeInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${toDateInput(d)}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Local date + time from <input type="datetime-local">; `end` makes the minute inclusive (…:59.999). Null when invalid. */
+export function fromDateTimeInput(v: string, end = false): Date | null {
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  if (end) d.setSeconds(59, 999);
+  return d;
+}

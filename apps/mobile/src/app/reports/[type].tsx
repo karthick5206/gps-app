@@ -3,6 +3,7 @@ import {
   PERIOD_REPORT_TYPES,
   POSITIONS_REPORT_MAX_DAYS,
   SINGLE_OBJECT_REPORT_TYPES,
+  TIMED_REPORT_TYPES,
   type ReportFormat,
   type ReportPeriod,
   type ReportRequest,
@@ -11,20 +12,22 @@ import {
   type TripPerformanceGroupBy,
 } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { FileSpreadsheetIcon, FileTextIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
+import { FileSpreadsheetIcon, FileTextIcon, ListIcon, PlayIcon, SheetIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Alert, FlatList, ScrollView, StyleSheet, View } from 'react-native';
-import { DateField, SelectField, toYmd, VehiclePicker } from '@/components/pickers';
+import { DateField, SelectField, TimeField, toYmd, VehiclePicker } from '@/components/pickers';
 import { Button, Card, Chips, EmptyState, ErrorBanner, Field, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { liveStore } from '@/features/live/live-store';
 import { cellText, columnsForResult, computeTotals, REPORT_DEF_MAP, type Row } from '@/features/reports/report-defs';
 import { daySpan } from '@/features/reports/report-format';
+import { TripSafetySheet } from '@/features/reports/TripSafetySheet';
 import { api, errorMessage } from '@/lib/api';
 import { downloadAndShare } from '@/lib/share-file';
 import { SPACE, useColors } from '@/lib/theme';
 
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const addDays = (d: Date, n: number) => {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
@@ -56,11 +59,14 @@ const FORMATS: { format: ReportFormat; label: string; icon: typeof FileTextIcon 
 /** How many fields a collapsed row card shows. */
 const PREVIEW_FIELDS = 5;
 
-function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getColumns> }) {
+function RowCard({ row, columns, onDetails }: { row: Row; columns: ReturnType<typeof getColumns>; onDetails?: (row: Row) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const [title, ...rest] = columns;
+  const [title, ...all] = columns;
+  // Columns marked hideZero (e.g. the trip safety violation counts) only show when they have something to say.
+  const rest = all.filter((col) => !(col.hideZero && col.value(row) === 0));
   const shown = open ? rest : rest.slice(0, PREVIEW_FIELDS);
+  const occurrences = Array.isArray(row.occurrences) ? row.occurrences.length : 0;
   return (
     <Card onPress={rest.length > PREVIEW_FIELDS ? () => setOpen((o) => !o) : undefined}>
       <Text weight="600" numberOfLines={1}>
@@ -83,6 +89,9 @@ function RowCard({ row, columns }: { row: Row; columns: ReturnType<typeof getCol
           {open ? t('Show less') : t('Show all {{count}} fields', { count: rest.length + 1 })}
         </Text>
       )}
+      {onDetails && occurrences > 0 && (
+        <Button title={t('{{n}} violations', { n: occurrences })} icon={ListIcon} variant="outline" style={{ marginTop: SPACE.sm, height: 38 }} onPress={() => onDetails(row)} />
+      )}
     </Card>
   );
 }
@@ -100,16 +109,25 @@ export default function ReportRunScreen() {
 
   const [preset, setPreset] = useState<Preset>('last7');
   const [[from, to], setRange] = useState<[string, string]>(() => presetDates('last7'));
+  // Times of day for reports that list timed events (TIMED_REPORT_TYPES), Custom only; 00:00 → 23:59 = whole days.
+  const timed = TIMED_REPORT_TYPES.includes(type);
+  const [[fromMin, toMin], setTimes] = useState<[number, number]>([0, 1439]);
+  const withTimes = timed && preset === 'custom' && (fromMin !== 0 || toMin !== 1439);
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [objectIds, setObjectIds] = useState<string[]>([]);
   const [picker, setPicker] = useState(false);
   const [minDuration, setMinDuration] = useState(type === 'HALT' ? '30' : '');
   const [groupBy, setGroupBy] = useState<TripPerformanceGroupBy>('ROUTE');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
+  /** TRIP_SAFETY: the trip whose violations are open in the sheet. */
+  const [safetyRow, setSafetyRow] = useState<Row | null>(null);
 
   const pickPreset = (p: Preset) => {
     setPreset(p);
-    if (p !== 'custom') setRange(presetDates(p));
+    if (p !== 'custom') {
+      setRange(presetDates(p));
+      setTimes([0, 1439]);
+    }
   };
 
   const request = useMemo<ReportRequest>(
@@ -118,16 +136,19 @@ export default function ReportRunScreen() {
       scope: { branchIds: [], groupIds: [], objectIds },
       from,
       to,
+      // Sent only when set, so an older server (which rejects unknown fields) still runs whole-day reports.
+      ...(withTimes ? { fromTime: hhmm(fromMin), toTime: hhmm(toMin) } : {}),
       ...(periodic ? { period } : {}),
       ...(minDuration && ['HALT', 'STOPS', 'IDLE'].includes(type) ? { options: { minDurationMin: Number(minDuration) } } : {}),
       ...(type === 'TRIP_PERFORMANCE' ? { options: { groupBy } } : {}),
     }),
-    [type, objectIds, from, to, periodic, period, minDuration, groupBy],
+    [type, objectIds, from, to, withTimes, fromMin, toMin, periodic, period, minDuration, groupBy],
   );
 
   const validation = (() => {
     const span = daySpan(from, to);
     if (!(span >= 1)) return t('The end date must be on or after the start date.');
+    if (withTimes && span === 1 && toMin < fromMin) return t('End must be after start');
     if (single && objectIds.length !== 1) return t('Choose one vehicle for this report.');
     if (single && span > POSITIONS_REPORT_MAX_DAYS) return t('This report covers at most {{count}} days.', { count: POSITIONS_REPORT_MAX_DAYS });
     return null;
@@ -150,7 +171,7 @@ export default function ReportRunScreen() {
   const columns = useMemo(() => (def ? columnsForResult(def, run.data?.groupBy) : []), [def, run.data]);
   const rows = run.data?.rows ?? [];
   const totals = useMemo(() => (run.data ? computeTotals(columns, rows, run.data.totals) : {}), [run.data, columns, rows]);
-  const totalCols = columns.filter((col) => totals[col.id] !== undefined);
+  const totalCols = columns.filter((col) => totals[col.id] !== undefined && !(col.hideZero && totals[col.id] === 0));
 
   if (!def) return <EmptyState icon={FileTextIcon} title={t('Unknown report')} />;
   const vehicleLabel = objectIds.length === 0 ? (single ? t('Choose a vehicle') : t('All vehicles')) : objectIds.length === 1 ? (liveStore.get(objectIds[0])?.name ?? t('1 vehicle')) : t('{{n}} vehicles', { n: objectIds.length });
@@ -183,10 +204,24 @@ export default function ReportRunScreen() {
                 ]}
               />
             </ScrollView>
-            <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              <DateField label={t('From')} value={from} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([v, to]))} />
-              <DateField label={t('To')} value={to} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([from, v]))} />
-            </View>
+            {/* Date / time fields stretch with flex: 1, so each pair sits directly in a row. */}
+            {timed && preset === 'custom' ? (
+              <>
+                <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                  <DateField label={t('From')} value={from} maximumDate={new Date()} onChange={(v) => setRange([v, to])} />
+                  <TimeField label={t('Time')} value={fromMin} onChange={(m) => setTimes([m, toMin])} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                  <DateField label={t('To')} value={to} maximumDate={new Date()} onChange={(v) => setRange([from, v])} />
+                  <TimeField label={t('Time')} value={toMin} onChange={(m) => setTimes([fromMin, m])} />
+                </View>
+              </>
+            ) : (
+              <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                <DateField label={t('From')} value={from} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([v, to]))} />
+                <DateField label={t('To')} value={to} maximumDate={new Date()} onChange={(v) => (setPreset('custom'), setRange([from, v]))} />
+              </View>
+            )}
             {periodic && (
               <Chips
                 value={period}
@@ -252,9 +287,10 @@ export default function ReportRunScreen() {
             )}
           </View>
         }
-        renderItem={({ item }) => <RowCard row={item} columns={columns} />}
+        renderItem={({ item }) => <RowCard row={item} columns={columns} onDetails={type === 'TRIP_SAFETY' ? setSafetyRow : undefined} />}
         ListEmptyComponent={run.isPending ? <ActivityIndicator style={{ margin: SPACE.xl }} /> : run.data ? <EmptyState icon={def.icon} title={t('No data')} description={t('Nothing matched for these vehicles and dates.')} /> : undefined}
       />
+      {type === 'TRIP_SAFETY' && <TripSafetySheet row={safetyRow} onClose={() => setSafetyRow(null)} />}
       <VehiclePicker open={picker} onClose={() => setPicker(false)} selected={objectIds} onChange={setObjectIds} multiple={!single} title={single ? t('Choose a vehicle') : t('Choose vehicles')} />
     </>
   );

@@ -1,8 +1,7 @@
 import { Camera, GeoJSONSource, Layer, Map } from '@maplibre/maplibre-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriverEventDto, DriverEventStatus } from '@veetracer/shared';
-import * as WebBrowser from 'expo-web-browser';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { BanIcon, CameraOffIcon, CheckIcon, GraduationCapIcon, RotateCcwIcon, VideoIcon, XIcon } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,7 +9,7 @@ import { ActivityIndicator, Image, Modal, Pressable, ScrollView, useWindowDimens
 import { Button, Card, ErrorBanner, Field, InfoRow, Pill, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AlertTypeIcon, SEVERITY_COLOR } from '@/features/alerts/alert-icons';
-import { eventLabel, eventSeverity, mediaUri, STATUS_COLOR, STATUS_LABEL, videoUrl } from '@/features/driver-events/driver-events';
+import { eventLabel, eventSeverity, mediaUri, STATUS_COLOR, STATUS_LABEL } from '@/features/driver-events/driver-events';
 import { api, errorMessage } from '@/lib/api';
 import { useMapStyle } from '@/features/map/basemap';
 import { formatDateTime } from '@/lib/format';
@@ -106,7 +105,14 @@ export default function DriverEventScreen() {
         </View>
       )}
 
-      {can('video') && <Button title={t('Watch video')} icon={VideoIcon} variant="outline" onPress={() => void WebBrowser.openBrowserAsync(videoUrl(e.objectId, e.occurredAt))} />}
+      {can('video') && (
+        <Button
+          title={t('Watch video')}
+          icon={VideoIcon}
+          variant="outline"
+          onPress={() => router.push({ pathname: '/video/[id]', params: { id: e.objectId, name: e.plateNumber || e.objectName, at: e.occurredAt } })}
+        />
+      )}
 
       {can('driver_events', 'edit') && (
         <Card style={{ gap: SPACE.md }}>

@@ -22,12 +22,76 @@ app.veetrax.com {
 
 	# Self-hosted map: vector tiles from Martin (/tiles/india/{z}/{x}/{y} -> martin /india/{z}/{x}/{y}); USA tiles as
 	# source "us" and the composite "india,us" the styles use (make-styles.sh TILE_SOURCES)
-	# The demo server (gps.mintplus.co.in) loads these map files too: allow only that site cross-origin.
-	@tilecors path /tiles/*
-	# defer: replaces (not duplicates) the header Martin itself sends on tiles
-	header @tilecors {
-		Access-Control-Allow-Origin "https://gps.mintplus.co.in"
+	# Cross-origin map files: demo (gps.mintplus.co.in), VeeAssets (qr.mintplus.co.in, local dev :5173 / :8090) and glens.mintplus.co.in.
+	# The allowed Origin is echoed back; any other Origin gets no Access-Control-Allow-Origin.
+	# defer: replaces / removes the header Martin itself sends on tiles (Martin echoes every origin).
+	@tilecors_ok {
+		path /tiles/*
+		header Origin https://gps.mintplus.co.in
+		header Origin https://qr.mintplus.co.in
+		header Origin https://glens.mintplus.co.in
+		header Origin http://localhost:5173
+		header Origin http://localhost:8090
+		header Origin http://127.0.0.1:8090
+	}
+	@tilecors_no {
+		path /tiles/*
+		not {
+			header Origin https://gps.mintplus.co.in
+			header Origin https://qr.mintplus.co.in
+			header Origin https://glens.mintplus.co.in
+			header Origin http://localhost:5173
+			header Origin http://localhost:8090
+			header Origin http://127.0.0.1:8090
+		}
+	}
+	header @tilecors_ok {
+		Access-Control-Allow-Origin "{http.request.header.Origin}"
+		Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+		Vary Origin
 		defer
+	}
+	header @tilecors_no {
+		-Access-Control-Allow-Origin
+		-Access-Control-Allow-Credentials
+		defer
+	}
+	@tilepreflight {
+		method OPTIONS
+		path /tiles/*
+		header Origin https://gps.mintplus.co.in
+		header Origin https://qr.mintplus.co.in
+		header Origin https://glens.mintplus.co.in
+		header Origin http://localhost:5173
+		header Origin http://localhost:8090
+		header Origin http://127.0.0.1:8090
+	}
+	handle @tilepreflight {
+		header Access-Control-Allow-Headers "Content-Type, Range, If-None-Match, If-Modified-Since"
+		header Access-Control-Max-Age "86400"
+		respond 204
+	}
+
+	# Geocoding for VeeAssets (qrapi.mintplus.co.in on 166.0.242.121) -> local Photon.
+	# Only GET /geo/api and /geo/reverse, only from 166.0.242.121 or 202.83.45.102, only with X-Geo-Key = GEO_KEY
+	# (GEO_KEY comes from root-only /etc/caddy/geo.env via caddy.service.d/geo-key.conf). Else 403. No CORS.
+	@geo path /geo /geo/*
+	handle @geo {
+		@geo_ok {
+			method GET
+			path /geo/api /geo/reverse
+			remote_ip 166.0.242.121 202.83.45.102
+			header X-Geo-Key {$GEO_KEY}
+		}
+		handle @geo_ok {
+			uri strip_prefix /geo
+			reverse_proxy 127.0.0.1:2322 {
+				header_up -X-Geo-Key
+			}
+		}
+		handle {
+			respond 403
+		}
 	}
 
 	@martin path /tiles/india/* /tiles/us/* /tiles/india,us/*
@@ -37,6 +101,14 @@ app.veetrax.com {
 		reverse_proxy 127.0.0.1:3000
 	}
 	# Styles, fonts and sprites (nothing is loaded from outside)
+	# Styles change when map data changes (make-styles.sh): always revalidate (ETag); fonts / sprites cached a day.
+	@styles path /tiles/styles/*
+	handle @styles {
+		uri strip_prefix /tiles
+		root * /opt/veetrax/maps/tiles
+		header Cache-Control "no-cache"
+		file_server
+	}
 	handle_path /tiles/* {
 		root * /opt/veetrax/maps/tiles
 		header Cache-Control "public, max-age=86400"

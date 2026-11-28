@@ -65,7 +65,9 @@ function prepare(data: FileSection): Prepared {
         : '';
   return {
     title: REPORT_TITLES[data.type],
-    periodLine: `Period: ${data.from} to ${data.to} (${data.tz})${periodLabel}`,
+    periodLine: data.fromTime
+      ? `Period: ${data.from} ${data.fromTime} to ${data.to} ${data.toTime} (${data.tz})${periodLabel}`
+      : `Period: ${data.from} to ${data.to} (${data.tz})${periodLabel}`,
     note: [data.truncated ? `Showing the first ${data.rows.length} of ${data.totalRows} rows; totals cover all rows.` : null, ...(data.notes ?? [])].filter(Boolean).join(' ') || null,
     headers: cols.map((c) => c.header),
     widths: cols.map((c) => c.width),

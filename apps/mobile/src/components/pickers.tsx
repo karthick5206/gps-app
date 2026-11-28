@@ -3,7 +3,7 @@ import type { LiveObject } from '@veetracer/shared';
 import { CalendarIcon, CheckIcon, ChevronDownIcon, ClockIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Modal, Platform, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, SearchInput, Text } from '@/components/ui';
 import { VehicleThumb } from '@/features/live/components';
@@ -11,10 +11,22 @@ import { liveStore } from '@/features/live/live-store';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
 
 /** Tappable field that shows a value and opens something (picker, sheet). */
-export function SelectField({ label, value, onPress, icon: Icon = ChevronDownIcon }: { label: string; value: string; onPress: () => void; icon?: typeof ChevronDownIcon }) {
+export function SelectField({
+  label,
+  value,
+  onPress,
+  icon: Icon = ChevronDownIcon,
+  style,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  icon?: typeof ChevronDownIcon;
+  style?: StyleProp<ViewStyle>;
+}) {
   const c = useColors();
   return (
-    <View style={{ gap: 6, flex: 1 }}>
+    <View style={[{ gap: 6, flex: 1 }, style]}>
       <Text size="sm" weight="500">
         {label}
       </Text>
@@ -29,6 +41,12 @@ export function SelectField({ label, value, onPress, icon: Icon = ChevronDownIco
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Inside DateField / TimeField (a flex: 1 column) the field sizes to its content. With flex: 1 it collapsed to 0 height
+ * on fixed-height screens (History custom range, VeeTrax 0.8.1 / 0.8.2), checked with Yoga.
+ */
+const NO_STRETCH = { flex: 0 } as const;
 export const toYmd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 export const fromYmd = (s: string) => {
   const [y, m, d] = s.split('-').map(Number);
@@ -46,7 +64,7 @@ export function DateField({ label, value, onChange, minimumDate, maximumDate }: 
   };
   return (
     <View style={{ flex: 1, gap: SPACE.sm }}>
-      <SelectField label={label} value={date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} onPress={open} icon={CalendarIcon} />
+      <SelectField label={label} value={date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} onPress={open} icon={CalendarIcon} style={NO_STRETCH} />
       {iosOpen && Platform.OS === 'ios' && (
         <DateTimePicker value={date} mode="date" display="inline" minimumDate={minimumDate} maximumDate={maximumDate} onChange={(_, d) => d && onChange(toYmd(d))} />
       )}
@@ -65,7 +83,7 @@ export function TimeField({ label, value, onChange }: { label: string; value: nu
   };
   return (
     <View style={{ flex: 1, gap: SPACE.sm }}>
-      <SelectField label={label} value={`${pad(Math.floor(value / 60))}:${pad(value % 60)}`} onPress={open} icon={ClockIcon} />
+      <SelectField label={label} value={`${pad(Math.floor(value / 60))}:${pad(value % 60)}`} onPress={open} icon={ClockIcon} style={NO_STRETCH} />
       {iosOpen && Platform.OS === 'ios' && <DateTimePicker value={date} mode="time" display="spinner" onChange={(_, d) => set(d)} />}
     </View>
   );

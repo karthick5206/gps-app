@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { RAW_POSITION_REPORTS, ReportArchiveNotice } from '@veetracer/shared';
+import { RAW_POSITION_REPORTS, ReportArchiveNotice, TIMED_REPORT_TYPES } from '@veetracer/shared';
 import {
   AlertDto,
   DailySummaryDto,
@@ -64,6 +64,32 @@ export interface ReportData extends ReportResponse {
   totalRows: number;
 }
 
+/** "HH:mm" → minutes after midnight; `fallback` when absent. */
+export function minutesOf(hhmm: string | undefined, fallback: number): number {
+  if (!hhmm) return fallback;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * The report's time window (ms, `lt` exclusive). Whole days by default; TIMED_REPORT_TYPES with `fromTime` / `toTime`
+ * start at that minute of the first day and end after that minute of the last day (company timezone).
+ */
+export function reportWindow(req: ReportRequest, tz: string): { gte: number; lt: number; timed: boolean; fromTime?: string; toTime?: string } {
+  const dayStart = localMidnight(req.from, tz);
+  const dayEnd = localMidnight(addDays(req.to, 1), tz);
+  const timed = TIMED_REPORT_TYPES.includes(req.type) && !!(req.fromTime || req.toTime);
+  if (!timed) return { gte: dayStart, lt: dayEnd, timed: false };
+  const fromMin = minutesOf(req.fromTime, 0);
+  const toMin = minutesOf(req.toTime, 1439);
+  // Minutes are added to the local midnight; India has no daylight saving, and elsewhere a DST day shifts by at most an hour.
+  const gte = dayStart + fromMin * 60_000;
+  const lt = Math.min(dayEnd, localMidnight(req.to, tz) + (toMin + 1) * 60_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const fmt = (m: number) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+  return { gte, lt, timed: true, fromTime: fmt(fromMin), toTime: fmt(toMin) };
+}
+
 type ScopeCtx = Pick<AuthContext, 'companyId' | 'dataScope' | 'branchIds' | 'objectIds'> & Pick<Partial<AuthContext>, 'shares' | 'isSuperAdmin' | 'permissions'>;
 
 @Injectable()
@@ -78,6 +104,9 @@ export class ReportDataService {
   validate(req: ReportRequest): void {
     if (!isDayKey(req.from) || !isDayKey(req.to)) throw new BadRequestException('from and to must be dates (YYYY-MM-DD)');
     if (req.to < req.from) throw new BadRequestException('to must not be before from');
+    if (req.from === req.to && (req.fromTime || req.toTime) && TIMED_REPORT_TYPES.includes(req.type) && minutesOf(req.toTime, 1439) < minutesOf(req.fromTime, 0)) {
+      throw new BadRequestException('The end time must be after the start time');
+    }
     if (daysBetween(req.from, req.to) >= REPORT_MAX_DAYS) throw new BadRequestException(`Range too long (max ${REPORT_MAX_DAYS} days)`);
   }
 
@@ -201,8 +230,9 @@ export class ReportDataService {
     const tz = company.timezone;
     const objects = await this.scopeObjects(ctx, req.scope ?? { branchIds: [], groupIds: [], objectIds: [] });
     const ids = [...objects.keys()];
-    const range = { gte: new Date(Math.max(localMidnight(req.from, tz), notBefore)), lt: new Date(localMidnight(addDays(req.to, 1), tz)) };
-    const base = { type: req.type, from: req.from, to: req.to, companyName: company.name, tz };
+    const window = reportWindow(req, tz);
+    const range = { gte: new Date(Math.max(window.gte, notBefore)), lt: new Date(window.lt) };
+    const base = { type: req.type, from: req.from, to: req.to, ...(window.timed ? { fromTime: window.fromTime, toTime: window.toTime } : {}), companyName: company.name, tz };
     const empty: ReportData = { ...base, rows: [], totals: {}, truncated: false, totalRows: 0 };
     const name = (id: string) => objects.get(id)?.name ?? 'Unknown object';
     const byName = <T extends { objectId: string }>(a: T, b: T) => name(a.objectId).localeCompare(name(b.objectId));

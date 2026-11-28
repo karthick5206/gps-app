@@ -2,7 +2,7 @@ import { Camera, GeoJSONSource, Images, Layer, Map, type CameraRef } from '@mapl
 import { useQuery } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, STATUS_META, type HistoryResponse } from '@veetracer/shared';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
+import { ChevronDownIcon, ChevronUpIcon, PauseIcon, PlayIcon, RouteIcon, SkipBackIcon } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
@@ -11,10 +11,13 @@ import { Card, Chips, EmptyState, ErrorBanner, Text } from '@/components/ui';
 import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
 import { PlaybackAddress } from '@/features/history/PlaybackAddress';
+import { RouteTimeline } from '@/features/history/RouteTimeline';
+import { rememberVehicle } from '@/features/history/recent-vehicles';
 import { buildRuns, buildTrackIndex, coordsOf, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { TrackLegend, trackColorExpr, type ColorMode } from '@/features/history/TrackLegend';
 import { PlaybackEngine } from '@/features/history/playback-engine';
-import { presetRange, type RangePreset } from '@/features/history/time-range';
+import { clampDayRange, dayRange, dayTimeRange, MOBILE_CUSTOM_MAX_DAYS, presetRange, type RangePreset } from '@/features/history/time-range';
+import { DateField, TimeField, toYmd } from '@/components/pickers';
 import { useDisplay } from '@/features/display/display';
 import { liveStore } from '@/features/live/live-store';
 import { useStepTick } from '@/features/map/FleetMap';
@@ -25,7 +28,7 @@ import { useMapStyle } from '@/features/map/basemap';
 import { formatDuration } from '@/lib/format';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
-type Preset = Exclude<RangePreset, 'custom'>;
+type Preset = RangePreset;
 type Tab = 'trips' | 'stops' | 'alerts';
 /** Map marker refresh rate while playing (the bridge can't take 60 GeoJSON updates a second). */
 const MARKER_FPS = 12;
@@ -42,7 +45,8 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
 }
 
 export default function HistoryScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // playFrom / playTo (ISO): open with that trip playing (Today's trips on the map card).
+  const { id, playFrom, playTo } = useLocalSearchParams<{ id: string; playFrom?: string; playTo?: string }>();
   const c = useColors();
   const scheme = useScheme();
   const mapStyle = useMapStyle();
@@ -51,19 +55,43 @@ export default function HistoryScreen() {
   const [preset, setPreset] = useState<Preset>('today');
   const [tab, setTab] = useState<Tab>('trips');
   const [colorMode, setColorMode] = useState<ColorMode>('status');
-  const range = useMemo(() => presetRange(preset), [preset]);
+  // Trip whose route timeline (streets with times) is open.
+  const [routeTrip, setRouteTrip] = useState<string | null>(null);
+  // Custom: any days, at most MOBILE_CUSTOM_MAX_DAYS (the other end follows when the span would be longer).
+  // Times of day (minutes after midnight); 00:00 → 23:59 is the whole of the chosen days.
+  const [custom, setCustom] = useState(() => {
+    const today = toYmd(new Date());
+    return { from: today, to: today, fromMin: 0, toMin: 1439 };
+  });
+  const customRange = useMemo(() => dayTimeRange(custom.from, custom.fromMin, custom.to, custom.toMin), [custom]);
+  const badCustom = preset === 'custom' && !customRange;
+  const range = useMemo(() => (preset === 'custom' ? (customRange ?? dayRange(custom.from, custom.to)) : presetRange(preset)), [preset, custom, customRange]);
+  const multiDay = range.to.getTime() - range.from.getTime() > 86_400_000;
   const camera = useRef<CameraRef>(null);
+  // The History tab lists recently replayed vehicles first.
+  useEffect(() => {
+    if (id) void rememberVehicle(id);
+  }, [id]);
   const { iconScale } = useDisplay();
 
   const history = useQuery({
     queryKey: ['history', id, range.from.toISOString(), range.to.toISOString()],
     queryFn: ({ signal }) => api.get<HistoryResponse>(`/objects/${id}/history`, { from: range.from.toISOString(), to: range.to.toISOString() }, signal),
+    enabled: !badCustom,
   });
   const h = history.data;
 
   const index = useMemo(() => (h && h.points.length ? buildTrackIndex(h.points) : null), [h]);
   const engine = useMemo(() => (index ? new PlaybackEngine(index) : null), [index]);
   useEffect(() => () => engine?.destroy(), [engine]);
+  const autoPlayed = useRef(false);
+  useEffect(() => {
+    if (!engine || !index || autoPlayed.current || !playFrom) return;
+    autoPlayed.current = true;
+    const start = Date.parse(playFrom);
+    const end = playTo ? Date.parse(playTo) : undefined;
+    if (Number.isFinite(start)) engine.seek(Math.max(index.start, start), { play: true, ...(end && Number.isFinite(end) ? { until: end } : {}) });
+  }, [engine, index, playFrom, playTo]);
 
   const noop = () => () => {};
   const state = useSyncExternalStore(engine?.subscribe ?? noop, engine?.getState ?? (() => null));
@@ -141,8 +169,25 @@ export default function HistoryScreen() {
             { value: 'today', label: t('Today') },
             { value: 'yesterday', label: t('Yesterday') },
             { value: 'last7', label: t('Last 7 days') },
+            { value: 'custom', label: t('Custom') },
           ]}
         />
+        {preset === 'custom' && (
+          <View style={{ gap: SPACE.xs, marginTop: SPACE.sm }}>
+            {/* DateField / TimeField stretch with flex: 1, so they must sit directly in a row (inside a column they collapse to 0 height). */}
+            <View style={{ flexDirection: 'row', gap: SPACE.md }}>
+              <DateField label={t('From')} value={custom.from} maximumDate={new Date()} onChange={(v) => setCustom((r) => ({ ...r, ...clampDayRange(v, r.to, 'from') }))} />
+              <TimeField label={t('Time')} value={custom.fromMin} onChange={(m) => setCustom((r) => ({ ...r, fromMin: m }))} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: SPACE.md }}>
+              <DateField label={t('To')} value={custom.to} maximumDate={new Date()} onChange={(v) => setCustom((r) => ({ ...r, ...clampDayRange(r.from, v, 'to') }))} />
+              <TimeField label={t('Time')} value={custom.toMin} onChange={(m) => setCustom((r) => ({ ...r, toMin: m }))} />
+            </View>
+            <Text size="xs" tone={badCustom ? 'destructive' : 'muted'}>
+              {badCustom ? t('End must be after start') : t('Any days, up to {{n}} at a time.', { n: MOBILE_CUSTOM_MAX_DAYS })}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={{ height: mapH }}>
@@ -194,7 +239,7 @@ export default function HistoryScreen() {
               <SeekBar min={index.start} max={index.end} value={sample?.t ?? index.start} onSeek={(t) => engine.seek(t, { play: state.playing })} />
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12 }}>
                 <Text size="xs" tone="muted">
-                  {sample ? formatClock(sample.t, preset === 'last7') : ''}
+                  {sample ? formatClock(sample.t, multiDay) : ''}
                 </Text>
                 <Text size="xs" tone="muted">
                   {sample ? `${Math.round(sample.speed)} km/h · ${formatKm(sample.distKm)}` : ''}
@@ -248,12 +293,27 @@ export default function HistoryScreen() {
                     </Text>
                   </View>
                   <Text size="sm" tone="muted">
-                    {formatClock(Date.parse(trip.startTime), preset === 'last7', false)} → {formatClock(Date.parse(trip.endTime), false, false)} · {formatDuration(trip.durationSec)} · {t('max {{speed}} km/h', { speed: Math.round(trip.maxSpeedKph) })}
+                    {formatClock(Date.parse(trip.startTime), multiDay, false)} → {formatClock(Date.parse(trip.endTime), false, false)} · {formatDuration(trip.durationSec)} · {t('max {{speed}} km/h', { speed: Math.round(trip.maxSpeedKph) })}
                   </Text>
                   {(trip.startAddress || trip.endAddress) && (
                     <Text size="xs" tone="muted" numberOfLines={2}>
                       {trip.startAddress ?? '—'} → {trip.endAddress ?? '—'}
                     </Text>
+                  )}
+                  <Pressable
+                    onPress={() => setRouteTrip((r) => (r === trip.id ? null : trip.id))}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: SPACE.xs, paddingVertical: 4 }}
+                  >
+                    <RouteIcon size={14} color={c.primary} />
+                    <Text size="xs" weight="600" style={{ color: c.primary }}>
+                      {routeTrip === trip.id ? t('Hide route') : t('Route with times')}
+                    </Text>
+                    {routeTrip === trip.id ? <ChevronUpIcon size={14} color={c.primary} /> : <ChevronDownIcon size={14} color={c.primary} />}
+                  </Pressable>
+                  {routeTrip === trip.id && (
+                    <RouteTimeline index={index} from={Date.parse(trip.startTime)} to={Date.parse(trip.endTime)} withDate={multiDay} onSeek={(at) => engine.seek(at, { play: true, until: Date.parse(trip.endTime) })} />
                   )}
                 </Card>
               ))}
@@ -273,7 +333,7 @@ export default function HistoryScreen() {
                       {s.ignitionOn ? t('Idle stop') : t('Parked')} · {formatDuration(s.durationSec)}
                     </Text>
                     <Text size="sm" tone="muted">
-                      {formatClock(Date.parse(s.startTime), preset === 'last7', false)}
+                      {formatClock(Date.parse(s.startTime), multiDay, false)}
                     </Text>
                   </View>
                   {s.address && (
@@ -297,7 +357,7 @@ export default function HistoryScreen() {
                       <View style={{ flex: 1 }}>
                         <Text weight="600">{t(ALERT_TYPE_MAP[a.type]?.label ?? a.type)}</Text>
                         <Text size="xs" tone="muted" numberOfLines={1}>
-                          {formatClock(Date.parse(a.occurredAt), preset === 'last7', false)} · {a.message}
+                          {formatClock(Date.parse(a.occurredAt), multiDay, false)} · {a.message}
                         </Text>
                       </View>
                     </View>

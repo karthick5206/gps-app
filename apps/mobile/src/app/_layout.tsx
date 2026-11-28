@@ -157,6 +157,8 @@ function RootStack() {
           <Stack.Screen name="documents/service/[id]" options={{ title: t('Service reminder') }} />
           <Stack.Screen name="driver-events/index" options={{ title: t('Driver events') }} />
           <Stack.Screen name="driver-events/[id]" options={{ title: t('Driver event') }} />
+          <Stack.Screen name="video/[id]" options={{ title: t('Video') }} />
+          <Stack.Screen name="video-evidence" options={{ title: t('Video evidence') }} />
         </Stack.Protected>
         <Stack.Protected guard={status === 'anonymous'} redirectTo={home}>
           <Stack.Screen name="login" options={{ headerShown: false }} />

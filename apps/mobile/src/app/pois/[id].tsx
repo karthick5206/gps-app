@@ -1,4 +1,4 @@
-import { Camera, GeoJSONSource, Layer, Map, type MapRef } from '@maplibre/maplibre-react-native';
+import { Camera, GeoJSONSource, Layer, Map, type CameraRef, type MapRef } from '@maplibre/maplibre-react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { POI_DEFAULT_COLOR, POI_DEFAULT_RADIUS_M, POI_MAX_RADIUS_M, POI_MIN_RADIUS_M, type BranchDto, type LatLng, type Paginated, type PoiDto } from '@veetracer/shared';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
@@ -13,6 +13,7 @@ import { circleRing } from '@/features/geofences/geo-shapes';
 import { liveStore } from '@/features/live/live-store';
 import { boundsOf } from '@/features/map/FleetMap';
 import { formatRadius, usePoiCategories } from '@/features/pois/categories';
+import { AddressAutocomplete, type AddressHit } from '@/features/transport/passenger/AddressAutocomplete';
 import { api, errorMessage } from '@/lib/api';
 import { useMapStyle } from '@/features/map/basemap';
 import { RADIUS, SPACE, useColors } from '@/lib/theme';
@@ -35,6 +36,7 @@ export default function PoiScreen() {
   const { can, me } = useAuth();
   const queryClient = useQueryClient();
   const mapRef = useRef<MapRef>(null);
+  const camera = useRef<CameraRef>(null);
   const categories = usePoiCategories();
   const editable = isNew ? can('pois', 'create') : can('pois', 'edit');
   const assignedScope = me?.dataScope === 'ASSIGNED';
@@ -124,9 +126,31 @@ export default function PoiScreen() {
   // The map is mounted once the record is loaded, so it can start on the POI.
   const start = pos ?? (r ? { lat: r.lat, lng: r.lng } : null);
   const initialView = start ? { center: [start.lng, start.lat] as [number, number], zoom: 16 } : fleet ? { bounds: fleet, padding: { top: 40, bottom: 40, left: 40, right: 40 } } : { center: [80.27, 13.08] as [number, number], zoom: 11 };
+  // Address of a chosen point (open-source Photon geocoder on our server), filled in only while the field is empty.
+  const fillAddress = (p: LatLng) => {
+    if (f.address.trim()) return;
+    api
+      .get<{ address: string | null }>('/geocode/reverse', { lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) })
+      .then((r) => r.address && setF((cur) => (cur.address.trim() ? cur : { ...cur, address: r.address! })))
+      .catch(() => undefined);
+  };
+  const choose = (p: LatLng) => {
+    setPos(p);
+    fillAddress(p);
+  };
   const takeMapCentre = async () => {
     const centre = await mapRef.current?.getCenter();
-    if (centre) setPos({ lat: centre[1], lng: centre[0] });
+    if (centre) choose({ lat: centre[1], lng: centre[0] });
+  };
+  // Address / place search, biased to the current point (or the map's start).
+  const searchPlaces = (q: string, signal: AbortSignal) => {
+    const near = pos ?? start;
+    return api.get<AddressHit[]>('/geocode/search', near ? { q, lat: near.lat.toFixed(5), lng: near.lng.toFixed(5) } : { q }, signal);
+  };
+  const pickPlace = (hit: AddressHit) => {
+    setPos({ lat: hit.lat, lng: hit.lng });
+    camera.current?.easeTo({ center: [hit.lng, hit.lat], zoom: 16, duration: 600 });
+    setF((cur) => ({ ...cur, address: hit.label, name: cur.name.trim() ? cur.name : hit.label.split(',')[0].trim().slice(0, 100) }));
   };
 
   return (
@@ -151,9 +175,9 @@ export default function PoiScreen() {
             logo={false}
             attributionPosition={{ bottom: 4, left: 8 }}
             touchPitch={false}
-            onPress={(e) => editable && setPos({ lat: e.nativeEvent.lngLat[1], lng: e.nativeEvent.lngLat[0] })}
+            onPress={(e) => editable && choose({ lat: e.nativeEvent.lngLat[1], lng: e.nativeEvent.lngLat[0] })}
           >
-            <Camera initialViewState={initialView} />
+            <Camera ref={camera} initialViewState={initialView} />
             <GeoJSONSource id="poi-shape" data={shapes}>
               <Layer id="poi-area" type="fill" filter={['==', ['get', 'kind'], 'area']} paint={{ 'fill-color': f.color, 'fill-opacity': 0.15 }} />
               <Layer id="poi-edge" type="line" filter={['==', ['get', 'kind'], 'area']} paint={{ 'line-color': f.color, 'line-width': 2 }} />
@@ -183,6 +207,7 @@ export default function PoiScreen() {
             <ActivityIndicator style={{ margin: SPACE.xl }} />
           ) : (
             <>
+              {editable && <AddressAutocomplete<AddressHit> onPick={pickPlace} search={searchPlaces} testID="poi-address-search" />}
               <Text size="sm" tone={pos ? 'muted' : 'default'}>
                 {pos
                   ? t('Location: {{lat}}, {{lng}}', { lat: pos.lat.toFixed(6), lng: pos.lng.toFixed(6) })

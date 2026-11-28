@@ -7,6 +7,7 @@ import {
   type SummaryReportRow,
   type TripDto,
   type TripPerformanceGroupBy,
+  TRIP_SAFETY_TYPES,
 } from '@veetracer/shared';
 import type { LucideIcon } from 'lucide-react-native';
 import {
@@ -35,6 +36,7 @@ import {
   RouteIcon,
   RulerIcon,
   ShapesIcon,
+  ShieldAlertIcon,
   SigmaIcon,
   TimerIcon,
 } from 'lucide-react-native';
@@ -42,6 +44,7 @@ import { formatDateTime, humanize } from '@/lib/format';
 import { i18n } from '@/lib/i18n';
 import { poiCategoryLabel } from '@/features/pois/categories';
 import { formatHm, periodLabel } from './report-format';
+import { TRIP_SAFETY_HEADERS } from './trip-safety';
 
 export type Row = Record<string, unknown>;
 type Total = 'sum' | 'max';
@@ -61,6 +64,8 @@ export interface ReportColumn {
   /** Formats numeric values (cells and totals). */
   format?: (v: number) => string;
   className?: string;
+  /** Row cards and the totals card skip this field when it is 0 (e.g. the 15 violation counts of TRIP_SAFETY). */
+  hideZero?: boolean;
 }
 
 export interface ReportTypeDef {
@@ -133,6 +138,30 @@ const TRIPS: ReportColumn[] = [
   { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km },
   { id: 'maxSpeedKph', header: 'Max (km/h)', value: num('maxSpeedKph'), numeric: true, total: 'max', format: int },
   { id: 'avgSpeedKph', header: 'Avg (km/h)', value: num('avgSpeedKph'), numeric: true, format: int },
+];
+
+/** TRIP_SAFETY: violations and score first, then the per-type counts (cards show non-zero ones); the card's button lists every occurrence. */
+const TRIP_SAFETY: ReportColumn[] = [
+  vehicle,
+  { id: 'driverName', header: 'Driver', value: str('driverName') },
+  { id: 'startTime', header: 'Start', value: time('startTime'), kind: 'time' },
+  { id: 'endTime', header: 'End', value: time('endTime'), kind: 'time' },
+  { id: 'violations', header: 'Violations', value: num('total'), numeric: true, total: 'sum', format: int },
+  { id: 'score', header: 'Score', value: num('score'), numeric: true, format: int },
+  { id: 'distanceKm', header: 'Distance (km)', value: num('distanceKm'), numeric: true, total: 'sum', format: km },
+  { id: 'startAddress', header: 'From', value: place('startAddress', 'startLat', 'startLng') },
+  { id: 'endAddress', header: 'To', value: place('endAddress', 'endLat', 'endLng') },
+  ...TRIP_SAFETY_TYPES.map(
+    (type): ReportColumn => ({
+      id: type,
+      header: TRIP_SAFETY_HEADERS[type],
+      value: (r) => (r.counts as Record<string, number> | undefined)?.[type] ?? 0,
+      numeric: true,
+      total: 'sum',
+      format: int,
+      hideZero: true,
+    }),
+  ),
 ];
 
 const STOPS: ReportColumn[] = [
@@ -651,6 +680,7 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'POSITIONS', category: 'Activity', label: 'Positions', description: 'Raw GPS points of one vehicle (up to 7 days): speed, ignition, power.', icon: MapPinnedIcon, columns: POSITIONS },
   { type: 'IDLE', category: 'Driving', label: 'Idling', description: 'Stops with the engine running — fuel wasted while stationary.', icon: ClockIcon, columns: STOPS },
   { type: 'OVERSPEED', category: 'Driving', label: 'Over-speed', description: "Speeding episodes above each vehicle's limit with peak speed and duration.", icon: GaugeIcon, columns: OVERSPEED },
+  { type: 'TRIP_SAFETY', category: 'Driving', label: 'Trip safety & violations', description: 'Every trip with how many seat belt, phone, fatigue, distraction, collision, lane, too-close, overspeed, harsh driving and SOS violations happened, a safety score, and where and when each one occurred (with clips).', icon: ShieldAlertIcon, columns: TRIP_SAFETY },
   { type: 'CONTINUOUS_DRIVING', category: 'Driving', label: 'Continuous driving', description: 'Driving stretches without a proper break (default 4 h / 15 min rule).', icon: CoffeeIcon, columns: CONTINUOUS_DRIVING },
   { type: 'DRIVERS', category: 'Driving', label: 'Driver activity', description: 'Per driver: vehicles driven, trips, distance, driving time and overspeeding.', icon: IdCardIcon, columns: DRIVERS },
   { type: 'IGNITION', category: 'Driving', label: 'Ignition on/off', description: 'Every ignition change with how long the previous state lasted.', icon: PowerIcon, columns: IGNITION },

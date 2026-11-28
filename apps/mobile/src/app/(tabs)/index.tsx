@@ -20,13 +20,15 @@ import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, Layers
 import * as SecureStore from 'expo-secure-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PickerSheet, type PickOption } from '@/components/PickerSheet';
 import { Button, Text } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth';
 import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
+import { VehicleQuickActions } from '@/features/live/VehicleQuickActions';
+import { TodayTrips } from '@/features/history/TodayTrips';
 import { useDayStats, VehicleDayDetails, type DayStatsMap } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
 import { attentionItems, NeedsAttention, StatusCards } from '@/features/live/LiveOverview';
@@ -317,11 +319,15 @@ export default function LiveMapScreen() {
       </View>
       <VehicleSummary o={selected} now={now} />
       <VehicleDayDetails o={selected} stats={dayStats.data?.[selected.objectId]} now={now} />
+      {/* Tap a trip to replay it straight away. */}
+      <TodayTrips objectId={selected.objectId} />
       {selected.driverName && (
         <Text size="sm" tone="muted">
           {t('Driver:')} <Text size="sm" weight="600">{selected.driverName}</Text>
         </Text>
       )}
+      {/* One tap to the vehicle's pages, without opening Details first. */}
+      <VehicleQuickActions o={selected} />
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
         <Button title={t('Details')} icon={ChevronRightIcon} style={{ flex: 1 }} onPress={() => router.push(`/vehicle/${selected.objectId}`)} />
         <Button
@@ -352,6 +358,40 @@ export default function LiveMapScreen() {
 
       {/* Brand strip behind the status bar, as on every other screen (the light status-bar icons stay readable over the map). */}
       <View pointerEvents="none" style={[styles.statusStrip, { height: insets.top, backgroundColor: c.brand }]} />
+
+      {/* Status counts over the map: tap one to show only those vehicles, tap again for all. Left of the round buttons. */}
+      {!selected && base.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.mapChips, { top: insets.top + SPACE.sm }]}
+          contentContainerStyle={{ gap: 6, paddingRight: SPACE.sm }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {MOVEMENT_STATUSES.filter((s) => counts[s] > 0 || s === status).map((s) => {
+            const on = status === s;
+            const color = statusColor(s, scheme);
+            return (
+              <Pressable
+                key={s}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${t(STATUS_META[s].label)} ${counts[s]}`}
+                onPress={() => setStatus(on ? 'ALL' : s)}
+                style={[styles.mapChip, { backgroundColor: on ? color : c.card, borderColor: on ? color : c.border }]}
+              >
+                {!on && <View style={[styles.chipDot, { backgroundColor: color }]} />}
+                <Text size="xs" weight="700" style={{ color: on ? '#fff' : c.foreground }}>
+                  {counts[s]}
+                </Text>
+                <Text size="xs" weight="500" style={{ color: on ? '#fff' : c.mutedForeground }}>
+                  {t(STATUS_META[s].label)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
 
       <SafeAreaView edges={['top']} style={styles.top} pointerEvents="box-none">
         {connection === 'disconnected' && (
@@ -487,6 +527,9 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: RADIUS.full, borderWidth: 1 },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
+  // Room on the right for the 44 dp round buttons and their margin.
+  mapChips: { position: 'absolute', left: SPACE.lg, right: SPACE.lg * 2 + 44, flexGrow: 0 },
+  mapChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 30, borderRadius: RADIUS.full, borderWidth: StyleSheet.hairlineWidth, elevation: 3 },
   filter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: SPACE.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   dot: { width: 10, height: 10, borderRadius: 5 },

@@ -23,6 +23,8 @@ export class ReportRequestDto implements ReportRequest {
   @IsOptional() @ValidateNested() @Type(() => ReportScopeDto) scope: ReportScopeDto = new ReportScopeDto();
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' }) from!: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' }) to!: string;
+  @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'fromTime must be HH:mm' }) fromTime?: string;
+  @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'toTime must be HH:mm' }) toTime?: string;
   @IsOptional() @IsIn(['DAY', 'WEEK', 'MONTH']) period?: ReportPeriod;
   @IsOptional() @ValidateNested() @Type(() => ReportOptionsDto) options?: ReportOptionsDto;
 }
