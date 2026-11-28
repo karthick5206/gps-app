@@ -102,6 +102,8 @@ export const REPORT_TYPES = [
   'CONSOLIDATED',
   'DISTANCE',
   'ENGINE_HOURS',
+  'IDLE_COST',
+  'BATTERY_HEALTH',
   'TRIPS',
   'TRIP_SAFETY',
   'STOPS',
@@ -145,7 +147,9 @@ export type TripPerformanceGroupBy = (typeof TRIP_PERFORMANCE_GROUP_BY)[number];
 export const ON_TIME_TOLERANCE_SEC = 300;
 
 /** Report types that use `period` (rows grouped by day / ISO week / month). */
-export const PERIOD_REPORT_TYPES: readonly ReportType[] = ['SUMMARY', 'DISTANCE', 'ENGINE_HOURS'];
+export const PERIOD_REPORT_TYPES: readonly ReportType[] = ['SUMMARY', 'DISTANCE', 'ENGINE_HOURS', 'IDLE_COST'];
+/** Longest range for the battery health report (days; it reads raw points). */
+export const BATTERY_REPORT_MAX_DAYS = 31;
 /** Report types limited to one vehicle (raw position data). */
 export const SINGLE_OBJECT_REPORT_TYPES: readonly ReportType[] = ['POSITIONS'];
 /**
@@ -177,6 +181,10 @@ export interface ReportOptions {
   inactiveAfterMin?: number;
   /** TRIP_PERFORMANCE: one row per route, driver or vehicle (default ROUTE). */
   groupBy?: TripPerformanceGroupBy;
+  /** IDLE_COST: ₹ per litre for vehicles without a recent fuel bill (default DEFAULT_FUEL_PRICE_PER_L). */
+  fuelPricePerL?: number;
+  /** IDLE_COST: litres per hour idling for every vehicle (default by vehicle type, IDLE_LITRES_PER_HOUR). */
+  idleLitresPerHour?: number;
 }
 /** The options each report type accepts (the API ignores the rest). */
 export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof ReportOptions)[]>> = {
@@ -189,6 +197,7 @@ export const REPORT_OPTION_KEYS: Partial<Record<ReportType, readonly (keyof Repo
   OVERSPEED: ['minOverspeedSec'],
   DEVICE_STATUS: ['inactiveAfterMin'],
   TRIP_PERFORMANCE: ['groupBy'],
+  IDLE_COST: ['fuelPricePerL', 'idleLitresPerHour'],
   TRIP_SAFETY: ['alertTypes'],
 };
 /** Report options saved with a schedule, per report type. {} = the API defaults. */

@@ -38,6 +38,7 @@ export * from './stock';
 export * from './vehicle-shares';
 export * from './dms';
 export * from './expenses';
+export * from './vehicle-health';
 export * from './photo-notes';
 export * from './inventory';
 export * from './sim';

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { RAW_POSITION_REPORTS, ReportArchiveNotice, TIMED_REPORT_TYPES } from '@veetracer/shared';
+import { BATTERY_REPORT_MAX_DAYS, RAW_POSITION_REPORTS, ReportArchiveNotice, TIMED_REPORT_TYPES } from '@veetracer/shared';
 import {
   AlertDto,
   DailySummaryDto,
@@ -47,6 +47,7 @@ import { attachPoiNames, poiVisitsReport } from './poi-visits-report';
 import { fuelEventsReport, fuelReport } from './fuel-report';
 import { GEOFENCE_DISTANCE_MAX_DAYS, geofenceDistanceReport } from './geofence-distance-report';
 import { mileageReport } from './mileage-report';
+import { batteryHealthReport, idleCostRows, latestFuelPrices } from './vehicle-health-report';
 import { ioDailyReport, ioSessionsReport } from './io-report';
 import { plannedTripsReport, tripPerformanceReport } from './planned-trips-report';
 import { AddressEnricher, pointField } from './address-enricher';
@@ -108,6 +109,7 @@ export class ReportDataService {
       throw new BadRequestException('The end time must be after the start time');
     }
     if (daysBetween(req.from, req.to) >= REPORT_MAX_DAYS) throw new BadRequestException(`Range too long (max ${REPORT_MAX_DAYS} days)`);
+    if (req.type === 'BATTERY_HEALTH' && daysBetween(req.from, req.to) >= BATTERY_REPORT_MAX_DAYS) throw new BadRequestException(`Choose at most ${BATTERY_REPORT_MAX_DAYS} days for battery health`);
   }
 
   /** Object ids covered by `scope` within the caller's data scope. */
@@ -319,6 +321,19 @@ export class ReportDataService {
 
       case 'FUEL_EVENTS': {
         const r = await fuelEventsReport(this.prisma, ctx.companyId, objects, range, maxRows);
+        return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
+      }
+
+      case 'IDLE_COST': {
+        const period: ReportPeriod = req.period ?? 'DAY';
+        if (!ids.length) return { ...empty, period, totals: {} };
+        const [days, prices] = await Promise.all([this.loadDays(ctx.companyId, objects, req), latestFuelPrices(this.prisma, ctx.companyId, ids, range.lt)]);
+        const r = idleCostRows(days, period, objects, prices, req.options ?? {});
+        return { ...base, period, rows: r.rows.slice(0, maxRows), totals: r.totals, truncated: r.rows.length > maxRows, totalRows: r.rows.length };
+      }
+
+      case 'BATTERY_HEALTH': {
+        const r = await batteryHealthReport(this.prisma, objects, range, tz, maxRows);
         return { ...base, rows: r.rows, totals: r.totals, truncated: r.totalRows > r.rows.length, totalRows: r.totalRows };
       }
 

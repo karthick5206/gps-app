@@ -112,10 +112,38 @@ export function LiveMapPage() {
   const groups = useEntityOptions<VehicleGroupDto>('/vehicle-groups', named, { enabled: can('vehicle_groups') });
   const groupMembers = useMemo(() => new Map(groups.rows.map((g) => [g.id, new Set(g.objects.map((o) => o.id))])), [groups.rows]);
 
-  // Map filter updates immediately (not throttled with the list).
+  // Map filter updates immediately (not throttled with the list). The vehicle whose card is open always stays
+  // on the map, even when the search / status / selected-only filters would hide it.
   useEffect(() => {
-    controller?.setPredicate(fullMatcher(filters, { groupMembers, selected }));
-  }, [controller, filters, groupMembers, selected]);
+    const match = fullMatcher(filters, { groupMembers, selected });
+    controller?.setPredicate(activeId ? (o) => o.objectId === activeId || match(o) : match);
+  }, [controller, filters, groupMembers, selected, activeId]);
+
+  // Opened from a link (alert "View", Ask VeeTrax): clear any filters that would hide the vehicle, so it shows
+  // in the list and on the map, then select it.
+  const filtersRef = useRef({ filters, groupMembers, selected });
+  filtersRef.current = { filters, groupMembers, selected };
+  const focusFromLink = useCallback(
+    (id: string) => {
+      const o = liveStore.get(id);
+      const cur = filtersRef.current;
+      if (o && !fullMatcher(cur.filters, { groupMembers: cur.groupMembers, selected: cur.selected })(o)) {
+        setFilters(EMPTY_FILTERS);
+        setSelected(new Set());
+      }
+      pick(id);
+    },
+    [pick],
+  );
+  // ?objectId= changing while the map is already open (Ask VeeTrax answer clicked on this page): select it too.
+  const objectIdParam = params.get('objectId');
+  const firstObjectParam = useRef(objectIdParam);
+  useEffect(() => {
+    if (!objectIdParam || objectIdParam === firstObjectParam.current) return;
+    firstObjectParam.current = objectIdParam;
+    focusFromLink(objectIdParam);
+    controller?.zoomTo(objectIdParam);
+  }, [objectIdParam, focusFromLink, controller]);
   useEffect(() => controller?.setSelected(activeId), [controller, activeId]);
   useEffect(() => controller?.follow(following ? activeId : null), [controller, following, activeId]);
 
@@ -219,7 +247,7 @@ export function LiveMapPage() {
       {!unsupported && (
         // Phones: while the list covers the map, the map buttons hide (they sat over the list's collapse button).
         <div className={cn('absolute top-3 right-3 z-10 flex-col items-end gap-2', mobileView === 'list' ? 'hidden md:flex' : 'flex')}>
-          <LiveMapOverlays controller={controller} onFocusObject={pick} />
+          <LiveMapOverlays controller={controller} onFocusObject={focusFromLink} />
           <MapTools snapshot={controller ? () => controller.snapshot() : null} fileName={() => `live-map-${new Date().toISOString().slice(0, 16).replace(':', '-')}.png`}
             fullscreen={pageRef}
             labels={{ on: labels, onToggle: toggleLabels }}

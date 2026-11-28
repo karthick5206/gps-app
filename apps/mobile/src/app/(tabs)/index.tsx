@@ -16,7 +16,7 @@ import {
   type VehicleGroupDto,
 } from '@veetracer/shared';
 import { router } from 'expo-router';
-import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, TagIcon, XIcon, SparklesIcon } from 'lucide-react-native';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, LayersIcon, LocateFixedIcon, MapPinIcon, MapPinPlusIcon, MaximizeIcon, SearchIcon, SlidersHorizontalIcon, TagIcon, XIcon, SparklesIcon } from 'lucide-react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,9 +29,9 @@ import { AddressLine } from '@/features/geocoding/use-address';
 import { VehicleSummary } from '@/features/live/components';
 import { VehicleQuickActions } from '@/features/live/VehicleQuickActions';
 import { TodayTrips } from '@/features/history/TodayTrips';
-import { useDayStats, VehicleDayDetails, type DayStatsMap } from '@/features/live/day-stats';
+import { useDayStats, VehicleDayDetails } from '@/features/live/day-stats';
 import { liveStore } from '@/features/live/live-store';
-import { attentionItems, NeedsAttention, StatusCards } from '@/features/live/LiveOverview';
+import { attentionItems, NeedsAttention } from '@/features/live/LiveOverview';
 import { LiveSheet, type SheetSnap } from '@/features/live/LiveSheet';
 import { useLiveVersion, useNow, useRealtimeStatus } from '@/features/live/use-live';
 import { basemap, useBasemap } from '@/features/map/basemap';
@@ -55,8 +55,8 @@ function matchesSearch(o: LiveObject, q: string) {
   return `${o.name}\u0000${o.plateNumber ?? ''}\u0000${o.uniqueId ?? ''}\u0000${o.driverName ?? ''}`.toLowerCase().includes(q);
 }
 
-/** One list row: status dot, name, plate · speed, coloured status with its duration, last update. */
-function VehicleRow({ o, now, onPress, stats }: { o: LiveObject; now: number; onPress: () => void; stats: DayStatsMap | undefined }) {
+/** One list row: status dot, name, plate · speed, coloured status with its duration, last update (day figures show on the vehicle card). */
+function VehicleRow({ o, now, onPress }: { o: LiveObject; now: number; onPress: () => void }) {
   const c = useColors();
   const scheme = useScheme();
   const color = statusColor(displayStatus(o), scheme);
@@ -73,7 +73,6 @@ function VehicleRow({ o, now, onPress, stats }: { o: LiveObject; now: number; on
         <Text size="sm" tone="muted" numberOfLines={1}>
           {[o.plateNumber, `${Math.round(o.speedKph)} km/h`, o.driverName].filter(Boolean).join(' · ')}
         </Text>
-        <VehicleDayDetails o={o} stats={stats?.[o.objectId]} now={now} />
       </View>
       <View style={{ alignItems: 'flex-end', alignSelf: 'flex-start' }}>
         <Text size="sm" weight="600" style={{ color }}>
@@ -129,6 +128,7 @@ export default function LiveMapScreen() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [type, setType] = useState<string | null>(null);
   const [picker, setPicker] = useState<Picker>(null);
+  const [filtersOpenState, setFiltersOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const dayStats = useDayStats();
   const [follow, setFollow] = useState(false);
@@ -195,6 +195,8 @@ export default function LiveMapScreen() {
   // Same rules as the web: overspeed, long idle, signal lost in the last day; follows the filters, not the status cards.
   const attention = useMemo(() => attentionItems(base, now), [base, now]);
   const selected = selectedId ? liveStore.get(selectedId) : undefined;
+  // With a vehicle chosen the map shows only that one: vehicles parked together otherwise pile up on it (icons and plates).
+  const onMap = useMemo(() => (selected ? [selected] : visible), [selected, visible]);
 
   // Frame the fleet once the first snapshot arrives, then whenever the filters change.
   const framed = useRef(false);
@@ -228,6 +230,9 @@ export default function LiveMapScreen() {
   const typeOptions = useMemo(() => TYPE_OPTIONS.map((o) => ({ ...o, label: t(o.label) })), [t]);
   const labelOf = (opts: PickOption[], v: string | null, all: string) => (v ? (opts.find((o) => o.value === v)?.label ?? all) : all);
   const filtersActive = !!(q || branchId || groupId || type || status !== 'ALL');
+  // Branch / group / type sit behind one Filters button (badge = how many are set); open while any is set.
+  const extraFilters = [branchId, groupId, type].filter(Boolean).length;
+  const filtersOpen = filtersOpenState || extraFilters > 0;
 
   const compact = snap === 'peek';
   const listHeader = (
@@ -251,6 +256,25 @@ export default function LiveMapScreen() {
           </Pressable>
         )}
       </View>
+        {!compact && (
+          <Pressable
+            onPress={() => setFiltersOpen((v) => !v)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: filtersOpen }}
+            accessibilityLabel={t('Filters')}
+            style={[styles.expander, { borderColor: extraFilters ? c.primary : c.border, backgroundColor: filtersOpen ? c.accent : c.background }]}
+          >
+            <SlidersHorizontalIcon size={20} color={extraFilters ? c.primary : c.foreground} />
+            {extraFilters > 0 && (
+              <View style={[styles.filterBadge, { backgroundColor: c.primary }]}>
+                <Text size="xs" weight="700" style={{ color: c.primaryForeground, fontSize: 10, lineHeight: 12 }}>
+                  {extraFilters}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        )}
         <Pressable
           onPress={() => setSnap(compact ? 'half' : 'peek')}
           hitSlop={6}
@@ -274,13 +298,38 @@ export default function LiveMapScreen() {
         </Pressable>
       ) : (
         <>
+      {/* Status as one row of chips (statuses with no vehicles hidden); tap again for All. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} keyboardShouldPersistTaps="handled">
+        {(['ALL', ...MOVEMENT_STATUSES.filter((s) => counts[s] > 0 || s === status)] as const).map((s) => {
+          const on = status === s;
+          const color = s === 'ALL' ? c.primary : statusColor(s, scheme);
+          return (
+            <Pressable
+              key={s}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              onPress={() => setStatus(on || s === 'ALL' ? 'ALL' : s)}
+              style={[styles.chip, { backgroundColor: on ? color : c.card, borderColor: on ? color : c.border }]}
+            >
+              {s !== 'ALL' && !on && <View style={[styles.chipDot, { backgroundColor: color }]} />}
+              <Text size="sm" weight="600" style={{ color: on ? '#fff' : c.foreground }}>
+                {s === 'ALL' ? t('All') : t(STATUS_META[s].label)}
+              </Text>
+              <Text size="sm" weight="700" style={{ color: on ? '#fff' : c.mutedForeground }}>
+                {s === 'ALL' ? base.length : counts[s]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
       <NeedsAttention items={attention} onPick={select} />
-      <StatusCards counts={counts} total={base.length} status={status} onStatus={setStatus} />
-      <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        {can('branches') && <FilterButton label={labelOf(branchOptions, branchId, t('All branches'))} active={!!branchId} onPress={() => setPicker('branch')} />}
-        {can('vehicle_groups') && <FilterButton label={labelOf(groupOptions, groupId, t('All groups'))} active={!!groupId} onPress={() => setPicker('group')} />}
-        <FilterButton label={labelOf(typeOptions, type, t('All types'))} active={!!type} onPress={() => setPicker('type')} />
-      </View>
+      {filtersOpen && (
+        <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+          {can('branches') && <FilterButton label={labelOf(branchOptions, branchId, t('All branches'))} active={!!branchId} onPress={() => setPicker('branch')} />}
+          {can('vehicle_groups') && <FilterButton label={labelOf(groupOptions, groupId, t('All groups'))} active={!!groupId} onPress={() => setPicker('group')} />}
+          <FilterButton label={labelOf(typeOptions, type, t('All types'))} active={!!type} onPress={() => setPicker('type')} />
+        </View>
+      )}
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text size="sm" tone="muted" style={{ flex: 1 }}>
           {t('{{count}} shown', { count: visible.length })}
@@ -343,7 +392,7 @@ export default function LiveMapScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background }} onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
-      <FleetMap ref={map} objects={visible} selectedId={selectedId} onSelect={select} onViewChange={setView} showLabels={labels}>
+      <FleetMap ref={map} objects={onMap} selectedId={selectedId} onSelect={select} onViewChange={setView} showLabels={labels}>
         {showPois && can('pois') && (
           <PoiLayer
             pois={pois.data?.items ?? []}
@@ -495,7 +544,7 @@ export default function LiveMapScreen() {
               keyboardShouldPersistTaps="handled"
               initialNumToRender={20}
               contentContainerStyle={{ paddingBottom: insets.bottom + SPACE.xl }}
-              renderItem={({ item }) => <VehicleRow o={item} now={now} stats={dayStats.data} onPress={() => select(item.objectId)} />}
+              renderItem={({ item }) => <VehicleRow o={item} now={now} onPress={() => select(item.objectId)} />}
               ListEmptyComponent={
                 liveStore.snapshotLoaded ? (
                   <Text tone="muted" style={{ textAlign: 'center', padding: SPACE.xl }}>
@@ -527,6 +576,7 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 32, borderRadius: RADIUS.full, borderWidth: 1 },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
+  filterBadge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   // Room on the right for the 44 dp round buttons and their margin.
   mapChips: { position: 'absolute', left: SPACE.lg, right: SPACE.lg * 2 + 44, flexGrow: 0 },
   mapChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 30, borderRadius: RADIUS.full, borderWidth: StyleSheet.hairlineWidth, elevation: 3 },

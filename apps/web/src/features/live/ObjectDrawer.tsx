@@ -27,6 +27,7 @@ import { useVideoChannels, VideoPanel } from '@/features/video/VideoPanel';
 import { RecentDriverEvents } from '@/features/driver-events/AlertSnapshot';
 import { ShareLiveButton } from '@/features/live-share/ShareLiveDialog';
 import { chargeText, ignitionText, TodayCard, useDayStats } from './day-stats';
+import { VehicleHealthRows } from './vehicle-health';
 import { ObjectAvatar, ObjectPhotoEditor } from '@/features/objects/object-photo';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -93,6 +94,7 @@ function Overview({ o, now }: { o: LiveObject; now: number }) {
       )}
       <Row label={t('GSM signal')}>{o.gsmSignal === null ? '—' : t(GSM_LABELS[o.gsmSignal] ?? String(o.gsmSignal))}</Row>
       <Row label={t('External voltage')}>{orDash(o.extVoltage, ' V')}</Row>
+      <VehicleHealthRows o={o} Row={Row} />
       {o.fuelL != null && (
         <Row label={t('Fuel')}>
           <span className="flex items-center gap-2 tabular-nums">

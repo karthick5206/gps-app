@@ -1,9 +1,9 @@
 import { MOVEMENT_STATUSES, STATUS_META, type LiveObject, type MovementStatus } from '@veetracer/shared';
 import { ChevronDownIcon, ChevronUpIcon, GaugeIcon, PauseIcon, WifiOffIcon, type LucideIcon } from 'lucide-react-native';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/ui';
+import { useRememberedToggle } from '@/components/CollapsibleSection';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 /** Idle longer than this, or signal lost within this window, needs a look (same rules as the web live map). */
@@ -101,11 +101,12 @@ export function NeedsAttention({ items, onPick }: { items: AttentionItem[]; onPi
   const c = useColors();
   const scheme = useScheme();
   const { t } = useTranslation();
-  const [open, setOpen] = useState(true);
+  // One line until opened (remembered), so the list starts higher.
+  const [open, toggle] = useRememberedToggle('live.attention', false);
   if (!items.length) return null;
   return (
     <View style={[styles.box, { borderColor: c.border, backgroundColor: c.card }]}>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)} style={styles.boxHead}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={toggle} style={styles.boxHead}>
         <Text weight="700" style={{ flex: 1 }}>
           {t('Needs attention')}
         </Text>

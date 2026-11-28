@@ -98,9 +98,8 @@ export default function TabsLayout() {
             tabBarIcon: tabIcon(BellIcon, c),
           }}
         />
-        {/* History is used daily on the phone; Dashboard opens from More (still a route here, without a tab button). */}
+        {/* History is used daily on the phone; Dashboard is a normal page opened from More (app/dashboard.tsx). */}
         <Tabs.Screen name="history" options={{ title: t('History'), href: can('history') ? undefined : null, tabBarIcon: tabIcon(HistoryIcon, c) }} />
-        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: null }} />
         <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: tabIcon(MenuIcon, c) }} />
       </Tabs>
       <SosIntroNotice />

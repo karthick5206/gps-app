@@ -1,5 +1,7 @@
 import {
   ALERT_TYPE_MAP,
+  BATTERY_STATUS_META,
+  type BatteryStatus,
   type AlertDto,
   type GeofenceVisitDto,
   type ReportType,
@@ -14,6 +16,8 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import {
   ActivityIcon,
+  BatteryMediumIcon,
+  IndianRupeeIcon,
   BellIcon,
   CalendarCheckIcon,
   CalendarClockIcon,
@@ -380,6 +384,52 @@ const ENGINE_HOURS: ReportColumn[] = [
   duration('idleSec', 'Idle'),
   { id: 'idlePct', header: 'Idle %', value: num('idlePct'), numeric: true, format: (v) => `${v.toFixed(1)}%` },
   kmCol(),
+];
+
+const rupees = (v: number) => `₹${Math.round(v).toLocaleString('en-IN')}`;
+const IDLE_COST: ReportColumn[] = [
+  vehicle,
+  plate,
+  periodCol,
+  duration('idleSec', 'Idle'),
+  { id: 'idlePct', header: 'Idle %', value: num('idlePct'), numeric: true, format: (v) => `${v.toFixed(1)}%` },
+  { id: 'litresPerHour', header: 'L / hour', value: num('litresPerHour'), numeric: true, format: (v) => v.toFixed(2) },
+  { id: 'litres', header: 'Fuel wasted (L)', value: num('litres'), numeric: true, total: 'sum', format: (v) => v.toFixed(2) },
+  {
+    id: 'pricePerL',
+    header: 'Price / L',
+    value: num('pricePerL'),
+    numeric: true,
+    render: (r) => (
+      <span className="tabular-nums" title={r.priceSource === 'FUEL_LOG' ? i18n.t('From the latest fuel bill') : i18n.t('Default price (no recent fuel bill)')}>
+        ₹{(r.pricePerL as number).toFixed(2)}
+        {r.priceSource !== 'FUEL_LOG' && <span className="text-muted-foreground"> *</span>}
+      </span>
+    ),
+  },
+  { id: 'rupees', header: 'Cost', value: num('rupees'), numeric: true, total: 'sum', format: rupees, className: 'font-semibold' },
+];
+
+const BATTERY_VARIANT = { ok: 'success', warn: 'warning', bad: 'destructive', muted: 'muted' } as const;
+const BATTERY_HEALTH: ReportColumn[] = [
+  vehicle,
+  plate,
+  branch,
+  {
+    id: 'status',
+    header: 'Battery',
+    value: str('status'),
+    render: (r) => {
+      const m = BATTERY_STATUS_META[r.status as BatteryStatus];
+      return <Badge variant={m ? BATTERY_VARIANT[m.tone] : 'secondary'}>{m ? i18n.t(m.label) : (r.status as string)}</Badge>;
+    },
+  },
+  { id: 'systemV', header: 'System', value: num('systemV'), render: (r) => (r.systemV ? `${r.systemV as number} V` : '—') },
+  optNum('restV', 'Resting (V)', 2),
+  optNum('lowestRestV', 'Lowest resting (V)', 2),
+  optNum('chargeV', 'Charging (V)', 2),
+  optNum('trendV', 'Change (V)', 2),
+  { id: 'advice', header: 'What to do', value: str('advice'), render: (r) => <span className="block max-w-96 text-sm">{i18n.t(r.advice as string)}</span> },
 ];
 
 const STATE_BADGE = (on: boolean | null) =>
@@ -850,6 +900,8 @@ export const REPORT_DEFS: ReportTypeDef[] = [
   { type: 'CONSOLIDATED', category: 'Activity', label: 'Consolidated', description: 'One line per vehicle for the whole period, with alerts and geofence visits.', icon: LayersIcon, columns: CONSOLIDATED },
   { type: 'DISTANCE', category: 'Activity', label: 'Distance', description: 'Kilometres per vehicle by day, week or month, with offline time.', icon: RulerIcon, columns: DISTANCE },
   { type: 'ENGINE_HOURS', category: 'Activity', label: 'Engine hours', description: 'Engine-on, running and idle hours with idle percentage.', icon: TimerIcon, columns: ENGINE_HOURS },
+  { type: 'IDLE_COST', category: 'Fuel', label: 'Idle cost (₹)', description: 'Idle time (engine on, standing) turned into litres and rupees per vehicle: price from the latest fuel bill, else the default.', icon: IndianRupeeIcon, columns: IDLE_COST },
+  { type: 'BATTERY_HEALTH', category: 'Devices', label: 'Battery health', description: 'Vehicle battery and charging check from the tracker voltage: weak, replace soon, not charging or overcharging (up to 31 days).', icon: BatteryMediumIcon, columns: BATTERY_HEALTH },
   { type: 'TRIPS', category: 'Activity', label: 'Trips', description: 'Every trip with start/end, duration, distance and speeds.', icon: RouteIcon, columns: TRIPS, drill: windowOf('startTime', 'endTime') },
   { type: 'STOPS', category: 'Activity', label: 'Stops', description: 'Parked and idle stops with location and duration.', icon: ParkingSquareIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
   { type: 'HALT', category: 'Activity', label: 'Halts', description: 'Long stoppages with the engine off (default 30 min or more).', icon: CirclePauseIcon, columns: STOPS, drill: windowOf('startTime', 'endTime', 5) },
