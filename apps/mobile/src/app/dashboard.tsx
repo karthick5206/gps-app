@@ -8,6 +8,7 @@ import { alertIcon } from '@/features/alerts/alert-icons';
 import { api, errorMessage } from '@/lib/api';
 import { formatDuration } from '@/lib/format';
 import { LicenceBanner } from '@/features/licences/LicenceBanner';
+import { FleetHealthSection } from '@/features/live/FleetHealthSection';
 import { RADIUS, SPACE, statusColor, useColors, useScheme } from '@/lib/theme';
 
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -197,6 +198,8 @@ export default function DashboardScreen() {
             <Kpi label={t('Devices online')} value={`${d.devicesOnline} / ${d.total}`} />
             <Kpi label={t('Alerts')} value={d.todayAlerts.total.toLocaleString()} hint={d.todayAlerts.critical ? t('{{count}} critical', { count: d.todayAlerts.critical }) : undefined} />
           </View>
+
+          <FleetHealthSection />
 
           {d.todayAlerts.byType.length > 0 && (
             <>

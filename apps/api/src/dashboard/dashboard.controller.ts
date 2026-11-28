@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { DashboardCompare, DashboardHealth, DashboardOverview, VehicleRemarkDto } from '@veetracer/shared';
+import { DashboardCompare, DashboardFleetHealth, DashboardHealth, DashboardOverview, VehicleRemarkDto } from '@veetracer/shared';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { AuthContext } from '../access/auth-context';
@@ -42,6 +42,12 @@ export class DashboardController {
   @Get('health') @RequirePermission('dashboard', 'view')
   health(@Auth() ctx: AuthContext, @Query() q: HealthQuery): Promise<DashboardHealth> {
     return this.dashboard.health(ctx, q.inactiveAfterMin ?? 1440);
+  }
+
+  /** Batteries needing attention and idle cost this month (cached 30 min per company and scope). */
+  @Get('fleet-health') @RequirePermission('dashboard', 'view')
+  fleetHealth(@Auth() ctx: AuthContext): Promise<DashboardFleetHealth> {
+    return this.dashboard.fleetHealth(ctx);
   }
 
   /** Consolidated figures for a date range and scope (empty scope = every vehicle the user can see). */

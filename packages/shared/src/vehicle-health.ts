@@ -138,3 +138,27 @@ export interface IdleCostReportRow {
   priceSource: 'FUEL_LOG' | 'DEFAULT';
   rupees: number;
 }
+
+/** GET /dashboard/fleet-health: batteries (last 14 days) and idle cost this month for the dashboard (cached 30 min). */
+export interface DashboardFleetHealth {
+  generatedAt: string;
+  /** Battery period and idle-cost month, as report links use them. */
+  batteryFrom: string; batteryTo: string; monthFrom: string; monthTo: string;
+  battery: {
+    vehicles: number;
+    /** REPLACE + NOT_CHARGING + OVERCHARGING. */
+    action: number;
+    weak: number;
+    good: number;
+    noData: number;
+    /** Worst first: action, then weak (at most 8). */
+    list: BatteryHealthReportRow[];
+  };
+  idle: {
+    rupees: number;
+    litres: number;
+    idleSec: number;
+    /** Most idle ₹ this month (at most 5). */
+    top: { objectId: string; objectName: string; plateNumber: string | null; idleSec: number; litres: number; rupees: number }[];
+  };
+}

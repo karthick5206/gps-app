@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ALERT_TYPE_MAP, MOVEMENT_STATUSES, STATUS_META, type AlertTypeCode, type ComplianceSummary, type DashboardOverview, type MovementStatus } from '@veetracer/shared';
-import { BellRingIcon, FileClockIcon, FileXIcon, GaugeIcon, RadioTowerIcon, RouteIcon, SigmaIcon, TruckIcon, WrenchIcon } from 'lucide-react';
+import { BatteryWarningIcon, BellRingIcon, FileClockIcon, FuelIcon, FileXIcon, GaugeIcon, RadioTowerIcon, RouteIcon, SigmaIcon, TruckIcon, WrenchIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
@@ -20,6 +20,7 @@ import { BarList, Donut, type Slice } from './charts';
 import { CountUp } from './CountUp';
 import { GetStartedCard } from './GetStartedCard';
 import { IoCards } from './IoCards';
+import { FleetHealthPanel, useFleetHealth } from './FleetHealthPanel';
 import { OverviewRefresh } from './refresh/OverviewRefresh';
 
 export const overviewKey = (top: number) => ['dashboard-overview', top] as const;
@@ -164,6 +165,7 @@ function OverviewClassic() {
     refetchInterval: 60_000,
   });
   useLiveRefresh();
+  const health = useFleetHealth().data;
   const d = query.data;
   const s = (k: MovementStatus) => d?.byStatus[k] ?? 0;
   const toLive = canMap ? (key: string) => navigate(`/live?status=${key}`) : undefined;
@@ -188,13 +190,15 @@ function OverviewClassic() {
       {query.isError && <FormError message={errorMessage(query.error)} />}
       {personal && d && d.total === 0 && <GetStartedCard />}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label={t('Vehicles')} value={d?.total} icon={TruckIcon} to={canMap ? '/live' : undefined} />
         <StatCard label={t('Online now')} value={d?.devicesOnline} total={d?.total} icon={RadioTowerIcon} />
         <StatCard label={t('Distance today')} value={d?.todayDistanceKm} suffix="km" decimals={1} icon={RouteIcon} hint={t('Since midnight')} />
         <StatCard label={t('Trips today')} value={d?.todayTrips} icon={GaugeIcon} />
         <StatCard label={t('Alerts today')} value={d?.todayAlerts.total} icon={BellRingIcon} hint={d ? t('{{count}} critical', { count: d.todayAlerts.critical }) : undefined} to={can('alerts') ? '/alerts' : undefined} />
         <StatCard label={t('Fleet odometer')} value={d?.totalOdometerKm} suffix="km" icon={SigmaIcon} hint={t('Tracked distance + offsets')} />
+        <StatCard label={t('Batteries needing attention')} value={health?.battery.action} icon={BatteryWarningIcon} hint={health ? t('{{count}} weak', { count: health.battery.weak }) : undefined} />
+        <StatCard label={t('Idle cost this month')} value={health?.idle.rupees} suffix="₹" icon={FuelIcon} hint={health ? t('{{l}} L fuel', { l: Math.round(health.idle.litres).toLocaleString('en-IN') }) : undefined} />
       </div>
 
       <section aria-labelledby="by-status" className="space-y-3">
@@ -212,6 +216,8 @@ function OverviewClassic() {
       </section>
 
       {d?.io && <IoCards io={d.io} />}
+
+      <FleetHealthPanel />
 
       {can('documents') && <ComplianceCards />}
 

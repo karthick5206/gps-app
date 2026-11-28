@@ -19,6 +19,8 @@ import {
   TruckIcon,
   WrenchIcon,
   type LucideIcon,
+  BatteryWarningIcon,
+  FuelIcon,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +37,7 @@ import { cn } from '@/lib/utils';
 import type { Slice } from '../charts';
 import { GetStartedCard } from '../GetStartedCard';
 import { IoCards } from '../IoCards';
+import { FleetHealthPanel, useFleetHealth } from '../FleetHealthPanel';
 import { complianceQuery, GEOFENCE_FALLBACK, km, overviewKey, useLiveRefresh } from '../OverviewTab';
 import { DonutR, RankList } from './charts';
 import { KpiCard, Panel, STATUS_ICON, tint } from './kit';
@@ -254,6 +257,7 @@ export function OverviewRefresh() {
     refetchInterval: 60_000,
   });
   useLiveRefresh();
+  const health = useFleetHealth().data;
   const compliance = useCompliance(canDocs);
   const c = canDocs && !compliance.isError ? compliance.data : undefined;
   const showCompliance = canDocs && !compliance.isError;
@@ -293,7 +297,7 @@ export function OverviewRefresh() {
 
       <NeedsAttention items={attention} />
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <KpiCard label={t('Vehicles')} value={d?.total} icon={TruckIcon} to={canMap ? '/live' : undefined} sub={d ? t('{{count}} online now', { count: d.devicesOnline }) : ''} definition={t('All vehicles and tracked objects you have access to, with or without a tracker.')} />
         <KpiCard
           label={t('Online now')}
@@ -315,6 +319,22 @@ export function OverviewRefresh() {
           definition={t('All alerts raised since midnight (company time zone). Critical counts the alerts with Critical severity.')}
         />
         <KpiCard label={t('Fleet odometer')} value={d?.totalOdometerKm} unit="km" icon={SigmaIcon} sub={t('Tracked distance + offsets')} definition={t('Total distance tracked by VeeTrax for all vehicles, plus each vehicle’s odometer offset.')} />
+        <KpiCard
+          label={t('Batteries needing attention')}
+          value={health?.battery.action}
+          icon={BatteryWarningIcon}
+          sub={health ? t('{{count}} weak', { count: health.battery.weak }) : ''}
+          subTone={health && health.battery.action > 0 ? 'destructive' : 'muted'}
+          definition={t('Vehicle batteries rated Replace soon, Not charging or Overcharging from the last 14 days of tracker voltage (night resting and charging voltage).')}
+        />
+        <KpiCard
+          label={t('Idle cost this month')}
+          value={health?.idle.rupees}
+          unit="₹"
+          icon={FuelIcon}
+          sub={health ? t('{{l}} L fuel', { l: Math.round(health.idle.litres).toLocaleString('en-IN') }) : ''}
+          definition={t('Fuel burnt with the engine on and the vehicle standing since the 1st, priced from each vehicle’s latest fuel bill (else ₹100 / L).')}
+        />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -330,6 +350,8 @@ export function OverviewRefresh() {
       </div>
 
       {d?.io && <IoCards io={d.io} />}
+
+      <FleetHealthPanel />
 
       <div className="grid gap-4 md:grid-cols-2">
         {(['top', 'bottom'] as const).map((which) => (

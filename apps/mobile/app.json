@@ -2,7 +2,7 @@
   "expo": {
     "name": "VeeTrax",
     "slug": "veetracer",
-    "version": "0.8.9",
+    "version": "0.9.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "veetrax",
@@ -27,7 +27,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.sasvata.veetrax",
-      "versionCode": 89,
+      "versionCode": 90,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_EXTERNAL_STORAGE",
