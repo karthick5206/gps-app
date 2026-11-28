@@ -5,6 +5,7 @@ import {
   POSITIONS_REPORT_MAX_DAYS,
   REPORT_OPTION_KEYS,
   SINGLE_OBJECT_REPORT_TYPES,
+  TIMED_REPORT_TYPES,
   type ReportFormat,
   type ReportOptions,
   type ReportPeriod,
@@ -79,6 +80,8 @@ export function ReportsPage() {
   const zoneLabel = reportZoneLabel();
   const [scope, setScope] = useState<ReportScope>(() => (link?.objectIds.length ? { ...EMPTY_SCOPE, objectIds: link.objectIds } : EMPTY_SCOPE));
   const [[from, to], setDates] = useState<[string, string]>(() => (link?.from ? [link.from, link.to] : presetRange('last7', today)));
+  // Times of day for reports that list timed events (TIMED_REPORT_TYPES); 00:00 → 23:59 = whole days (not sent).
+  const [[fromTime, toTime], setTimes] = useState<[string, string]>(['00:00', '23:59']);
   const [period, setPeriod] = useState<ReportPeriod>('DAY');
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
   const [options, setOptions] = useState<ReportOptions>(() => (link?.alertTypes.length ? { alertTypes: link.alertTypes } : {}));
@@ -88,13 +91,21 @@ export function ReportsPage() {
 
   const usesPeriod = PERIOD_REPORT_TYPES.includes(type);
   const singleVehicle = SINGLE_OBJECT_REPORT_TYPES.includes(type);
+  const timed = TIMED_REPORT_TYPES.includes(type);
+  const withTimes = timed && (fromTime !== '00:00' || toTime !== '23:59');
+  const pickDates = (range: [string, string]) => {
+    setDates(range);
+    setTimes(['00:00', '23:59']);
+  };
   const typeOptions = optionsFor(type, options);
-  const request: ReportRequest = { type, scope, from, to, ...(usesPeriod ? { period } : {}), ...(typeOptions ? { options: typeOptions } : {}) };
+  const request: ReportRequest = { type, scope, from, to, ...(withTimes ? { fromTime, toTime } : {}), ...(usesPeriod ? { period } : {}), ...(typeOptions ? { options: typeOptions } : {}) };
   const rangeError =
     !from || !to
       ? t('Choose a start and end date')
       : from > to
         ? t('The end date must be on or after the start date')
+        : withTimes && from === to && toTime < fromTime
+          ? t('The end time must be after the start time')
         : singleVehicle && daySpan(from, to) > POSITIONS_REPORT_MAX_DAYS
           ? t('This report covers at most {{days}} days', { days: POSITIONS_REPORT_MAX_DAYS })
           : null;
@@ -196,14 +207,24 @@ export function ReportsPage() {
         <Card className="gap-0 p-0">
           <div className="space-y-4 p-4">
             <ScopePicker value={scope} onChange={setScope} knownObjects={link?.vehicleName && link.objectIds.length === 1 ? [{ value: link.objectIds[0], label: link.vehicleName }] : undefined} />
-            <DatePresets from={from} to={to} today={today} onChange={setDates} />
+            <DatePresets from={from} to={to} today={today} onChange={pickDates} />
             <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
               <Field label={t('From')} htmlFor="r-from">
                 <Input id="r-from" type="date" value={from} max={to || undefined} onChange={(e) => setDates([e.target.value, to])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
+              {timed && (
+                <Field label={t('From time')} htmlFor="r-from-time">
+                  <Input id="r-from-time" type="time" value={fromTime} onChange={(e) => e.target.value && setTimes([e.target.value, toTime])} className="sm:w-32" aria-invalid={!!rangeError} />
+                </Field>
+              )}
               <Field label={t('To')} htmlFor="r-to">
                 <Input id="r-to" type="date" value={to} min={from || undefined} max={today} onChange={(e) => setDates([from, e.target.value])} className="sm:w-40" aria-invalid={!!rangeError} />
               </Field>
+              {timed && (
+                <Field label={t('To time')} htmlFor="r-to-time">
+                  <Input id="r-to-time" type="time" value={toTime} onChange={(e) => e.target.value && setTimes([fromTime, e.target.value])} className="sm:w-32" aria-invalid={!!rangeError} />
+                </Field>
+              )}
               {usesPeriod && (
                 <Field label={t('Group by')} htmlFor="r-period" className="col-span-2 sm:w-44">
                   <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>

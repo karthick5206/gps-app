@@ -148,6 +148,16 @@ export const ON_TIME_TOLERANCE_SEC = 300;
 export const PERIOD_REPORT_TYPES: readonly ReportType[] = ['SUMMARY', 'DISTANCE', 'ENGINE_HOURS'];
 /** Report types limited to one vehicle (raw position data). */
 export const SINGLE_OBJECT_REPORT_TYPES: readonly ReportType[] = ['POSITIONS'];
+/**
+ * Report types that list timed events (trips, stops, alerts, positions…), so they may also take a time of day
+ * (`fromTime` / `toTime`). Reports built from whole days (summary, distance, engine hours, daily fuel / AC,
+ * attendance, documents, device status) ignore the times.
+ */
+export const TIMED_REPORT_TYPES: readonly ReportType[] = [
+  'TRIPS', 'STOPS', 'IDLE', 'HALT', 'ALERTS', 'OVERSPEED', 'IGNITION', 'CONTINUOUS_DRIVING', 'POSITIONS', 'EVENT_SUMMARY',
+  'GEOFENCE_SUMMARY', 'GEOFENCE_VISITS', 'GEOFENCE_DISTANCE', 'POI_VISITS', 'MILEAGE', 'AC_DOOR', 'FUEL_EVENTS', 'TRIP_SAFETY',
+  'DRIVERS', 'PLANNED_TRIPS', 'TRIP_PERFORMANCE',
+];
 /** Longest range for raw-position reports (days). */
 export const POSITIONS_REPORT_MAX_DAYS = 7;
 
@@ -194,6 +204,10 @@ export interface ReportRequest {
   scope: ReportScope;
   from: string; // YYYY-MM-DD (company timezone, inclusive)
   to: string; // YYYY-MM-DD inclusive
+  /** TIMED_REPORT_TYPES only: start time on the `from` day (HH:mm, company timezone; default 00:00). */
+  fromTime?: string;
+  /** TIMED_REPORT_TYPES only: end time on the `to` day, minute inclusive (HH:mm; default 23:59). */
+  toTime?: string;
   period?: ReportPeriod; // PERIOD_REPORT_TYPES only
   options?: ReportOptions;
 }
@@ -429,6 +443,8 @@ export interface PlannedTripReportRow {
 
 export interface ReportResponse<T = unknown> {
   type: ReportType; from: string; to: string; period?: ReportPeriod;
+  /** Times of day used for a timed report (absent = whole days). */
+  fromTime?: string; toTime?: string;
   /** TRIP_PERFORMANCE: the grouping the rows use. */
   groupBy?: TripPerformanceGroupBy;
   rows: T[];

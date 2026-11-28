@@ -51,6 +51,12 @@ export interface ReportSummary {
 export const alertLabel = (code: string) => ALERT_TYPE_MAP[code as AlertTypeCode]?.label ?? code;
 
 /** KPI block and charts for a report section (null insight for types without one). */
+/** "2026-11-28", "2026-11-27 to 2026-11-28", or with times "2026-11-28 11:00 to 12:30". */
+export function periodText(data: Pick<ReportData, 'from' | 'to' | 'fromTime' | 'toTime'>): string {
+  if (data.fromTime) return data.from === data.to ? `${data.from} ${data.fromTime} to ${data.toTime}` : `${data.from} ${data.fromTime} to ${data.to} ${data.toTime}`;
+  return data.from === data.to ? data.from : `${data.from} to ${data.to}`;
+}
+
 export function buildSummary(data: ReportData, filters: SummaryFilter[], logo: ReportLogo | null): ReportSummary {
   const insight = buildInsight({ type: data.type, rows: data.rows as Record<string, unknown>[], totals: data.totals, from: data.from, to: data.to, tz: data.tz, alertLabel });
   return { logo, filters, insight, partial: data.truncated, rowsUsed: data.rows.length, totalRows: data.totalRows };
@@ -295,7 +301,7 @@ export function pdfCover(data: ReportData, title: string, generated: string, s: 
     ? [s.logo.mime === 'image/svg+xml' ? { svg: s.logo.data.toString('utf8'), fit: [130, 48], width: 140 } : { image: `data:${s.logo.mime};base64,${s.logo.data.toString('base64')}`, fit: [130, 48], width: 140 }]
     : [];
   const meta: TableCell[][] = [
-    ['Period', data.from === data.to ? data.from : `${data.from} to ${data.to}`],
+    ['Period', periodText(data)],
     ['Time zone', `${zoneLine(data.tz)} · all times in this file use this zone`],
     ...s.filters.map((f) => [f.label, f.value]),
     ['Rows', rowsLine(data, s)],
@@ -395,7 +401,7 @@ export function addXlsxSummary(wb: ExcelJS.Workbook, data: ReportData, title: st
     r.getCell(1).font = { color: { argb: 'FF64748B' } };
     ws.mergeCells(r.number, 2, r.number, 6);
   };
-  fact('Period', data.from === data.to ? data.from : `${data.from} to ${data.to}`);
+  fact('Period', periodText(data));
   fact('Time zone', `${zoneLine(data.tz)} (all times in this workbook)`);
   for (const f of s.filters) fact(f.label, f.value);
   fact('Rows', rowsLine(data, s));

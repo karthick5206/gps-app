@@ -12,6 +12,7 @@ import { AlertTypeIcon } from '@/features/alerts/alert-icons';
 import { formatClock, formatKm, trackStatus } from '@/features/history/history-format';
 import { PlaybackAddress } from '@/features/history/PlaybackAddress';
 import { RouteTimeline } from '@/features/history/RouteTimeline';
+import { rememberVehicle } from '@/features/history/recent-vehicles';
 import { buildRuns, buildTrackIndex, coordsOf, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { TrackLegend, trackColorExpr, type ColorMode } from '@/features/history/TrackLegend';
 import { PlaybackEngine } from '@/features/history/playback-engine';
@@ -44,7 +45,8 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
 }
 
 export default function HistoryScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // playFrom / playTo (ISO): open with that trip playing (Today's trips on the map card).
+  const { id, playFrom, playTo } = useLocalSearchParams<{ id: string; playFrom?: string; playTo?: string }>();
   const c = useColors();
   const scheme = useScheme();
   const mapStyle = useMapStyle();
@@ -66,6 +68,10 @@ export default function HistoryScreen() {
   const range = useMemo(() => (preset === 'custom' ? (customRange ?? dayRange(custom.from, custom.to)) : presetRange(preset)), [preset, custom, customRange]);
   const multiDay = range.to.getTime() - range.from.getTime() > 86_400_000;
   const camera = useRef<CameraRef>(null);
+  // The History tab lists recently replayed vehicles first.
+  useEffect(() => {
+    if (id) void rememberVehicle(id);
+  }, [id]);
   const { iconScale } = useDisplay();
 
   const history = useQuery({
@@ -78,6 +84,14 @@ export default function HistoryScreen() {
   const index = useMemo(() => (h && h.points.length ? buildTrackIndex(h.points) : null), [h]);
   const engine = useMemo(() => (index ? new PlaybackEngine(index) : null), [index]);
   useEffect(() => () => engine?.destroy(), [engine]);
+  const autoPlayed = useRef(false);
+  useEffect(() => {
+    if (!engine || !index || autoPlayed.current || !playFrom) return;
+    autoPlayed.current = true;
+    const start = Date.parse(playFrom);
+    const end = playTo ? Date.parse(playTo) : undefined;
+    if (Number.isFinite(start)) engine.seek(Math.max(index.start, start), { play: true, ...(end && Number.isFinite(end) ? { until: end } : {}) });
+  }, [engine, index, playFrom, playTo]);
 
   const noop = () => () => {};
   const state = useSyncExternalStore(engine?.subscribe ?? noop, engine?.getState ?? (() => null));

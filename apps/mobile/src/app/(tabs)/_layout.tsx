@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAlarmAlert, type AlertDto, type AlertUnreadCount } from '@veetracer/shared';
 import { Tabs } from 'expo-router';
-import { BellIcon, LayoutDashboardIcon, ListIcon, MapIcon, MenuIcon, type LucideIcon } from 'lucide-react-native';
+import { BellIcon, HistoryIcon, ListIcon, MapIcon, MenuIcon, type LucideIcon } from 'lucide-react-native';
 import { useEffect } from 'react';
 import { View, type ColorValue, AppState } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -98,7 +98,9 @@ export default function TabsLayout() {
             tabBarIcon: tabIcon(BellIcon, c),
           }}
         />
-        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: can('dashboard') ? undefined : null, tabBarIcon: tabIcon(LayoutDashboardIcon, c) }} />
+        {/* History is used daily on the phone; Dashboard opens from More (still a route here, without a tab button). */}
+        <Tabs.Screen name="history" options={{ title: t('History'), href: can('history') ? undefined : null, tabBarIcon: tabIcon(HistoryIcon, c) }} />
+        <Tabs.Screen name="dashboard" options={{ title: t('Dashboard'), href: null }} />
         <Tabs.Screen name="more" options={{ title: t('More'), tabBarIcon: tabIcon(MenuIcon, c) }} />
       </Tabs>
       <SosIntroNotice />
