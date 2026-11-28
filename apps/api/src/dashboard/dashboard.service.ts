@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   ConsolidatedReportRow,
   DashboardCompare,
+  DashboardFleetHealth,
+  BatteryHealthReportRow,
+  IdleCostReportRow,
   DashboardHealth,
   DashboardIoSummary,
   DashboardOverview,
@@ -18,7 +21,10 @@ import { LiveService } from '../live/live.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportDataService } from '../reports/report-data.service';
 import { deviceStatusReport, QueryCtx } from '../reports/report-queries';
-import { localDayKey, localMidnight } from '../summarizer/tz';
+import { addDays, localDayKey, localMidnight } from '../summarizer/tz';
+
+/** Fleet health is heavy (raw voltage points of every vehicle for 14 days): kept per company and scope for 30 min. */
+const FLEET_HEALTH_TTL_MS = 30 * 60_000;
 
 const EMPTY_SCOPE = { branchIds: [], groupIds: [], objectIds: [] };
 /** Only a packet received this recently says anything about the device clock today. */
@@ -33,6 +39,55 @@ export class DashboardService {
     private readonly reports: ReportDataService,
     private readonly audit: AuditService,
   ) {}
+
+  private readonly fleetHealthCache = new Map<string, { at: number; value: Promise<DashboardFleetHealth> }>();
+
+  /** Batteries needing attention (last 14 days) and idle cost this month, for the dashboard tiles and panel. */
+  async fleetHealth(ctx: AuthContext): Promise<DashboardFleetHealth> {
+    const key = [ctx.companyId, ctx.dataScope, [...(ctx.branchIds ?? [])].sort().join(','), [...(ctx.objectIds ?? [])].sort().join(',')].join('|');
+    const hit = this.fleetHealthCache.get(key);
+    if (hit && Date.now() - hit.at < FLEET_HEALTH_TTL_MS) return hit.value;
+    const value = this.computeFleetHealth(ctx);
+    this.fleetHealthCache.set(key, { at: Date.now(), value });
+    value.catch(() => this.fleetHealthCache.delete(key));
+    if (this.fleetHealthCache.size > 500) this.fleetHealthCache.delete(this.fleetHealthCache.keys().next().value!);
+    return value;
+  }
+
+  private async computeFleetHealth(ctx: AuthContext): Promise<DashboardFleetHealth> {
+    const { day } = await this.today(ctx.companyId);
+    const batteryFrom = addDays(day, -13);
+    const monthFrom = `${day.slice(0, 8)}01`;
+    const [bat, idle] = await Promise.all([
+      this.reports.generate(ctx, { type: 'BATTERY_HEALTH', scope: EMPTY_SCOPE, from: batteryFrom, to: day }, 100_000),
+      this.reports.generate(ctx, { type: 'IDLE_COST', scope: EMPTY_SCOPE, from: monthFrom, to: day, period: 'MONTH' }, 100_000),
+    ]);
+    const b = bat.rows as BatteryHealthReportRow[];
+    const t = bat.totals as Record<string, number>;
+    const idleRows = (idle.rows as IdleCostReportRow[]).filter((r) => r.rupees > 0).sort((x, y) => y.rupees - x.rupees);
+    const it = idle.totals as Record<string, number>;
+    return {
+      generatedAt: new Date().toISOString(),
+      batteryFrom,
+      batteryTo: day,
+      monthFrom,
+      monthTo: day,
+      battery: {
+        vehicles: t.vehicles ?? b.length,
+        action: (t.replace ?? 0) + (t.notCharging ?? 0) + (t.overcharging ?? 0),
+        weak: t.weak ?? 0,
+        good: t.good ?? 0,
+        noData: t.noData ?? 0,
+        list: b.filter((r) => r.status !== 'GOOD' && r.status !== 'NO_DATA').slice(0, 8),
+      },
+      idle: {
+        rupees: it.rupees ?? 0,
+        litres: it.litres ?? 0,
+        idleSec: it.idleSec ?? 0,
+        top: idleRows.slice(0, 5).map((r) => ({ objectId: r.objectId, objectName: r.objectName, plateNumber: r.plateNumber, idleSec: r.idleSec, litres: r.litres, rupees: r.rupees })),
+      },
+    };
+  }
 
   private async today(companyId: string): Promise<{ tz: string; day: string; start: Date }> {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { timezone: true } });
