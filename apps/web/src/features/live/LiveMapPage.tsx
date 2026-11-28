@@ -135,6 +135,15 @@ export function LiveMapPage() {
     },
     [pick],
   );
+  // ?objectId= changing while the map is already open (Ask VeeTrax answer clicked on this page): select it too.
+  const objectIdParam = params.get('objectId');
+  const firstObjectParam = useRef(objectIdParam);
+  useEffect(() => {
+    if (!objectIdParam || objectIdParam === firstObjectParam.current) return;
+    firstObjectParam.current = objectIdParam;
+    focusFromLink(objectIdParam);
+    controller?.zoomTo(objectIdParam);
+  }, [objectIdParam, focusFromLink, controller]);
   useEffect(() => controller?.setSelected(activeId), [controller, activeId]);
   useEffect(() => controller?.follow(following ? activeId : null), [controller, following, activeId]);
 

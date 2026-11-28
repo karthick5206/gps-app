@@ -5296,4 +5296,11 @@ export const HI: Record<string, string> = {
   'Vehicles not archivable': 'संग्रह न हो सकने वाले वाहन',
   '{{n}} overdue': '{{n}} अतिदेय',
   'Waiting for the summarizer, never summarised, or with failed days; their points stay in the database': 'सारांशकर्ता की प्रतीक्षा में, कभी सारांशित नहीं, या विफल दिनों वाले; उनके पॉइंट डेटाबेस में रहते हैं',
+  // VeeTrax 0.8.5–0.8.8 (review)
+  'Recently viewed': 'हाल ही में देखे गए',
+  'Try another search.': 'कोई और खोज आज़माएँ।',
+  'Route with times': 'समय के साथ रास्ता',
+  'Hide route': 'रास्ता छिपाएँ',
+  'Play trip {{n}}': 'यात्रा {{n}} चलाएँ',
+  'Share': 'साझा करें',
 };

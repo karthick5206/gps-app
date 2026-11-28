@@ -5296,4 +5296,11 @@ export const TA: Record<string, string> = {
   'Vehicles not archivable': 'காப்பகப்படுத்த முடியாத வாகனங்கள்',
   '{{n}} overdue': '{{n}} காலம் கடந்தவை',
   'Waiting for the summarizer, never summarised, or with failed days; their points stay in the database': 'சுருக்கியின் காத்திருப்பில், சுருக்கப்படாதவை அல்லது தோல்வியடைந்த நாட்கள் உள்ளவை; அவற்றின் புள்ளிகள் தரவுத்தளத்தில் இருக்கும்',
+  // VeeTrax 0.8.5–0.8.8 (review)
+  'Recently viewed': 'சமீபத்தில் பார்த்தவை',
+  'Try another search.': 'வேறு தேடலை முயற்சிக்கவும்.',
+  'Route with times': 'நேரங்களுடன் வழி',
+  'Hide route': 'வழியை மறை',
+  'Play trip {{n}}': 'பயணம் {{n}} இயக்கு',
+  'Share': 'பகிர்',
 };
