@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { BATTERY_STATUS_META, type BatteryHealthReportRow, type IdleCostReportRow, type LiveObject, type ReportResponse } from '@veetracer/shared';
+import { BATTERY_STATUS_META, batteryReasons, type BatteryHealthReportRow, type IdleCostReportRow, type LiveObject, type ReportResponse } from '@veetracer/shared';
 import { useTranslation } from 'react-i18next';
 import { View } from 'react-native';
 import { InfoRow, Text } from '@/components/ui';
@@ -54,7 +54,7 @@ export function VehicleHealthRows({ o }: { o: LiveObject }) {
               </Text>
               {b.status !== 'GOOD' && (
                 <Text size="xs" tone="muted" style={{ textAlign: 'right' }}>
-                  {t(meta.advice)}
+                  {batteryReasons(b, (k, v) => t(k, v)).join('\n')}
                 </Text>
               )}
             </View>

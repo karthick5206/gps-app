@@ -45,6 +45,10 @@ export interface BatteryVerdict {
   trendV: number | null;
   /** Days with resting readings. */
   days: number;
+  /** Day (YYYY-MM-DD) of the lowest resting voltage. */
+  lowestRestDay?: string | null;
+  /** Days with driving (charging) readings. */
+  chargeDays?: number;
 }
 
 /** Thresholds for a 12 V system; 24 V systems use twice these. */
@@ -90,6 +94,7 @@ export function batteryVerdict(days: BatteryDay[]): BatteryVerdict {
   const chargeV = median(charge);
   const trendV = rest.length >= 6 ? (median(rest.slice(-3)) ?? 0) - (median(rest.slice(0, 3)) ?? 0) : null;
   const lowestRestV = rest.length ? Math.min(...rest) : null;
+  const lowestRestDay = lowestRestV === null ? null : (sorted.find((d) => d.restV === lowestRestV)?.day ?? null);
   let status: BatteryStatus;
   if (chargeV !== null && chargeV > L.chargeMax * k) status = 'OVERCHARGING';
   else if (chargeV !== null && chargeV < L.chargeMin * k) status = 'NOT_CHARGING';
@@ -97,7 +102,58 @@ export function batteryVerdict(days: BatteryDay[]): BatteryVerdict {
   else if (restV < L.restReplace * k) status = 'REPLACE';
   else if (restV < L.restGood * k || (trendV !== null && trendV <= -L.fallingBy * k)) status = 'WEAK';
   else status = 'GOOD';
-  return { status, systemV, restV: round2(restV), chargeV: round2(chargeV), lowestRestV: round2(lowestRestV), trendV: round2(trendV), days: rest.length };
+  return { status, systemV, restV: round2(restV), chargeV: round2(chargeV), lowestRestV: round2(lowestRestV), trendV: round2(trendV), days: rest.length, lowestRestDay, chargeDays: charge.length };
+}
+
+/** Translator for `batteryReasons` (i18next `t` on the apps; English on the server). */
+export type ReasonT = (key: string, vars?: Record<string, string | number>) => string;
+const englishT: ReasonT = (key, vars) => key.replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(vars?.[k] ?? ''));
+
+/**
+ * "What to do" with the actual readings: one sentence each for the resting voltage (with the healthy / weak / replace
+ * limits for this 12 / 24 V system), the lowest night, the change over the period, the charging voltage and the action.
+ */
+export function batteryReasons(
+  v: Pick<BatteryVerdict, 'status' | 'systemV' | 'restV' | 'lowestRestV' | 'chargeV' | 'trendV' | 'days' | 'lowestRestDay' | 'chargeDays'>,
+  t: ReasonT = englishT,
+): string[] {
+  if (v.status === 'NO_DATA' || v.systemV === null) return [t(BATTERY_STATUS_META.NO_DATA.advice)];
+  const k = v.systemV / 12;
+  const L = BATTERY_LIMITS_12V;
+  const f = (x: number) => (Math.round(x * 100) / 100).toFixed(2);
+  const good = f(L.restGood * k);
+  const repl = f(L.restReplace * k);
+  const out: string[] = [];
+  out.push(t('{{sys}} V electrical system.', { sys: v.systemV }));
+  if (v.restV !== null) {
+    const state = v.restV >= L.restGood * k ? t('healthy') : v.restV >= L.restReplace * k ? t('weak') : t('too low');
+    out.push(t('Overnight resting voltage {{v}} V ({{state}}; healthy is {{good}} V or more, below {{repl}} V needs replacing), median of the last 3 nights out of {{days}}.', { v: f(v.restV), state, good, repl, days: v.days }));
+  } else {
+    out.push(t('No overnight engine-off readings in the period (the vehicle was running or the tracker was off at night).'));
+  }
+  if (v.lowestRestV !== null && v.lowestRestDay) out.push(t('Lowest night: {{v}} V on {{day}}.', { v: f(v.lowestRestV), day: v.lowestRestDay }));
+  if (v.trendV !== null) {
+    out.push(
+      v.trendV <= -L.fallingBy * k
+        ? t('Resting voltage fell by {{d}} V over the period (a fall of {{lim}} V or more means the battery is losing capacity).', { d: f(Math.abs(v.trendV)), lim: f(L.fallingBy * k) })
+        : t('Resting voltage changed by {{d}} V over the period (steady).', { d: (v.trendV > 0 ? '+' : '') + f(v.trendV) }),
+    );
+  }
+  if (v.chargeV !== null) {
+    const state = v.chargeV > L.chargeMax * k ? t('too high') : v.chargeV < L.chargeMin * k ? t('too low') : t('normal');
+    out.push(t('Charging voltage while driving {{v}} V ({{state}}; it should be {{min}}–{{max}} V), median of {{days}} days.', { v: f(v.chargeV), state, min: f(L.chargeMin * k), max: f(L.chargeMax * k), days: v.chargeDays ?? 0 }));
+  } else {
+    out.push(t('No driving readings in the period, so charging could not be checked.'));
+  }
+  const action: Record<Exclude<BatteryStatus, 'NO_DATA'>, string> = {
+    GOOD: 'No action needed.',
+    WEAK: 'Action: have the battery load-tested at the next service; clean the terminals and check for anything draining it when parked (lights, music system, extra devices).',
+    REPLACE: 'Action: load-test the battery now and replace it if it fails. If the battery is new, look for a drain when parked or a loose / corroded terminal.',
+    NOT_CHARGING: 'Action: check the alternator output, the fan belt and the battery terminals; the battery is not being recharged while driving and will go flat.',
+    OVERCHARGING: 'Action: check the voltage regulator / alternator soon; too high a voltage boils the battery and can damage electronics.',
+  };
+  out.push(t(action[v.status]));
+  return out;
 }
 
 /** Typical fuel burnt idling (litres per hour) by vehicle type; a report option can override it for all vehicles. */
@@ -127,6 +183,8 @@ export interface BatteryHealthReportRow {
   objectId: string; objectName: string; plateNumber: string | null; branchName: string | null;
   status: BatteryStatus; systemV: 12 | 24 | null;
   restV: number | null; lowestRestV: number | null; chargeV: number | null; trendV: number | null; days: number;
+  lowestRestDay: string | null; chargeDays: number;
+  /** English "What to do" with the actual readings (batteryReasons); the apps rebuild it in the user's language. */
   advice: string;
 }
 

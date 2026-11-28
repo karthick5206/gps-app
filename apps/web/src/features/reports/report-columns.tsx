@@ -1,6 +1,8 @@
 import {
   ALERT_TYPE_MAP,
   BATTERY_STATUS_META,
+  batteryReasons,
+  type BatteryHealthReportRow,
   type BatteryStatus,
   type AlertDto,
   type GeofenceVisitDto,
@@ -429,7 +431,20 @@ const BATTERY_HEALTH: ReportColumn[] = [
   optNum('lowestRestV', 'Lowest resting (V)', 2),
   optNum('chargeV', 'Charging (V)', 2),
   optNum('trendV', 'Change (V)', 2),
-  { id: 'advice', header: 'What to do', value: str('advice'), render: (r) => <span className="block max-w-96 text-sm">{i18n.t(r.advice as string)}</span> },
+  {
+    id: 'advice',
+    header: 'What to do',
+    value: str('advice'),
+    render: (r) => (
+      <ul className="block max-w-[32rem] list-disc space-y-0.5 ps-4 text-sm whitespace-normal">
+        {batteryReasons(r as unknown as BatteryHealthReportRow, (k: string, v?: Record<string, string | number>) => i18n.t(k, v)).map((line, i, all) => (
+          <li key={i} className={i === all.length - 1 ? 'font-medium' : undefined}>
+            {line}
+          </li>
+        ))}
+      </ul>
+    ),
+  },
 ];
 
 const STATE_BADGE = (on: boolean | null) =>

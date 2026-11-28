@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { BATTERY_STATUS_META, type DashboardFleetHealth } from '@veetracer/shared';
+import { BATTERY_STATUS_META, batteryReasons, type DashboardFleetHealth } from '@veetracer/shared';
 import { BatteryWarningIcon, FuelIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -77,7 +77,7 @@ export function FleetHealthPanel({ className }: { className?: string }) {
                     </>
                   );
                   return (
-                    <li key={r.objectId} title={t(m.advice)}>
+                    <li key={r.objectId} title={batteryReasons(r, (k, v) => t(k, v)).join('\n')}>
                       {canReports ? (
                         <Link to={reportLink('BATTERY_HEALTH', d.batteryFrom, d.batteryTo, r.objectId, r.objectName)} className="flex items-center gap-2 px-3 py-2 hover:bg-accent">
                           {row}
