@@ -75,6 +75,19 @@ export function dayRange(fromYmd: string, toYmd: string): TimeRange {
   return { from: startOfDay(new Date(fy, fm - 1, fd)), to: endOfDay(new Date(ty, tm - 1, td)) };
 }
 
+/**
+ * Custom range with times of day: `fromMin` / `toMin` are minutes after midnight (0–1439). The end minute is
+ * inclusive (23:59 → 23:59:59.999). Returns null when the end is not after the start.
+ */
+export function dayTimeRange(fromYmd: string, fromMin: number, toYmd: string, toMin: number): TimeRange | null {
+  const base = dayRange(fromYmd, toYmd);
+  const from = new Date(base.from);
+  from.setHours(Math.floor(fromMin / 60), fromMin % 60, 0, 0);
+  const to = startOfDay(base.to);
+  to.setHours(Math.floor(toMin / 60), toMin % 60, 59, 999);
+  return to.getTime() > from.getTime() ? { from, to } : null;
+}
+
 /** Which preset a range corresponds to (minute precision), else 'custom'. */
 export function detectPreset(range: TimeRange, now: Date = new Date()): RangePreset {
   const same = (a: Date, b: Date) => Math.abs(a.getTime() - b.getTime()) < 60_000;

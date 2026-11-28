@@ -14,8 +14,8 @@ import { PlaybackAddress } from '@/features/history/PlaybackAddress';
 import { buildRuns, buildTrackIndex, coordsOf, PLAYBACK_RATES, type PlaybackRate, type Sample } from '@/features/history/playback-core';
 import { TrackLegend, trackColorExpr, type ColorMode } from '@/features/history/TrackLegend';
 import { PlaybackEngine } from '@/features/history/playback-engine';
-import { clampDayRange, dayRange, MOBILE_CUSTOM_MAX_DAYS, presetRange, type RangePreset } from '@/features/history/time-range';
-import { DateField, toYmd } from '@/components/pickers';
+import { clampDayRange, dayRange, dayTimeRange, MOBILE_CUSTOM_MAX_DAYS, presetRange, type RangePreset } from '@/features/history/time-range';
+import { DateField, TimeField, toYmd } from '@/components/pickers';
 import { useDisplay } from '@/features/display/display';
 import { liveStore } from '@/features/live/live-store';
 import { useStepTick } from '@/features/map/FleetMap';
@@ -53,11 +53,14 @@ export default function HistoryScreen() {
   const [tab, setTab] = useState<Tab>('trips');
   const [colorMode, setColorMode] = useState<ColorMode>('status');
   // Custom: any days, at most MOBILE_CUSTOM_MAX_DAYS (the other end follows when the span would be longer).
+  // Times of day (minutes after midnight); 00:00 → 23:59 is the whole of the chosen days.
   const [custom, setCustom] = useState(() => {
     const today = toYmd(new Date());
-    return { from: today, to: today };
+    return { from: today, to: today, fromMin: 0, toMin: 1439 };
   });
-  const range = useMemo(() => (preset === 'custom' ? dayRange(custom.from, custom.to) : presetRange(preset)), [preset, custom]);
+  const customRange = useMemo(() => dayTimeRange(custom.from, custom.fromMin, custom.to, custom.toMin), [custom]);
+  const badCustom = preset === 'custom' && !customRange;
+  const range = useMemo(() => (preset === 'custom' ? (customRange ?? dayRange(custom.from, custom.to)) : presetRange(preset)), [preset, custom, customRange]);
   const multiDay = range.to.getTime() - range.from.getTime() > 86_400_000;
   const camera = useRef<CameraRef>(null);
   const { iconScale } = useDisplay();
@@ -65,6 +68,7 @@ export default function HistoryScreen() {
   const history = useQuery({
     queryKey: ['history', id, range.from.toISOString(), range.to.toISOString()],
     queryFn: ({ signal }) => api.get<HistoryResponse>(`/objects/${id}/history`, { from: range.from.toISOString(), to: range.to.toISOString() }, signal),
+    enabled: !badCustom,
   });
   const h = history.data;
 
@@ -153,13 +157,17 @@ export default function HistoryScreen() {
         />
         {preset === 'custom' && (
           <View style={{ gap: SPACE.xs, marginTop: SPACE.sm }}>
-            {/* DateField stretches with flex: 1, so it must sit directly in a row (inside a column it collapses to 0 height). */}
+            {/* DateField / TimeField stretch with flex: 1, so they must sit directly in a row (inside a column they collapse to 0 height). */}
             <View style={{ flexDirection: 'row', gap: SPACE.md }}>
-              <DateField label={t('From')} value={custom.from} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(v, r.to, 'from'))} />
-              <DateField label={t('To')} value={custom.to} maximumDate={new Date()} onChange={(v) => setCustom((r) => clampDayRange(r.from, v, 'to'))} />
+              <DateField label={t('From')} value={custom.from} maximumDate={new Date()} onChange={(v) => setCustom((r) => ({ ...r, ...clampDayRange(v, r.to, 'from') }))} />
+              <TimeField label={t('Time')} value={custom.fromMin} onChange={(m) => setCustom((r) => ({ ...r, fromMin: m }))} />
             </View>
-            <Text size="xs" tone="muted">
-              {t('Any days, up to {{n}} at a time.', { n: MOBILE_CUSTOM_MAX_DAYS })}
+            <View style={{ flexDirection: 'row', gap: SPACE.md }}>
+              <DateField label={t('To')} value={custom.to} maximumDate={new Date()} onChange={(v) => setCustom((r) => ({ ...r, ...clampDayRange(r.from, v, 'to') }))} />
+              <TimeField label={t('Time')} value={custom.toMin} onChange={(m) => setCustom((r) => ({ ...r, toMin: m }))} />
+            </View>
+            <Text size="xs" tone={badCustom ? 'destructive' : 'muted'}>
+              {badCustom ? t('End must be after start') : t('Any days, up to {{n}} at a time.', { n: MOBILE_CUSTOM_MAX_DAYS })}
             </Text>
           </View>
         )}
@@ -293,7 +301,7 @@ export default function HistoryScreen() {
                       {s.ignitionOn ? t('Idle stop') : t('Parked')} · {formatDuration(s.durationSec)}
                     </Text>
                     <Text size="sm" tone="muted">
-                      {formatClock(Date.parse(s.startTime), preset === 'last7', false)}
+                      {formatClock(Date.parse(s.startTime), multiDay, false)}
                     </Text>
                   </View>
                   {s.address && (
@@ -317,7 +325,7 @@ export default function HistoryScreen() {
                       <View style={{ flex: 1 }}>
                         <Text weight="600">{t(ALERT_TYPE_MAP[a.type]?.label ?? a.type)}</Text>
                         <Text size="xs" tone="muted" numberOfLines={1}>
-                          {formatClock(Date.parse(a.occurredAt), preset === 'last7', false)} · {a.message}
+                          {formatClock(Date.parse(a.occurredAt), multiDay, false)} · {a.message}
                         </Text>
                       </View>
                     </View>
