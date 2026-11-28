@@ -386,7 +386,7 @@ const ENGINE_HOURS: ReportColumn[] = [
   kmCol(),
 ];
 
-const rupees = (v: number) => `₹${Math.round(v).toLocaleString('en-IN')}`;
+const wholeRupees = (v: number) => `₹${Math.round(v).toLocaleString('en-IN')}`;
 const IDLE_COST: ReportColumn[] = [
   vehicle,
   plate,
@@ -407,7 +407,7 @@ const IDLE_COST: ReportColumn[] = [
       </span>
     ),
   },
-  { id: 'rupees', header: 'Cost', value: num('rupees'), numeric: true, total: 'sum', format: rupees, className: 'font-semibold' },
+  { id: 'rupees', header: 'Cost', value: num('rupees'), numeric: true, total: 'sum', format: wholeRupees, className: 'font-semibold' },
 ];
 
 const BATTERY_VARIANT = { ok: 'success', warn: 'warning', bad: 'destructive', muted: 'muted' } as const;
